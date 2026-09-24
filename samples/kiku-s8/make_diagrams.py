@@ -159,9 +159,7 @@ def diagram3():
     Sst = C.point(s0 + 20, ph0 - 0.55)
     L.append(f'<polyline points="{poly(C.slerp(Sst, X0, 30), cx, cy)}" stroke="#555" stroke-width="2.5" fill="none" stroke-dasharray="6,4"/>')
     xs, ys = proj(Sst, cx, cy)
-    L.append(f'<line x1="{xs:.0f}" y1="{ys:.0f}" x2="{xs+40:.0f}" y2="{ys+150:.0f}" stroke="#555" stroke-width="0.8"/>')
-    L.append(f'<text x="{xs+44:.0f}" y="{ys+160:.0f}" font-size="11.5">серый пунктир: скрытый старт 3–4 см туда-обратно</text>')
-    L.append(f'<text x="{xs+44:.0f}" y="{ys+174:.0f}" font-size="11.5">в обмотке (TK-ANCHOR; направление — схема)</text>')
+    L.append(f'<text x="20" y="{H-62}" font-size="12">Серый пунктир у L0: скрытый старт 3–4 см туда-обратно в обмотке (TK-ANCHOR; направление на схеме условное).</text>')
     u = 0.0; cur = X0
     for st, a, b in zip(seq, arms, bites):
         pts = C.slerp(cur, st['E'], 60)
@@ -203,13 +201,13 @@ def diagram3():
 def diagram4():
     W, H = 1200, 870
     L = header(W, H, 'Схема 4. Наращивание рядов 1…N набора A (сектор L0–L2): смещение верхних и нижних точек',
-               'Проекция как на схеме 1, увеличено (8 px/мм), повёрнуто. Слева — правило «geom» (Δниза = w/sin α), справа — постоянный шаг 2 мм (TK-UWA). Числа из calc.py.')
-    sc = 8.0
+               'Проекция как на схеме 1, увеличено (7 px/мм), повёрнуто. Слева — правило «geom» (Δниза = w/sin α), справа — постоянный шаг 2 мм (TK-UWA). Числа из calc.py.')
+    sc = 7.0
     def panel(ox, oy, rule, title):
         P = []
         rows = C.rows_geometry(rule)
         rot = math.radians(90 - 45)   # линия L1 вертикально вверх
-        P.append(f'<text x="{ox-240}" y="{oy-470}" font-size="15" font-weight="bold">{title}</text>')
+        P.append(f'<text x="{ox-250}" y="78" font-size="15" font-weight="bold">{title}</text>')
         for k in (0, 1, 2):
             a = C.PHI[k] + rot
             P.append(f'<line x1="{ox}" y1="{oy}" x2="{ox+sc*62*math.cos(a):.1f}" y2="{oy-sc*62*math.sin(a):.1f}" stroke="{GOLD}" stroke-width="1.6"/>')
@@ -231,8 +229,8 @@ def diagram4():
         P.append(f'<text x="{ox-240}" y="{oy+40}" font-size="12">N = {n} рядов до экватора; верх: {rows[0]["s_top"]:.1f} → {last["s_top"]:.1f} мм;</text>')
         P.append(f'<text x="{ox-240}" y="{oy+56}" font-size="12">низ: {rows[0]["s_bot"]:.1f} → {last["s_bot"]:.1f} мм; угол кончика {rows[0]["tip_angle"]:.0f}° → {last["tip_angle"]:.0f}°.</text>')
         return P
-    L += panel(300, 610, 'geom', 'а) «geom»: ряды параллельны на расстоянии w у кончика')
-    L += panel(900, 610, 'fixed', 'б) шаг низа 2 мм: по модели у кончика расстояние &lt; w')
+    L += panel(290, 600, 'geom', 'а) «geom»: ряды параллельны на расстоянии w у кончика')
+    L += panel(890, 600, 'fixed', 'б) шаг низа 2 мм: по модели у кончика расстояние &lt; w')
     L.append(f'<text x="20" y="{H-50}" font-size="12">Толщина линий ≈ w = {C.w} мм в масштабе. Цвет — номер ряда (фиолетовый = 1). Ряды набора B (повёрнуты на 45°) не показаны.</text>')
     L.append(f'<text x="20" y="{H-32}" font-size="12">Панель б) показывает противоречие модели «геодезическое плечо» с эмпирическим шагом 2 мм: реальная нить отклоняется от геодезической в пределах трения (geometry.md §7).</text>')
     L.append('</svg>')
