@@ -54,11 +54,11 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const base = { C_mm: 240, topMode: 'fracQ', sTopFrac: 5 / 60 };
   const A1 = computeAll(recipe, { ...base });
   const A2 = computeAll(recipe, { ...base, C_mm: 240 * k, w_mm: 0.714 * k, m_mm: 1.0 * k, startRun_mm: 35 * k });
-  const r1 = A1.path.uEnd, r2 = A2.path.uEnd;
-  console.log(`  подобие ×1,25 всех длин: u_end ${fmt(r1)} → ${fmt(r2)}, отношение ${fmt(r2 / r1, 12)}`);
-  check(Math.abs(r2 / r1 - k) < 1e-9, 'при подобии всех входов длина растёт ровно в k раз');
-  const V2 = runValidators(A2, '2b', ref);
-  check(summary(V2).fail === 0, 'подобный набор проходит все валидаторы');
+  const r1 = A1.path.threads.A.uEnd, r2 = A2.path.threads.A.uEnd, b1 = A1.path.threads.B.uEnd, b2 = A2.path.threads.B.uEnd;
+  console.log(`  подобие ×1,25 всех длин: нить A (A1+A2) ${fmt(r1)} → ${fmt(r2)}, отношение ${fmt(r2 / r1, 12)}; нить B ${fmt(b2 / b1, 12)}`);
+  check(Math.abs(r2 / r1 - k) < 1e-9 && Math.abs(b2 / b1 - k) < 1e-9, 'при подобии всех входов длины обеих нитей (вкл. выведенный ряд 2) растут ровно в k раз');
+  const V2 = runValidators(A2, 'A2', ref);
+  check(summary(V2).fail === 0, 'подобный набор проходит все валидаторы (до A2)');
 }
 
 // 2c. Недопустимый дизайн ловится валидатором: S16 с верхом в 5 мм — замыкающий захват задевает соседнюю линию
@@ -125,22 +125,58 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const R = A.base.R, w = A.params.w_mm, D = 7.2 * R, c = mul(unit([0.55, -0.95, 0.9]), D);
   const ang = (v) => { const a = sub(v, c), b = mul(c, -1); return Math.acos(dot(a, b) / norm(a) / norm(b)); };
   const sil = Math.asin(R / D), fpx = 500 * 1.15 / Math.tan(14 * Math.PI / 180);
-  let crossing = 0, worstPx = -Infinity;
-  for (const dg of displayGeometry(A, null)) {
+  let crossing = 0, worstPx = -Infinity, liftMax = 0;
+  const idsA1 = new Set(A.path.segs.filter((x) => x.round === 'A1').map((x) => x.id));
+  for (const dg of displayGeometry(A, idsA1)) {
     if (dg.hidden) continue;
+    liftMax = Math.max(liftMax, dg.liftMax || 0);
     const front = dg.seg.pts.map((p) => dot(p, c) > R * R);
     if (front.some((x, k) => k > 0 && x !== front[k - 1])) crossing++;
     for (const v of tubeMesh(dg.pts, dg.radius).pos) worstPx = Math.max(worstPx, (Math.tan(ang(v)) - Math.tan(sil)) * fpx);
   }
-  const wPx = (w / D) * fpx * 1.05;   // проекция толщины трубки у лимба (+5 % на перспективу)
-  console.log(`  вид «Косо»: плеч, пересекающих лимб шара: ${crossing}; трубка выходит за силуэт максимум на ${worstPx.toFixed(2)} px (толщина трубки ≈ ${(w / D * fpx).toFixed(2)} px)`);
-  check(crossing > 0 && worstPx <= wPx, '«крючки» у полюса — плечи, уходящие за лимб (видны сквозь прозрачный шар); за силуэт выходит только толщина трубки');
+  const wPx = ((w + liftMax) / D) * fpx * 1.05;   // проекция толщины трубки + условного подъёма стопки [изображение, D28] у лимба (+5 % на перспективу)
+  console.log(`  вид «Косо»: плеч, пересекающих лимб шара: ${crossing}; трубка выходит за силуэт максимум на ${worstPx.toFixed(2)} px (толщина трубки ≈ ${(w / D * fpx).toFixed(2)} px, условный подъём стопки ≤ ${liftMax.toFixed(3)} мм ≈ ${(liftMax / D * fpx).toFixed(2)} px)`);
+  check(crossing > 0 && worstPx <= wPx, '«крючки» у полюса — плечи, уходящие за лимб (видны сквозь прозрачный шар); за силуэт выходит только толщина трубки и условный подъём стопки');
   // скрытый старт: схема у поверхности не проходит сквозь шар; режим «хорда» совпадает с моделью
   const surf = displayGeometry(A, null, { hidMode: 'surf' }).filter((d) => d.seg.type === 'hidden-start');
   const chord = displayGeometry(A, null, { hidMode: 'chord' }).filter((d) => d.seg.type === 'hidden-start');
   const depth = (ds) => Math.max(...ds.flatMap((d) => d.pts.map((p) => R - norm(p))));
   check(surf.every((d) => d.schematic) && depth(surf) <= w + 1e-9, `скрытый старт по умолчанию — схема на ≤ w = ${w} мм под поверхностью (глубина ${depth(surf).toFixed(3)})`);
   check(chord.every((d) => !d.schematic) && Math.abs(depth(chord) - v14.numbers.hidDepth) < 1e-2, `режим «хорда»: глубина ${depth(chord).toFixed(2)} мм = модель`);
+}
+
+// 7. Этап 2c: B1 и A2 — последовательное шитьё, выводы из занятости, над/под, симметрия, баланс по нитям
+{
+  const sets2c = [{ C_mm: 240, w_mm: 0.714 }, { C_mm: 300, w_mm: 1.0 }, { C_mm: 240, w_mm: 1.0 }, { C_mm: 300, w_mm: 0.714 }];
+  const R2 = {};
+  for (const p of sets2c) {
+    const b1 = report('Этап 2c', p, 'B1');
+    const r = report('Этап 2c', p, 'A2');
+    R2[JSON.stringify(p)] = r;
+    const V = Object.fromEntries(r.V.map((v) => [v.id, v]));
+    check(V.V15.status === 'pass', `B1 = A1, повёрнутый на 45° (${JSON.stringify(p)})`);
+    check(V.V17.status === 'pass', 'игла у верха A2 под всеми плечами ряда 1 (uwagake)');
+    check(V.V16.status === 'pass', 'игла не прокалывает нить');
+    check(V.V18.status === 'pass' && /8\/8/.test(V.V18.value), 'над/под по правилу; переплетение A1 < B1 < A2 на всех плечах B1');
+    check(V.V2.status === 'pass' && V.V1.status === 'pass', 'баланс и непрерывность по каждой нити');
+    check(V.V8.status !== 'fail', `нет неразрешённого взаимопроникновения (V8 ${V.V8.status})`);
+    check(summary(b1.V).fail === 0, 'этап B1 без fail');
+    const t = V.V13.numbers.rows.find((x) => !x.closing);
+    console.log(`  V13 ${JSON.stringify(p)}: верх ниже на ${fmt(t.dS, 3)} мм, шире на ${fmt(t.W - t.Wp, 3)} мм (${fmt((t.W - t.Wp) / r.A.params.w_mm, 2)} w) → статус ${V.V13.status}`);
+  }
+  // пересчёт: инварианты для 240/0,714 и 300/1,0 (в любом порядке — тот же результат, до бита)
+  const sig = (A) => JSON.stringify(A.path.segs.map((x) => [x.id, x.length, x.from, x.to])) + JSON.stringify(A.path.crossings.map((c) => [c.a, c.b, c.over, c.kind, c.stack]));
+  const a1 = computeAll(recipe, { C_mm: 240, w_mm: 0.714 }), b1 = computeAll(recipe, { C_mm: 300, w_mm: 1.0 });
+  const a2 = computeAll(recipe, { C_mm: 240, w_mm: 0.714 }), b2 = computeAll(recipe, { C_mm: 300, w_mm: 1.0 });
+  check(sig(a1) === sig(a2) && sig(b1) === sig(b2) && sig(a1) !== sig(b1), 'пересчёт 240/0,714 → 300/1,0 → 240/0,714 → 300/1,0: результаты идентичны своим наборам');
+  // смена w сдвигает E/X и уровни ряда 2 автоматически (сдвигов в рецепте нет)
+  const st = (A, i) => A.path.stitches.find((q) => q.round === 'A2' && q.i === i);
+  const aw = computeAll(recipe, { w_mm: 0.714 }), bw = computeAll(recipe, { w_mm: 0.9 });
+  console.log(`  w 0,714 → 0,9: верх A2 s ${fmt(st(aw, 2).s, 3)} → ${fmt(st(bw, 2).s, 3)}, E ${fmt(st(aw, 2).eOff, 3)} → ${fmt(st(bw, 2).eOff, 3)}; низ A2 s ${fmt(st(aw, 1).s, 3)} → ${fmt(st(bw, 1).s, 3)}`);
+  check(Math.abs((st(bw, 2).s - st(aw, 2).s) - (0.9 - 0.714)) < 1e-9, 'верх A2 опускается ровно на Δw (адъюнктность каналов)');
+  check(st(bw, 2).eOff !== st(aw, 2).eOff && st(bw, 1).s !== st(aw, 1).s, 'E верха и уровень низа A2 следуют за w');
+  const lv = JSON.stringify(recipe.levels);
+  check(!/\d+(\.\d+)?\s*(mm|мм)"/.test(lv) && typeof recipe.levels.top.next.value === 'string' && typeof recipe.levels.bottom.next.value === 'string', 'в рецепте уровни ряда n ≥ 2 — правила, не числа');
 }
 
 console.log(`\n${failures === 0 ? 'ВСЕ ТЕСТЫ ПРОШЛИ' : `ПРОВАЛОВ: ${failures}`}`);
