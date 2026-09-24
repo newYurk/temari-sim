@@ -169,5 +169,1785 @@
   "geom/olympus7": 2702.709085741537,
   "fixed/equator": 9365.313338181633,
   "fixed/olympus7": 5659.109175307954
- }
+ },
+ "thread_path_north": [
+  {
+   "op": "start",
+   "thread": "A",
+   "at": [
+    4.8858,
+    -0.9933,
+    37.8704
+   ],
+   "hidden_run_mm": 35.0,
+   "backtrack": true,
+   "basis": "TK-ANCHOR / TK-GT14"
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 1,
+   "i": 1,
+   "line": 1,
+   "kind": "bottom",
+   "s_mm": 40.0,
+   "bite_mm": 2.0,
+   "E": [
+    22.6732,
+    24.0872,
+    19.0986
+   ],
+   "X": [
+    24.0872,
+    22.6732,
+    19.0986
+   ],
+   "u_E": 37.515,
+   "u_X": 39.514,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 1,
+   "i": 2,
+   "line": 2,
+   "kind": "top",
+   "s_mm": 5.0,
+   "bite_mm": 2.0,
+   "E": [
+    -0.9933,
+    4.8858,
+    37.8704
+   ],
+   "X": [
+    0.9933,
+    4.8858,
+    37.8704
+   ],
+   "u_E": 77.029,
+   "u_X": 79.016,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 1,
+   "i": 3,
+   "line": 3,
+   "kind": "bottom",
+   "s_mm": 40.0,
+   "bite_mm": 2.0,
+   "E": [
+    -24.0872,
+    22.6732,
+    19.0986
+   ],
+   "X": [
+    -22.6732,
+    24.0872,
+    19.0986
+   ],
+   "u_E": 116.531,
+   "u_X": 118.53,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 1,
+   "i": 4,
+   "line": 4,
+   "kind": "top",
+   "s_mm": 5.0,
+   "bite_mm": 2.0,
+   "E": [
+    -4.8858,
+    -0.9933,
+    37.8704
+   ],
+   "X": [
+    -4.8858,
+    0.9933,
+    37.8704
+   ],
+   "u_E": 156.045,
+   "u_X": 158.032,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 1,
+   "i": 5,
+   "line": 5,
+   "kind": "bottom",
+   "s_mm": 40.0,
+   "bite_mm": 2.0,
+   "E": [
+    -22.6732,
+    -24.0872,
+    19.0986
+   ],
+   "X": [
+    -24.0872,
+    -22.6732,
+    19.0986
+   ],
+   "u_E": 195.546,
+   "u_X": 197.546,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 1,
+   "i": 6,
+   "line": 6,
+   "kind": "top",
+   "s_mm": 5.0,
+   "bite_mm": 2.0,
+   "E": [
+    0.9933,
+    -4.8858,
+    37.8704
+   ],
+   "X": [
+    -0.9933,
+    -4.8858,
+    37.8704
+   ],
+   "u_E": 235.061,
+   "u_X": 237.048,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 1,
+   "i": 7,
+   "line": 7,
+   "kind": "bottom",
+   "s_mm": 40.0,
+   "bite_mm": 2.0,
+   "E": [
+    24.0872,
+    -22.6732,
+    19.0986
+   ],
+   "X": [
+    22.6732,
+    -24.0872,
+    19.0986
+   ],
+   "u_E": 274.562,
+   "u_X": 276.562,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 1,
+   "i": 8,
+   "line": 0,
+   "kind": "top",
+   "s_mm": 5.0,
+   "bite_mm": 2.0,
+   "E": [
+    4.8858,
+    0.9933,
+    37.8704
+   ],
+   "X": [
+    4.8858,
+    -0.9933,
+    37.8704
+   ],
+   "u_E": 314.077,
+   "u_X": 316.063,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": true
+  },
+  {
+   "op": "park",
+   "thread": "A",
+   "at": [
+    4.8858,
+    -0.9933,
+    37.8704
+   ]
+  },
+  {
+   "op": "start",
+   "thread": "B",
+   "at": [
+    4.1571,
+    2.7524,
+    37.8704
+   ],
+   "hidden_run_mm": 35.0,
+   "backtrack": true,
+   "basis": "TK-ANCHOR / TK-GT14"
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 1,
+   "i": 1,
+   "line": 2,
+   "kind": "bottom",
+   "s_mm": 40.0,
+   "bite_mm": 2.0,
+   "E": [
+    -0.9998,
+    33.0646,
+    19.0986
+   ],
+   "X": [
+    0.9998,
+    33.0646,
+    19.0986
+   ],
+   "u_E": 37.515,
+   "u_X": 39.514,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 1,
+   "i": 2,
+   "line": 3,
+   "kind": "top",
+   "s_mm": 5.0,
+   "bite_mm": 2.0,
+   "E": [
+    -4.1571,
+    2.7524,
+    37.8704
+   ],
+   "X": [
+    -2.7524,
+    4.1571,
+    37.8704
+   ],
+   "u_E": 77.029,
+   "u_X": 79.016,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 1,
+   "i": 3,
+   "line": 4,
+   "kind": "bottom",
+   "s_mm": 40.0,
+   "bite_mm": 2.0,
+   "E": [
+    -33.0646,
+    -0.9998,
+    19.0986
+   ],
+   "X": [
+    -33.0646,
+    0.9998,
+    19.0986
+   ],
+   "u_E": 116.531,
+   "u_X": 118.53,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 1,
+   "i": 4,
+   "line": 5,
+   "kind": "top",
+   "s_mm": 5.0,
+   "bite_mm": 2.0,
+   "E": [
+    -2.7524,
+    -4.1571,
+    37.8704
+   ],
+   "X": [
+    -4.1571,
+    -2.7524,
+    37.8704
+   ],
+   "u_E": 156.045,
+   "u_X": 158.032,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 1,
+   "i": 5,
+   "line": 6,
+   "kind": "bottom",
+   "s_mm": 40.0,
+   "bite_mm": 2.0,
+   "E": [
+    0.9998,
+    -33.0646,
+    19.0986
+   ],
+   "X": [
+    -0.9998,
+    -33.0646,
+    19.0986
+   ],
+   "u_E": 195.546,
+   "u_X": 197.546,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 1,
+   "i": 6,
+   "line": 7,
+   "kind": "top",
+   "s_mm": 5.0,
+   "bite_mm": 2.0,
+   "E": [
+    4.1571,
+    -2.7524,
+    37.8704
+   ],
+   "X": [
+    2.7524,
+    -4.1571,
+    37.8704
+   ],
+   "u_E": 235.061,
+   "u_X": 237.048,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 1,
+   "i": 7,
+   "line": 0,
+   "kind": "bottom",
+   "s_mm": 40.0,
+   "bite_mm": 2.0,
+   "E": [
+    33.0646,
+    0.9998,
+    19.0986
+   ],
+   "X": [
+    33.0646,
+    -0.9998,
+    19.0986
+   ],
+   "u_E": 274.562,
+   "u_X": 276.562,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 1,
+   "i": 8,
+   "line": 1,
+   "kind": "top",
+   "s_mm": 5.0,
+   "bite_mm": 2.0,
+   "E": [
+    2.7524,
+    4.1571,
+    37.8704
+   ],
+   "X": [
+    4.1571,
+    2.7524,
+    37.8704
+   ],
+   "u_E": 314.077,
+   "u_X": 316.063,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": true
+  },
+  {
+   "op": "park",
+   "thread": "B",
+   "at": [
+    4.1571,
+    2.7524,
+    37.8704
+   ]
+  },
+  {
+   "op": "resume",
+   "thread": "A",
+   "at": [
+    4.8858,
+    -0.9933,
+    37.8704
+   ],
+   "basis": "TK-GT14 park/resume; TK-UWA"
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 1,
+   "line": 1,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 2.0,
+   "E": [
+    24.5802,
+    25.9943,
+    13.3841
+   ],
+   "X": [
+    25.9943,
+    24.5802,
+    13.3841
+   ],
+   "u_E": 359.843,
+   "u_X": 361.842,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 2,
+   "line": 2,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 2.714,
+   "E": [
+    -1.3442,
+    5.5317,
+    37.7706
+   ],
+   "X": [
+    1.3442,
+    5.5317,
+    37.7706
+   ],
+   "u_E": 405.466,
+   "u_X": 408.154,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 3,
+   "line": 3,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 2.0,
+   "E": [
+    -25.9943,
+    24.5802,
+    13.3841
+   ],
+   "X": [
+    -24.5802,
+    25.9943,
+    13.3841
+   ],
+   "u_E": 451.777,
+   "u_X": 453.777,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 4,
+   "line": 4,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 2.714,
+   "E": [
+    -5.5317,
+    -1.3442,
+    37.7706
+   ],
+   "X": [
+    -5.5317,
+    1.3442,
+    37.7706
+   ],
+   "u_E": 497.4,
+   "u_X": 500.089,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 5,
+   "line": 5,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 2.0,
+   "E": [
+    -24.5802,
+    -25.9943,
+    13.3841
+   ],
+   "X": [
+    -25.9943,
+    -24.5802,
+    13.3841
+   ],
+   "u_E": 543.712,
+   "u_X": 545.712,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 6,
+   "line": 6,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 2.714,
+   "E": [
+    1.3442,
+    -5.5317,
+    37.7706
+   ],
+   "X": [
+    -1.3442,
+    -5.5317,
+    37.7706
+   ],
+   "u_E": 589.335,
+   "u_X": 592.023,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 7,
+   "line": 7,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 2.0,
+   "E": [
+    25.9943,
+    -24.5802,
+    13.3841
+   ],
+   "X": [
+    24.5802,
+    -25.9943,
+    13.3841
+   ],
+   "u_E": 635.646,
+   "u_X": 637.646,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 8,
+   "line": 0,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 2.714,
+   "E": [
+    5.5317,
+    1.3442,
+    37.7706
+   ],
+   "X": [
+    5.5317,
+    -1.3442,
+    37.7706
+   ],
+   "u_E": 681.269,
+   "u_X": 683.958,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": true
+  },
+  {
+   "op": "park",
+   "thread": "A",
+   "at": [
+    5.5317,
+    -1.3442,
+    37.7706
+   ]
+  },
+  {
+   "op": "resume",
+   "thread": "B",
+   "at": [
+    4.1571,
+    2.7524,
+    37.8704
+   ],
+   "basis": "TK-GT14 park/resume; TK-UWA"
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 2,
+   "i": 1,
+   "line": 2,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 2.0,
+   "E": [
+    -0.9999,
+    35.7616,
+    13.3841
+   ],
+   "X": [
+    0.9999,
+    35.7616,
+    13.3841
+   ],
+   "u_E": 359.843,
+   "u_X": 361.842,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 2,
+   "i": 2,
+   "line": 3,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 2.714,
+   "E": [
+    -4.862,
+    2.961,
+    37.7706
+   ],
+   "X": [
+    -2.961,
+    4.862,
+    37.7706
+   ],
+   "u_E": 405.466,
+   "u_X": 408.154,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 2,
+   "i": 3,
+   "line": 4,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 2.0,
+   "E": [
+    -35.7616,
+    -0.9999,
+    13.3841
+   ],
+   "X": [
+    -35.7616,
+    0.9999,
+    13.3841
+   ],
+   "u_E": 451.777,
+   "u_X": 453.777,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 2,
+   "i": 4,
+   "line": 5,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 2.714,
+   "E": [
+    -2.961,
+    -4.862,
+    37.7706
+   ],
+   "X": [
+    -4.862,
+    -2.961,
+    37.7706
+   ],
+   "u_E": 497.4,
+   "u_X": 500.089,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 2,
+   "i": 5,
+   "line": 6,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 2.0,
+   "E": [
+    0.9999,
+    -35.7616,
+    13.3841
+   ],
+   "X": [
+    -0.9999,
+    -35.7616,
+    13.3841
+   ],
+   "u_E": 543.712,
+   "u_X": 545.712,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 2,
+   "i": 6,
+   "line": 7,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 2.714,
+   "E": [
+    4.862,
+    -2.961,
+    37.7706
+   ],
+   "X": [
+    2.961,
+    -4.862,
+    37.7706
+   ],
+   "u_E": 589.335,
+   "u_X": 592.023,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 2,
+   "i": 7,
+   "line": 0,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 2.0,
+   "E": [
+    35.7616,
+    0.9999,
+    13.3841
+   ],
+   "X": [
+    35.7616,
+    -0.9999,
+    13.3841
+   ],
+   "u_E": 635.646,
+   "u_X": 637.646,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 2,
+   "i": 8,
+   "line": 1,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 2.714,
+   "E": [
+    2.961,
+    4.862,
+    37.7706
+   ],
+   "X": [
+    4.862,
+    2.961,
+    37.7706
+   ],
+   "u_E": 681.269,
+   "u_X": 683.958,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": true
+  },
+  {
+   "op": "park",
+   "thread": "B",
+   "at": [
+    4.862,
+    2.961,
+    37.7706
+   ]
+  },
+  {
+   "op": "resume",
+   "thread": "A",
+   "at": [
+    5.5317,
+    -1.3442,
+    37.7706
+   ],
+   "basis": "TK-GT14 park/resume; TK-UWA"
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 3,
+   "i": 1,
+   "line": 1,
+   "kind": "bottom",
+   "s_mm": 52.3925,
+   "bite_mm": 2.0,
+   "E": [
+    25.7591,
+    27.1732,
+    7.5573
+   ],
+   "X": [
+    27.1732,
+    25.7591,
+    7.5573
+   ],
+   "u_E": 733.584,
+   "u_X": 735.583,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 3,
+   "i": 2,
+   "line": 2,
+   "kind": "top",
+   "s_mm": 6.428,
+   "bite_mm": 3.428,
+   "E": [
+    -1.6936,
+    6.1695,
+    37.6576
+   ],
+   "X": [
+    1.6936,
+    6.1695,
+    37.6576
+   ],
+   "u_E": 785.044,
+   "u_X": 788.431,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 3,
+   "i": 3,
+   "line": 3,
+   "kind": "bottom",
+   "s_mm": 52.3925,
+   "bite_mm": 2.0,
+   "E": [
+    -27.1732,
+    25.7591,
+    7.5573
+   ],
+   "X": [
+    -25.7591,
+    27.1732,
+    7.5573
+   ],
+   "u_E": 837.891,
+   "u_X": 839.891,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 3,
+   "i": 4,
+   "line": 4,
+   "kind": "top",
+   "s_mm": 6.428,
+   "bite_mm": 3.428,
+   "E": [
+    -6.1695,
+    -1.6936,
+    37.6576
+   ],
+   "X": [
+    -6.1695,
+    1.6936,
+    37.6576
+   ],
+   "u_E": 889.352,
+   "u_X": 892.739,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 3,
+   "i": 5,
+   "line": 5,
+   "kind": "bottom",
+   "s_mm": 52.3925,
+   "bite_mm": 2.0,
+   "E": [
+    -25.7591,
+    -27.1732,
+    7.5573
+   ],
+   "X": [
+    -27.1732,
+    -25.7591,
+    7.5573
+   ],
+   "u_E": 942.199,
+   "u_X": 944.199,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 3,
+   "i": 6,
+   "line": 6,
+   "kind": "top",
+   "s_mm": 6.428,
+   "bite_mm": 3.428,
+   "E": [
+    1.6936,
+    -6.1695,
+    37.6576
+   ],
+   "X": [
+    -1.6936,
+    -6.1695,
+    37.6576
+   ],
+   "u_E": 993.66,
+   "u_X": 997.047,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 3,
+   "i": 7,
+   "line": 7,
+   "kind": "bottom",
+   "s_mm": 52.3925,
+   "bite_mm": 2.0,
+   "E": [
+    27.1732,
+    -25.7591,
+    7.5573
+   ],
+   "X": [
+    25.7591,
+    -27.1732,
+    7.5573
+   ],
+   "u_E": 1046.507,
+   "u_X": 1048.507,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 3,
+   "i": 8,
+   "line": 0,
+   "kind": "top",
+   "s_mm": 6.428,
+   "bite_mm": 3.428,
+   "E": [
+    6.1695,
+    1.6936,
+    37.6576
+   ],
+   "X": [
+    6.1695,
+    -1.6936,
+    37.6576
+   ],
+   "u_E": 1097.967,
+   "u_X": 1101.355,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": true
+  },
+  {
+   "op": "park",
+   "thread": "A",
+   "at": [
+    6.1695,
+    -1.6936,
+    37.6576
+   ]
+  },
+  {
+   "op": "resume",
+   "thread": "B",
+   "at": [
+    4.862,
+    2.961,
+    37.7706
+   ],
+   "basis": "TK-GT14 park/resume; TK-UWA"
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 3,
+   "i": 1,
+   "line": 2,
+   "kind": "bottom",
+   "s_mm": 52.3925,
+   "bite_mm": 2.0,
+   "E": [
+    -0.9999,
+    37.4288,
+    7.5573
+   ],
+   "X": [
+    0.9999,
+    37.4288,
+    7.5573
+   ],
+   "u_E": 733.584,
+   "u_X": 735.583,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 3,
+   "i": 2,
+   "line": 3,
+   "kind": "top",
+   "s_mm": 6.428,
+   "bite_mm": 3.428,
+   "E": [
+    -5.56,
+    3.1649,
+    37.6576
+   ],
+   "X": [
+    -3.1649,
+    5.56,
+    37.6576
+   ],
+   "u_E": 785.044,
+   "u_X": 788.431,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 3,
+   "i": 3,
+   "line": 4,
+   "kind": "bottom",
+   "s_mm": 52.3925,
+   "bite_mm": 2.0,
+   "E": [
+    -37.4288,
+    -0.9999,
+    7.5573
+   ],
+   "X": [
+    -37.4288,
+    0.9999,
+    7.5573
+   ],
+   "u_E": 837.891,
+   "u_X": 839.891,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 3,
+   "i": 4,
+   "line": 5,
+   "kind": "top",
+   "s_mm": 6.428,
+   "bite_mm": 3.428,
+   "E": [
+    -3.1649,
+    -5.56,
+    37.6576
+   ],
+   "X": [
+    -5.56,
+    -3.1649,
+    37.6576
+   ],
+   "u_E": 889.352,
+   "u_X": 892.739,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 3,
+   "i": 5,
+   "line": 6,
+   "kind": "bottom",
+   "s_mm": 52.3925,
+   "bite_mm": 2.0,
+   "E": [
+    0.9999,
+    -37.4288,
+    7.5573
+   ],
+   "X": [
+    -0.9999,
+    -37.4288,
+    7.5573
+   ],
+   "u_E": 942.199,
+   "u_X": 944.199,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 3,
+   "i": 6,
+   "line": 7,
+   "kind": "top",
+   "s_mm": 6.428,
+   "bite_mm": 3.428,
+   "E": [
+    5.56,
+    -3.1649,
+    37.6576
+   ],
+   "X": [
+    3.1649,
+    -5.56,
+    37.6576
+   ],
+   "u_E": 993.66,
+   "u_X": 997.047,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 3,
+   "i": 7,
+   "line": 0,
+   "kind": "bottom",
+   "s_mm": 52.3925,
+   "bite_mm": 2.0,
+   "E": [
+    37.4288,
+    0.9999,
+    7.5573
+   ],
+   "X": [
+    37.4288,
+    -0.9999,
+    7.5573
+   ],
+   "u_E": 1046.507,
+   "u_X": 1048.507,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 3,
+   "i": 8,
+   "line": 1,
+   "kind": "top",
+   "s_mm": 6.428,
+   "bite_mm": 3.428,
+   "E": [
+    3.1649,
+    5.56,
+    37.6576
+   ],
+   "X": [
+    5.56,
+    3.1649,
+    37.6576
+   ],
+   "u_E": 1097.967,
+   "u_X": 1101.355,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": true
+  },
+  {
+   "op": "park",
+   "thread": "B",
+   "at": [
+    5.56,
+    3.1649,
+    37.6576
+   ]
+  },
+  {
+   "op": "resume",
+   "thread": "A",
+   "at": [
+    6.1695,
+    -1.6936,
+    37.6576
+   ],
+   "basis": "TK-GT14 park/resume; TK-UWA"
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 4,
+   "i": 1,
+   "line": 1,
+   "kind": "bottom",
+   "s_mm": 58.1219,
+   "bite_mm": 2.0,
+   "E": [
+    26.2606,
+    27.6746,
+    1.8774
+   ],
+   "X": [
+    27.6746,
+    26.2606,
+    1.8774
+   ],
+   "u_E": 1156.476,
+   "u_X": 1158.476,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 4,
+   "i": 2,
+   "line": 2,
+   "kind": "top",
+   "s_mm": 7.142,
+   "bite_mm": 4.142,
+   "E": [
+    -2.0418,
+    6.8006,
+    37.5314
+   ],
+   "X": [
+    2.0418,
+    6.8006,
+    37.5314
+   ],
+   "u_E": 1213.42,
+   "u_X": 1217.504,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 4,
+   "i": 3,
+   "line": 3,
+   "kind": "bottom",
+   "s_mm": 58.1219,
+   "bite_mm": 2.0,
+   "E": [
+    -27.6746,
+    26.2606,
+    1.8774
+   ],
+   "X": [
+    -26.2606,
+    27.6746,
+    1.8774
+   ],
+   "u_E": 1272.448,
+   "u_X": 1274.448,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 4,
+   "i": 4,
+   "line": 4,
+   "kind": "top",
+   "s_mm": 7.142,
+   "bite_mm": 4.142,
+   "E": [
+    -6.8006,
+    -2.0418,
+    37.5314
+   ],
+   "X": [
+    -6.8006,
+    2.0418,
+    37.5314
+   ],
+   "u_E": 1329.393,
+   "u_X": 1333.476,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 4,
+   "i": 5,
+   "line": 5,
+   "kind": "bottom",
+   "s_mm": 58.1219,
+   "bite_mm": 2.0,
+   "E": [
+    -26.2606,
+    -27.6746,
+    1.8774
+   ],
+   "X": [
+    -27.6746,
+    -26.2606,
+    1.8774
+   ],
+   "u_E": 1388.421,
+   "u_X": 1390.42,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 4,
+   "i": 6,
+   "line": 6,
+   "kind": "top",
+   "s_mm": 7.142,
+   "bite_mm": 4.142,
+   "E": [
+    2.0418,
+    -6.8006,
+    37.5314
+   ],
+   "X": [
+    -2.0418,
+    -6.8006,
+    37.5314
+   ],
+   "u_E": 1445.365,
+   "u_X": 1449.448,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 4,
+   "i": 7,
+   "line": 7,
+   "kind": "bottom",
+   "s_mm": 58.1219,
+   "bite_mm": 2.0,
+   "E": [
+    27.6746,
+    -26.2606,
+    1.8774
+   ],
+   "X": [
+    26.2606,
+    -27.6746,
+    1.8774
+   ],
+   "u_E": 1504.393,
+   "u_X": 1506.393,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 4,
+   "i": 8,
+   "line": 0,
+   "kind": "top",
+   "s_mm": 7.142,
+   "bite_mm": 4.142,
+   "E": [
+    6.8006,
+    2.0418,
+    37.5314
+   ],
+   "X": [
+    6.8006,
+    -2.0418,
+    37.5314
+   ],
+   "u_E": 1561.337,
+   "u_X": 1565.421,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": true
+  },
+  {
+   "op": "park",
+   "thread": "A",
+   "at": [
+    6.8006,
+    -2.0418,
+    37.5314
+   ]
+  },
+  {
+   "op": "resume",
+   "thread": "B",
+   "at": [
+    5.56,
+    3.1649,
+    37.6576
+   ],
+   "basis": "TK-GT14 park/resume; TK-UWA"
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 4,
+   "i": 1,
+   "line": 2,
+   "kind": "bottom",
+   "s_mm": 58.1219,
+   "bite_mm": 2.0,
+   "E": [
+    -0.9999,
+    38.1379,
+    1.8774
+   ],
+   "X": [
+    0.9999,
+    38.1379,
+    1.8774
+   ],
+   "u_E": 1156.476,
+   "u_X": 1158.476,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 4,
+   "i": 2,
+   "line": 3,
+   "kind": "top",
+   "s_mm": 7.142,
+   "bite_mm": 4.142,
+   "E": [
+    -6.2525,
+    3.365,
+    37.5314
+   ],
+   "X": [
+    -3.365,
+    6.2525,
+    37.5314
+   ],
+   "u_E": 1213.42,
+   "u_X": 1217.504,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 4,
+   "i": 3,
+   "line": 4,
+   "kind": "bottom",
+   "s_mm": 58.1219,
+   "bite_mm": 2.0,
+   "E": [
+    -38.1379,
+    -0.9999,
+    1.8774
+   ],
+   "X": [
+    -38.1379,
+    0.9999,
+    1.8774
+   ],
+   "u_E": 1272.448,
+   "u_X": 1274.448,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 4,
+   "i": 4,
+   "line": 5,
+   "kind": "top",
+   "s_mm": 7.142,
+   "bite_mm": 4.142,
+   "E": [
+    -3.365,
+    -6.2525,
+    37.5314
+   ],
+   "X": [
+    -6.2525,
+    -3.365,
+    37.5314
+   ],
+   "u_E": 1329.393,
+   "u_X": 1333.476,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 4,
+   "i": 5,
+   "line": 6,
+   "kind": "bottom",
+   "s_mm": 58.1219,
+   "bite_mm": 2.0,
+   "E": [
+    0.9999,
+    -38.1379,
+    1.8774
+   ],
+   "X": [
+    -0.9999,
+    -38.1379,
+    1.8774
+   ],
+   "u_E": 1388.421,
+   "u_X": 1390.42,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 4,
+   "i": 6,
+   "line": 7,
+   "kind": "top",
+   "s_mm": 7.142,
+   "bite_mm": 4.142,
+   "E": [
+    6.2525,
+    -3.365,
+    37.5314
+   ],
+   "X": [
+    3.365,
+    -6.2525,
+    37.5314
+   ],
+   "u_E": 1445.365,
+   "u_X": 1449.448,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 4,
+   "i": 7,
+   "line": 0,
+   "kind": "bottom",
+   "s_mm": 58.1219,
+   "bite_mm": 2.0,
+   "E": [
+    38.1379,
+    0.9999,
+    1.8774
+   ],
+   "X": [
+    38.1379,
+    -0.9999,
+    1.8774
+   ],
+   "u_E": 1504.393,
+   "u_X": 1506.393,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "B",
+   "row": 4,
+   "i": 8,
+   "line": 1,
+   "kind": "top",
+   "s_mm": 7.142,
+   "bite_mm": 4.142,
+   "E": [
+    3.365,
+    6.2525,
+    37.5314
+   ],
+   "X": [
+    6.2525,
+    3.365,
+    37.5314
+   ],
+   "u_E": 1561.337,
+   "u_X": 1565.421,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": true
+  },
+  {
+   "op": "park",
+   "thread": "B",
+   "at": [
+    6.2525,
+    3.365,
+    37.5314
+   ]
+  },
+  {
+   "op": "finish",
+   "thread": "A",
+   "at": [
+    6.8006,
+    -2.0418,
+    37.5314
+   ],
+   "hidden_run_mm": 30.0,
+   "basis": "TK-ANCHOR / OLY-BASIC"
+  },
+  {
+   "op": "finish",
+   "thread": "B",
+   "at": [
+    6.2525,
+    3.365,
+    37.5314
+   ],
+   "hidden_run_mm": 30.0,
+   "basis": "TK-ANCHOR / OLY-BASIC"
+  }
+ ]
 }

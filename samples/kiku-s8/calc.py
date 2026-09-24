@@ -243,7 +243,7 @@ def physics_section(main_rows, fixed_rows):
              f"(угол поворота нити = ℓ/R). Плечо ряда 1 (≈37.5 мм): N ≈ {37.5/R:.2f}·T.")
     L.append("- Численное значение T (Н) НЕ известно: требуется измерение динамометром (см. uncertainties.md).\n")
     L.append("### 8.2 Равнодействующая натяжений в точке стежка (равные T по обе стороны)\n")
-    L.append("| ряд | низ: |F|/T | низ: угол F к меридиану (к полюсу), ° | верх: |F|/T | верх: угол F к меридиану (от полюса), ° | боковая сила низ, на ε | боковая сила верх, на ε |")
+    L.append("| ряд | низ: F/T | низ: угол F к меридиану (к полюсу), ° | верх: F/T | верх: угол F к меридиану (от полюса), ° | боковая сила низ, на ε | боковая сила верх, на ε |")
     L.append("|---|---|---|---|---|---|---|")
     for r in main_rows:
         s = stitch_resultant(r)
@@ -264,7 +264,7 @@ def physics_section(main_rows, fixed_rows):
     L.append("Смысл: каждый стежок может удерживать перепад натяжения в несколько раз, поэтому натяжение уже уложенных "
              "плеч НЕ равно силе, с которой мастер тянет иглу, и определяется историей затяжки (гистерезис). "
              "Этим же объясняется OLY-BASIC: игла против хода увеличивает охват -> «糸が抜けにくくなります». "
-             "μ для Perle #5 (мерсеризованная газированная 2-сложная) по нити и по обмотке НЕ найдены.\n")
+             "μ для Perle #5 (мерсеризованная опалённая 2-сложная) по нити и по обмотке НЕ найдены.\n")
     L.append("### 8.4 Геодезичность и трение: негеодезический путь устойчив, если |κ_g| ≤ μ·κ_n (κ_n = 1/R)\n")
     L.append("Допустимый боковой прогиб (стрелка) плеча длиной ℓ при предельной κ_g: δ_max ≈ κ_g,max·ℓ²/8.\n")
     L.append("| μ (источник) | κ_g,max, мм⁻¹ | мин. радиус геод. кривизны, мм | δ_max для ℓ = 37.5 мм, мм | δ_max / w |")
@@ -297,6 +297,37 @@ def physics_section(main_rows, fixed_rows):
 # ----------------------------------------------------------------------------
 # 5. РАСЧЁТ И ВЫВОД
 # ----------------------------------------------------------------------------
+def export_thread_path(rows):
+    """Явный путь двух рабочих нитей (A, B) на северном полюсе в порядке шитья A1,B1,A2,B2,... (TK-GT14).
+    Для каждой операции: нить, ряд, стежок, линия, тип, координаты E/X (мм, центр шара в 0, NP = +z),
+    накопленная длина u вдоль СВОЕЙ нити (u=0 — выход после скрытого старта). Вход для stage 2: рецепт -> путь."""
+    r3 = lambda p: [round(float(v), 4) for v in p]
+    ops, u, cur = [], {'A': 0.0, 'B': 0.0}, {'A': None, 'B': None}
+    for n, row in enumerate(rows, 1):
+        for th, off in (('A', 0), ('B', 1)):
+            if n == 1:
+                X0 = offset_pt(row['s_top'], PHI[off % P['N_DIV']], -row['bite_top'] / 2)
+                ops.append(dict(op='start', thread=th, at=r3(X0), hidden_run_mm=P['start_run_mm'],
+                                backtrack=P['start_backtrack'], basis='TK-ANCHOR / TK-GT14'))
+                cur[th] = X0
+            else:
+                ops.append(dict(op='resume', thread=th, at=r3(cur[th]), basis='TK-GT14 park/resume; TK-UWA'))
+            seq, arms, bites, last = round_lengths(row, cur[th], off)
+            for st, a, b in zip(seq, arms, bites):
+                u[th] += a
+                uE = u[th]
+                u[th] += b
+                ops.append(dict(op='stitch', thread=th, row=n, i=st['i'], line=st['line'], kind=st['kind'],
+                                s_mm=round(st['s'], 4), bite_mm=round(st['bite'], 4), E=r3(st['E']), X=r3(st['X']),
+                                u_E=round(uE, 3), u_X=round(u[th], 3), lay_before='geodesic arc from previous X [A]',
+                                over_previous_rows=(st['kind'] == 'top' and n > 1),
+                                closing=(st['i'] == P['N_DIV'])))
+            cur[th] = last
+            ops.append(dict(op='park', thread=th, at=r3(last)))
+    for th in ('A', 'B'):
+        ops.append(dict(op='finish', thread=th, at=r3(cur[th]), hidden_run_mm=P['end_run_mm'], basis='TK-ANCHOR / OLY-BASIC'))
+    return ops
+
 def fmt(x, d=2):
     return f"{x:.{d}f}"
 
@@ -435,8 +466,8 @@ def main():
         L.append(f"| {rule} | {lim_name} | {len(rows)} | {fmt(val/1000,2)} |")
     L.append("")
     L.append("### 5.3 Чувствительность к размеру шара (правило 'geom', до экватора; остальные параметры те же)\n")
+    L.append("(пересчёт повторным запуском модели с другим C — функция size_sweep)\n")
     L.append("| C, мм | R, мм | рядов | длина 1-го ряда, мм | итого на цвет, м |\n|---|---|---|---|---|")
-    L.append("(пересчёт выполняется повторным запуском модели с другим C — см. функцию size_sweep)\n")
     for Cx in (200.0, 230.0, 240.0, 250.0):
         L.append(size_sweep(Cx))
     L.append("")
@@ -460,7 +491,7 @@ def main():
     if want_json:
         js = dict(params=P, R=R, Q=Q, rows=main_rows, per_round=per_round, arc_param_row1=arc_param,
                   totals=dict(per_colour_mm=per_colour, start_hidden=start_hidden, end_hidden=end_hidden),
-                  sensitivity_mm=sens)
+                  sensitivity_mm=sens, thread_path_north=export_thread_path(main_rows))
         open(__file__.replace('calc.py', 'calc_output.json'), 'w', encoding='utf-8').write(
             json.dumps(js, ensure_ascii=False, indent=1, default=float))
 
