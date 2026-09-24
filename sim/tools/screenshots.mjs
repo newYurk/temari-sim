@@ -22,6 +22,16 @@ const shots = [
   { name: '07_tip_zoom', q: 'stage=2b&k=4&view=top&zoom=5&focus=tip1&color=type&t=1' },
   { name: '06a_params_C240_w0714', q: 'stage=2b&view=top&dist=344' },
   { name: '06b_params_C300_w1', q: 'C_mm=300&w_mm=1&stage=2b&view=top&dist=344' },
+  // этап 2c
+  { name: '10_B1_top', q: 'stage=B1&view=top&zoom=1.25' },
+  { name: '11_A2_top', q: 'stage=A2&view=top&zoom=1.25' },
+  { name: '11s_A2_top_by_set', q: 'stage=A2&view=top&zoom=1.25&color=set' },
+  { name: '11u_A2_top_gradient', q: 'stage=A2&view=top&zoom=1.25&color=u' },
+  { name: '12_A2_upper_point_zoom', q: 'stage=A2&view=top&zoom=6&focus=a2top&t=1&pins=0' },
+  { name: '12b_A2_upper_point_zoom_close', q: 'stage=A2&view=top&zoom=16&focus=a2top&t=1&pins=0' },
+  { name: '13_A2_oblique_transparent', q: 'stage=A2&view=oblique&t=1&zoom=1.15' },
+  { name: '14a_A2_C240_w0714', q: 'stage=A2&view=top&dist=344' },
+  { name: '14b_A2_C300_w1', q: 'C_mm=300&w_mm=1&stage=A2&view=top&dist=344' },
 ];
 
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'] });
@@ -29,7 +39,9 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const logs = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(`${m.type()}: ${m.text()}`); });
 page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
+const only = process.env.ONLY ? new RegExp(process.env.ONLY) : null;
 for (const s of shots) {
+  if (only && !only.test(s.name)) continue;
   await page.goto(`${base}/index.html?${s.q}`);
   await page.waitForFunction(() => window.__sim && window.__sim.ready, null, { timeout: 60000 });
   await page.waitForTimeout(400);
@@ -53,7 +65,8 @@ function sideBySide(fa, fb, outName) {
   fs.writeFileSync(path.join(out, outName), PNG.sync.write(c));
   console.log(outName);
 }
-sideBySide('06a_params_C240_w0714.png', '06b_params_C300_w1.png', '06_compare_C240w0714_vs_C300w1.png');
-if (fs.existsSync(path.join(out, '03_before_chords_opacity028.png')))
+if (!only) sideBySide('06a_params_C240_w0714.png', '06b_params_C300_w1.png', '06_compare_C240w0714_vs_C300w1.png');
+if (!only || only.test('14a')) sideBySide('14a_A2_C240_w0714.png', '14b_A2_C300_w1.png', '14_A2_compare_C240w0714_vs_C300w1.png');
+if (!only && fs.existsSync(path.join(out, '03_before_chords_opacity028.png')))
   sideBySide('03_before_chords_opacity028.png', '03_round2b_oblique_transparent.png', '03_compare_before_after.png');
 if (logs.length) console.log('console:\n' + logs.join('\n'));
