@@ -1,0 +1,7 @@
+.venv/
+sources/raw/
+sources/video/*.mp4
+sources/video/frames_tm7/
+sources/video/sub_tm7/
+sources/video/full_tm7/
+__pycache__/
