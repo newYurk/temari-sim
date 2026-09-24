@@ -10,6 +10,14 @@ import { tubeMesh } from './tube.js';
 import { displayGeometry } from './display.js';
 
 const COLORS = { leg: 0x2f6bd6, pickup: 0xd6336c, 'hidden-start': 0x7a7a7a, current: 0xff8c00 };
+export const SET_COLORS = { A: 0x1f5fbf, B: 0xc2185b };   // набор A — синий, набор B — малиновый (цвета условные)
+// «тёплая» шкала для нити B (по длине u), 5 опорных цветов
+const WARM = [[80, 10, 60], [150, 20, 80], [210, 60, 70], [240, 130, 50], [250, 210, 90]];
+export function warm(t) {
+  const x = Math.max(0, Math.min(1, t)) * (WARM.length - 1), i = Math.min(WARM.length - 2, Math.floor(x)), f = x - i;
+  const c = WARM[i].map((v, k) => (v + f * (WARM[i + 1][k] - v)) / 255);
+  return new THREE.Color(c[0], c[1], c[2]);
+}
 // диагностическая палитра по длине нити u (viridis, 6 опорных цветов)
 const VIRIDIS = [[68, 1, 84], [65, 68, 135], [42, 120, 142], [34, 168, 132], [122, 209, 81], [253, 231, 37]];
 export function viridis(t) {
@@ -168,25 +176,24 @@ export class Renderer {
     this.applyOpts();
   }
 
-  /** Нить до операции k (префикс), подсветка текущей операции. */
+  /** Нити до операции k (префикс), подсветка текущей операции. */
   buildThread(A, k) {
     this.dispose(this.dynamic);
     const g = new THREE.Group();
-    const R = A.base.R, w = A.params.w_mm, path = A.path;
-    const uMax = path.uEnd, uStart = path.segs[0].u0;
+    const R = A.base.R, path = A.path;
     const ops = path.ops.slice(0, k + 1);
     const cur = path.ops[k];
     const ids = new Set(ops.flatMap((o) => o.segIds));
     const curIds = new Set(cur ? cur.segIds : []);
+    const curRound = path.rounds.find((r) => r.id === cur.round);
     const matSolid = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 });
     const matHidden = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, transparent: true, opacity: 0.85 });
     const matCur = new THREE.MeshBasicMaterial({ color: COLORS.current, transparent: true, opacity: 0.45, depthWrite: false, depthTest: false });   // текущая операция видна всегда (даже внутри шара)
     this.hiddenGroup = new THREE.Group();
+    const thr = Object.fromEntries(Object.values(path.threads).map((t) => [t.id, t]));
     for (const dg of displayGeometry(A, ids, { hidMode: this.opts.hidMode })) {
       const s = dg.seg, pts = dg.pts, radius = dg.radius;
-      const colorAt = this.opts.color === 'u'
-        ? (t) => viridis((s.u0 + t * (s.u1 - s.u0) - uStart) / (uMax - uStart))
-        : () => new THREE.Color(COLORS[s.type]);
+      const colorAt = this.colorFn(s, thr[s.thread]);
       if (!dg.hidden) {
         g.add(new THREE.Mesh(tubeGeometry(pts, radius, colorAt), matSolid));
       } else {
@@ -194,40 +201,57 @@ export class Renderer {
           if (d.length < 2) continue;
           this.hiddenGroup.add(new THREE.Mesh(tubeGeometry(d, radius, colorAt, 10), matHidden));
         }
-        if (s.type === 'hidden-start' && s.id === path.segs[0].id) {
+        if (s.type === 'hidden-start' && s.run === 1) {
           const mid = pts[Math.floor(pts.length / 2)];
-          this.hiddenGroup.add(this.label(dg.schematic ? 'скрытый старт — схема у поверхности (модель: прямая хорда)' : 'скрытый старт — хорда иглы (модель)', mul(unit(mid), R + 1.5), 'lbl small'));
+          this.hiddenGroup.add(this.label(`${s.round}: скрытый старт нити ${s.thread} — ${dg.schematic ? 'схема у поверхности (модель: прямая хорда)' : 'хорда иглы (модель)'}`, mul(unit(mid), R + 1.5), 'lbl small'));
+          this.hiddenGroup.add(this.label(`конец нити ${s.thread} (скрыт)`, mul(unit(s.from), R + 1.5), 'lbl small'));
         }
       }
       if (curIds.has(s.id)) g.add(new THREE.Mesh(tubeGeometry(pts, radius * 1.9, () => new THREE.Color(COLORS.current)), matCur));
     }
     g.add(this.hiddenGroup);
-    // подписи стежков
+    // подписи стежков — только текущего обхода (чтобы не загромождать); номер обхода у полюса
     this.threadLabels = new THREE.Group();
-    for (const st of path.stitches) {
+    for (const idx of curRound.stitchIdx) {
+      const st = path.stitches[idx];
       if (!ids.has(st.pickupId)) continue;
       const phi = A.marking.phis[st.line];
-      const s = st.level === 'bottom' ? st.s + 3.2 : st.s + 4.2;   // верх: снаружи «V» между плечами
-      this.threadLabels.add(this.label(String(st.i), point(R + 1.2, s, phi), 'lbl stitch'));
+      const sL = st.level === 'bottom' ? st.s + 3.2 : st.s + 4.2;   // верх: снаружи «V» между плечами
+      this.threadLabels.add(this.label(`${st.round}·${st.i}`, point(R + 1.2, sL, phi), 'lbl stitch'));
     }
     if (cur && cur.segIds.length) {
       const s = path.segs.find((x) => x.id === cur.segIds[0]);
       const mid = s.pts[Math.floor(s.pts.length / 2)];
-      const short = cur.kind === 'lay' ? `▶ ${cur.idx}: плечо к L${cur.line}` : cur.kind === 'stitch' ? `▶ ${cur.idx}: стежок ${cur.stitch}, игла E→X` : `▶ ${cur.idx}: скрытый старт ${cur.run}/${cur.runs}`;
+      const short = cur.kind === 'lay' ? `▶ ${cur.idx}: ${cur.round} плечо к L${cur.line}` : cur.kind === 'stitch' ? `▶ ${cur.idx}: ${cur.round} стежок ${cur.stitch}, игла E→X` : `▶ ${cur.idx}: ${cur.round} скрытый старт ${cur.run}/${cur.runs}`;
       this.threadLabels.add(this.label(short, mul(unit(mid), R + 3), 'lbl current'));
-      // перекресты текущего плеча
       for (const c of (s.crossings || [])) {
+        if (c.kind === 'wedge') continue;
         this.threadLabels.add(this.label(c.over === s.id ? '× над' : '× под', mul(unit(c.at), R + 1.6), 'lbl cross'));
       }
-    } else if (cur && cur.kind === 'park') {
-      const last = path.stitches[path.stitches.length - 1];
-      this.threadLabels.add(this.label(`▶ ${cur.idx}: парковка`, mul(unit(last.X), R + 3), 'lbl current'));
+    } else if (cur && (cur.kind === 'park' || cur.kind === 'resume')) {
+      const r = cur.kind === 'park' ? curRound : path.rounds.find((q) => q.thread === curRound.thread && q.opLast < curRound.opFirst);
+      const last = path.stitches[r.stitchIdx[r.stitchIdx.length - 1]];
+      this.threadLabels.add(this.label(`▶ ${cur.idx}: ${cur.kind === 'park' ? `парковка нити ${cur.thread}` : `нить ${cur.thread} снова в работе`}`, mul(unit(last.X), R + 3), 'lbl current'));
     }
-    if (ids.has(path.segs[0].id)) this.threadLabels.add(this.label('конец нити (скрыт)', mul(unit(path.start.tail), R + 1.5), 'lbl small'));
     g.add(this.threadLabels);
     this.dynamic = g;
     this.world.add(g);
     this.applyOpts();
+  }
+
+  /** Окраска: 'u' — градиент по длине своей нити (A — viridis, B — «тёплая» шкала); 'set' — цвет набора, ряды светлее/темнее;
+   *  'type' — по типу участка. Возвращает (t ∈ [0,1] вдоль сегмента) → THREE.Color. */
+  colorFn(s, t) {
+    const mode = this.opts.color;
+    if (mode === 'type') return () => new THREE.Color(COLORS[s.type]);
+    if (mode === 'set') {
+      const base = new THREE.Color(SET_COLORS[s.set] || 0x888888);
+      const c = base.clone().offsetHSL(0, 0, (s.row - 1) * 0.14);
+      if (s.type !== 'leg') c.offsetHSL(0, -0.2, 0.1);
+      return () => c;
+    }
+    const pal = s.thread === 'B' ? warm : viridis;
+    return (x) => pal((s.u0 + x * (s.u1 - s.u0)) / t.uEnd);
   }
 
   applyOpts() {

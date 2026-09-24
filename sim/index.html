@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Темари · кику S8 · симулятор нити (этап 2a/2b)</title>
+<title>Темари · кику S8 · симулятор нитей (этапы 2a–2c: A1, B1, A2)</title>
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
 { "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
@@ -12,14 +12,16 @@
 <div id="app">
   <div id="view"><div id="caption" class="caption"></div></div>
   <aside id="panel">
-    <h1>Кику S8 · путь одной нити</h1>
-    <div class="sub">рецепт → явный путь → (механика — позже) → рендер. Этап 2a/2b.</div>
+    <h1>Кику S8 · пути нитей A и B</h1>
+    <div class="sub">рецепт → явный путь (последовательное шитьё: A1 → B1 → A2) → (механика — позже) → рендер. Этап 2c.</div>
 
     <section>
       <h2>Этап и шаг</h2>
       <div class="row">
-        <button data-stage="2a" class="stage">2a · один проход</button>
-        <button data-stage="2b" class="stage">2b · один обход</button>
+        <button data-stage="2a" class="stage" title="скрытый старт A и первый проход">2a · проход</button>
+        <button data-stage="2b" class="stage" title="обход A1, парковка A">A1</button>
+        <button data-stage="B1" class="stage" title="+ обход B1 (нить B), парковка B">+ B1</button>
+        <button data-stage="A2" class="stage" title="+ обход A2: нить A снова в работе, верх поверх ряда 1">+ A2</button>
       </div>
       <div class="row">
         <button id="first" title="в начало">⏮</button><button id="prev" title="назад">◀</button>
@@ -44,6 +46,7 @@
       </div>
       <div class="row wrap">
         окраска: <label><input type="radio" name="color" value="u" checked> по длине нити u</label>
+        <label><input type="radio" name="color" value="set"> по набору (A / B)</label>
         <label><input type="radio" name="color" value="type"> по типу участка</label>
       </div>
       <div id="legend" class="legend"></div>
@@ -63,7 +66,7 @@
     <section>
       <h2>Параметры</h2>
       <div class="note">Все входы — органы управления. Изменение любого входа пересчитывает все слои по порядку:
-        шар → разметка → булавки → план рядов → путь → проверки. Ширины захвата нет: E/X выводятся из занятости у линии.</div>
+        шар → разметка → булавки → план рядов → путь (A1, B1, A2) → проверки. Ширины захвата и сдвигов рядов нет: E/X, уровни ряда 2 и над/под выводятся из того, что уже лежит на шаре.</div>
       <form id="params"></form>
       <div class="row"><button id="recompute" class="primary">Пересчитать</button><button id="reset">Сброс</button></div>
       <div id="perr" class="err"></div>

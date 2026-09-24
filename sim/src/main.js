@@ -3,7 +3,7 @@ import { loadRecipe, loadJSON } from './recipe.js';
 import { computeAll } from './layers.js';
 import { runValidators, summary, refKey } from './validators.js';
 import { PARAM_SCHEMA, GROUPS, STATUS_LABEL, defaults, paramsFromQuery } from './params.js';
-import { Renderer, viridis } from './render.js';
+import { Renderer, viridis, warm, SET_COLORS } from './render.js';
 
 const $ = (id) => document.getElementById(id);
 const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : '—');
@@ -13,7 +13,7 @@ window.addEventListener('error', (e) => window.__sim.errors.push(String(e.messag
 const q = new URLSearchParams(location.search);
 const state = {
   raw: { ...defaults(), ...paramsFromQuery(location.search) },
-  stage: q.get('stage') === '2a' ? '2a' : '2b',
+  stage: ['2a', '2b', 'B1', 'A2'].includes(q.get('stage')) ? q.get('stage') : 'A2',
   k: q.has('k') ? Number(q.get('k')) : null,
   view: q.get('view') || 'top',
   zoom: q.has('zoom') ? Number(q.get('zoom')) : 1,
@@ -25,7 +25,7 @@ R3.opts.transparent = q.get('t') === '1';
 R3.opts.hidden = q.get('h') !== '0';
 R3.opts.labels = q.get('lab') !== '0';
 R3.opts.pins = q.get('pins') !== '0';
-R3.opts.color = q.get('color') === 'type' ? 'type' : 'u';
+R3.opts.color = ['type', 'set'].includes(q.get('color')) ? q.get('color') : 'u';
 R3.opts.hidMode = q.get('hid') === 'chord' ? 'chord' : 'surf';
 $('optChord').checked = R3.opts.hidMode === 'chord';
 $('optTransparent').checked = R3.opts.transparent; $('optHidden').checked = R3.opts.hidden;
@@ -77,12 +77,13 @@ function recompute(first = false) {
   if (first) {
     R3.view(state.view, A.base.R, q.has('dist') ? Number(q.get('dist')) : null);
     const fq = q.get('focus');
-    const focus = fq === 'np' ? [0, 0, A.base.R] : fq === 'tip1' ? A.path.stitches[0].E : null;
+    const stOf = (round, i) => A.path.stitches.find((st) => st.round === round && st.i === i);
+    const focus = fq === 'np' ? [0, 0, A.base.R] : fq === 'tip1' ? stOf('A1', 1).E : fq === 'a2top' ? stOf('A2', 2).E : fq === 'a2tip' ? stOf('A2', 1).E : null;
     if (state.zoom !== 1 || focus) R3.zoomTo(state.zoom, focus);
   }
   setStage(state.stage, first && state.k !== null ? state.k : null);
   const rp = A.rowPlan;
-  $('plan').innerHTML = `План рядов по замыслу: <b>${rp.nRows}</b> (${rp.rows.map((r) => `n${r.n}: верх ${f(r.sTop, 2)}, низ ${f(r.sBot, 2)} мм`).join('; ')}). ${rp.note}`;
+  $('plan').innerHTML = `План рядов по формуле замысла: <b>${rp.nRows}</b> (${rp.rows.map((r) => `n${r.n}: верх ${f(r.sTop, 2)}, низ ${f(r.sBot, 2)} мм`).join('; ')}). Фактические уровни ряда 2 выводит генератор пути (см. V12, V13).`;
 }
 
 function setStage(stage, k = null) {
@@ -111,42 +112,42 @@ function update() {
 }
 
 function renderCaption() {
-  const P = A.params, st = A.path.stitches[0], cl = A.path.stitches[A.path.stitches.length - 1];
-  $('caption').innerHTML = `C = ${f(P.C_mm, 0)} мм (R = ${f(A.base.R, 2)}) · S${P.N} · w = ${f(P.w_mm, 3)} · m = ${f(P.m_mm, 2)} мм<br>` +
-    `верх ${f(A.layout.sTop, 2)} мм, низ ${f(A.layout.sBot, 2)} мм от СП · E/X = ±${f(st.eOff, 3)} мм (замыкающий X ${f(cl.xOff, 3)})<br>` +
-    `ряд 1 (весь обход): ${f(A.path.uEnd - A.path.segs.filter((x) => x.type === 'hidden-start').reduce((a, x) => a + x.length, 0), 2)} мм · план: ${A.rowPlan.nRows} ряд(а) · этап ${state.stage}, оп. ${state.k}`;
+  const P = A.params, op = A.path.ops[state.k];
+  const r = A.path.rounds.find((x) => x.id === op.round);
+  const sts = r.stitchIdx.map((i) => A.path.stitches[i]);
+  const top = sts.find((st) => st.level === 'top'), bot = sts.find((st) => st.level === 'bottom'), cl = sts[sts.length - 1];
+  $('caption').innerHTML = `C = ${f(P.C_mm, 0)} мм (R = ${f(A.base.R, 2)}) · S${P.N} · w = ${f(P.w_mm, 3)} · m = ${f(P.m_mm, 2)} мм · этап ${state.stage}, оп. ${state.k}<br>` +
+    `обход <b>${r.id}</b> (нить ${r.thread}, ряд ${r.row}): верх s = ${f(top.s, 3)} мм, E/X ±${f(top.eOff, 3)} (замыкающий X ${f(cl.xOff, 3)}); низ s = ${f(bot.s, 3)} мм, E/X ±${f(bot.eOff, 3)}<br>` +
+    `длина обхода ${f(r.length, 2)} мм · нить A ${f(A.path.threads.A.uEnd, 1)} мм${A.path.threads.B ? ` · нить B ${f(A.path.threads.B.uEnd, 1)} мм` : ''} (весь рецепт)`;
 }
 
 function renderLengths() {
-  const path = A.path, kEnd = A.path.stageEnd[state.stage];
+  const path = A.path, kEnd = path.stageEnd[state.stage];
   const ids = new Set(path.ops.slice(0, kEnd + 1).flatMap((o) => o.segIds));
   const segs = path.segs.filter((s) => ids.has(s.id));
-  const sum = (t) => segs.filter((s) => s.type === t).reduce((a, s) => a + s.length, 0);
-  const hid = sum('hidden-start'), legs = sum('leg'), pk = sum('pickup');
-  const v3 = V.find((v) => v.id === 'V3');
   const ids2 = new Set(path.ops.slice(0, state.k + 1).flatMap((o) => o.segIds));
-  const uk = path.segs.filter((s) => ids2.has(s.id)).reduce((a, s) => a + s.length, 0);
-  const hw = A.params.hw, w = A.params.w_mm, R = A.base.R;
-  const axis = legs * (R + hw * w / 2) / R;
-  const nLeg = segs.filter((s) => s.type === 'leg').length, nPk = segs.filter((s) => s.type === 'pickup').length;
-  const rows = [
-    ['Скрытый старт (' + (A.params.startRule === 'TK-ANCHOR' ? '2' : '1') + ' × ' + f(A.params.startRun_mm, 1) + ' мм, хорды)', f(hid)],
-    [`Видимые плечи (${nLeg}, геодезические)`, f(legs)],
-    [`Скрытые захваты (${nPk}, хорды E→X, выведены)`, f(pk)],
-    [state.stage === '2b' ? 'Ряд 1 = плечи + захваты (sim)' : 'Префикс ряда 1 (sim)', f(legs + pk)],
-  ];
+  const rows = [];
+  for (const t of Object.keys(path.threads)) {
+    const ts = segs.filter((s) => s.thread === t);
+    if (!ts.length) continue;
+    const byRound = {};
+    for (const s of ts) { const b = byRound[s.round] || (byRound[s.round] = { hid: 0, leg: 0, pk: 0, nLeg: 0 }); if (s.type === 'hidden-start') b.hid += s.length; else if (s.type === 'leg') { b.leg += s.length; b.nLeg++; } else b.pk += s.length; }
+    for (const [rid, b] of Object.entries(byRound)) {
+      rows.push([`<span class="sw" style="background:#${SET_COLORS[t].toString(16).padStart(6, '0')}"></span>${rid}: ${b.hid ? `скрытый старт ${f(b.hid, 1)} + ` : ''}плечи (${b.nLeg}) ${f(b.leg, 1)} + захваты ${f(b.pk, 1)}`, f(b.hid + b.leg + b.pk)]);
+    }
+    const tot = ts.reduce((a, s) => a + s.length, 0);
+    const used = path.segs.filter((s) => s.thread === t && ids2.has(s.id)).reduce((a, s) => a + s.length, 0);
+    rows.push([`<b>Нить ${t} (цвет ${t}) — всего по этапу</b>; израсходовано до операции ${state.k}: ${f(used, 1)} мм; масса ${f(tot * A.params.tex / 1e6, 3)} г`, `<b>${f(tot)}</b>`]);
+  }
   let html = rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b} мм</td></tr>`).join('');
+  const v3 = V.find((v) => v.id === 'V3');
   if (v3 && v3.numbers) {
     const d = Math.abs(v3.numbers.rowLen - v3.numbers.refLen);
-    html += `<tr class="${d < 1e-6 ? 'ok' : ''}"><td>calc.py (эталон, numpy) — Δ</td><td class="n">${f(v3.numbers.refLen)} мм · Δ ${d.toExponential(1)}</td></tr>`;
-  } else html += `<tr><td>calc.py</td><td class="n">нет эталона для этих входов</td></tr>`;
-  html += `<tr class="tot"><td>Всего нити этапа (старт + ряд)</td><td class="n">${f(hid + legs + pk)} мм</td></tr>`;
-  html += `<tr><td>Израсходовано до операции ${state.k}</td><td class="n">${f(uk)} мм</td></tr>`;
-  html += `<tr><td>Диагностика: плечи по оси нити на R + h/2 (h = ${f(hw, 2)}·w — не измерено)</td><td class="n">${f(axis)} мм (+${f(axis - legs, 2)})</td></tr>`;
-  html += `<tr><td>Масса нити этапа (текс ${A.params.tex})</td><td class="n">${f((hid + legs + pk) * A.params.tex / 1e6, 4)} г</td></tr>`;
-  const defaultsNow = refKey(A) === 'C=240|w=0.714|m=1|N=8|sTop=5.000000|bfe=0.333333|start=TK-ANCHOR:35';
-  if (defaultsNow && state.stage === '2b')
-    html += `<tr><td colspan="2" class="note">Stage-1 calc.py давал 316,063 мм при заданном захвате ±1 мм (2 мм). После D16 захват выведен: m + w = 1,714 мм, замыкающий 2,428 мм → 313,088 мм. Разница −2,975 мм = захваты (−1,520) + сдвиг E/X, укорачивающий плечи (−1,455).</td></tr>`;
+    html += `<tr class="${d < 1e-6 ? 'ok' : ''}"><td>A1 (плечи + захваты) vs calc.py — Δ</td><td class="n">${f(v3.numbers.refLen)} мм · Δ ${d.toExponential(1)}</td></tr>`;
+  }
+  const hw = A.params.hw, w = A.params.w_mm, R = A.base.R;
+  const legs = segs.filter((s) => s.type === 'leg').reduce((a, s) => a + s.length, 0);
+  html += `<tr><td>Диагностика: все плечи по оси нити на R + h/2 (h = ${f(hw, 2)}·w — не измерено; подъём в стопке не учтён)</td><td class="n">+${f(legs * hw * w / 2 / R, 2)} мм</td></tr>`;
   $('lengths').innerHTML = html;
 }
 
@@ -157,9 +158,12 @@ function renderValidators() {
 }
 
 function renderLegend() {
+  const grad = (fn) => `linear-gradient(90deg,${Array.from({ length: 11 }, (_, i) => `#${fn(i / 10).getHexString()}`).join(',')})`;
   if (R3.opts.color === 'u') {
-    const stops = Array.from({ length: 11 }, (_, i) => `#${viridis(i / 10).getHexString()}`).join(',');
-    $('legend').innerHTML = `u = 0 (конец нити)<div class="bar" style="background:linear-gradient(90deg,${stops})"></div>${f(A.path.uEnd, 1)} мм`;
+    $('legend').innerHTML = Object.values(A.path.threads).map((t) => `нить ${t.id}: u = 0 (конец)<div class="bar" style="background:${grad(t.id === 'B' ? warm : viridis)}"></div>${f(t.uEnd, 1)} мм`).join('<br>');
+  } else if (R3.opts.color === 'set') {
+    $('legend').innerHTML = Object.entries(SET_COLORS).map(([k2, c]) => `<span><span class="sw" style="background:#${c.toString(16).padStart(6, '0')}"></span>набор ${k2} (нить ${k2}); ряд 2 светлее, скрытые участки бледнее</span>`).join('') +
+      '<div class="note">Верхняя нить в перекрёстке приподнята на 0,6·w на уровень стопки — только изображение (высоты — механика, позже).</div>';
   } else {
     $('legend').innerHTML = `<span><span class="sw" style="background:#2f6bd6"></span>плечо</span><span><span class="sw" style="background:#d6336c"></span>захват (скрыт)</span><span><span class="sw" style="background:#7a7a7a"></span>скрытый старт</span><span><span class="sw" style="background:#ff8c00"></span>текущая операция</span>`;
   }
