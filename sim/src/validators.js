@@ -2,6 +2,8 @@
 // Каждый: id, название (рус.), критерий criteria.md / основание, статус pass|fail|warn|info|n/a, числа.
 import { dist, norm, toSPhi, dot, unit, sub, ePole, eEast, closeZones, haversineLen, wrapPi, point } from './geom.js';
 import { prefix } from './layers.js';
+import { displayGeometry } from './display.js';
+import { tubeMesh } from './tube.js';
 
 const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : String(x));
 const TOL_JOIN = 1e-9;        // мм — непрерывность (численный допуск)
@@ -9,6 +11,8 @@ const TOL_LEN = 1e-9;         // мм — баланс длины (числен�
 const TOL_REF = 1e-6;         // мм — совпадение с calc.py (две независимые реализации одной геометрии)
 const TOL_PERP_DEG = 1e-6;    // ° — перпендикулярность: модель строит её точно, допуск численный
 const TOL_SYM = 1e-9;         // мм — симметрия лепестков
+const TOL_RAD = 1e-9;         // мм — радиальное положение модели (численный)
+const TOL_MESH = 1e-6;        // мм — меш трубки (накопление поворотов рамки)
 
 export function refKey(A) {
   const P = A.params;
@@ -255,6 +259,32 @@ export function runValidators(A, stage = '2b', ref = null) {
   // V13 — правило источника «каждый следующий верх на ~1 нить ниже и шире» — следствие, проверяется в 2c
   add({ id: 'V13', name: 'Верх ряда n+1 «на нить ниже и шире» как следствие', crit: 'TK-GT14, TK-UWA (проверять, не задавать)',
     status: 'n/a', value: 'нужен ряд 2 (этап 2c): ширина верхнего захвата должна получиться из занятости, затем сравниться с «about 1 thread width»' });
+  // V14 — видимая нить лежит на шаре, не парит (модель и отображаемый меш)
+  {
+    const ids = new Set(segs.map((s) => s.id));
+    let legDev = 0, legMax = -Infinity, hidOut = -Infinity, hidDepth = 0;
+    for (const s of segs) for (const p of s.pts) {
+      const r = norm(p) - R;
+      if (s.type === 'leg') { legDev = Math.max(legDev, Math.abs(r)); legMax = Math.max(legMax, r); }
+      else { hidOut = Math.max(hidOut, r); if (s.type === 'hidden-start') hidDepth = Math.max(hidDepth, -r); }
+    }
+    let meshMax = -Infinity, axisMax = -Infinity, hidDispAxisMax = -Infinity, hidDispDepth = 0;
+    for (const dg of displayGeometry(A, ids, { hidMode: 'surf' })) {
+      if (dg.hidden) {
+        for (const p of dg.pts) { const r = norm(p) - R; hidDispAxisMax = Math.max(hidDispAxisMax, r); if (dg.seg.type === 'hidden-start') hidDispDepth = Math.max(hidDispDepth, -r); }
+        continue;
+      }
+      for (const p of dg.pts) axisMax = Math.max(axisMax, norm(p) - R);
+      for (const v of tubeMesh(dg.pts, dg.radius).pos) meshMax = Math.max(meshMax, norm(v) - R);
+    }
+    const ok = legDev < TOL_RAD && hidOut < TOL_RAD && meshMax <= w + TOL_MESH && axisMax <= w / 2 + TOL_MESH && hidDispAxisMax <= TOL_MESH;
+    add({ id: 'V14', name: 'Нить не парит над шаром (модель и меш)', crit: 'K1–K3; D22 (трубка Ø w на поверхности); отзыв по скриншоту 03',
+      status: ok ? 'pass' : 'fail',
+      value: `модель: плечи |r − R| ≤ ${legDev.toExponential(1)} мм (max r − R = ${legMax.toExponential(1)}); скрытые не выше поверхности (max ${hidOut.toExponential(1)}), хорда старта до ${f(hidDepth, 2)} мм вглубь. `
+        + `Меш: ось трубки ≤ R + ${f(axisMax, 3)} мм (норма w/2 = ${f(w / 2, 3)}), внешняя поверхность ≤ R + ${f(meshMax, 3)} мм (норма w = ${f(w, 3)}). `
+        + `Схема скрытого старта: ось ≤ R + ${f(Math.max(0, hidDispAxisMax), 3)}, глубина ${f(hidDispDepth, 3)} мм`,
+      numbers: { legDev, legMax, hidOut, hidDepth, axisMax, meshMax, hidDispAxisMax, hidDispDepth } });
+  }
   return out;
 }
 

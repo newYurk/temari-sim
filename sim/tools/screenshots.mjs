@@ -15,6 +15,8 @@ const shots = [
   { name: '01_pass2a_top', q: 'stage=2a&view=top&zoom=1.25' },
   { name: '02_round2b_top', q: 'stage=2b&view=top&zoom=1.25' },
   { name: '03_round2b_oblique_transparent', q: 'stage=2b&view=oblique&t=1&zoom=1.15' },
+  { name: '03b_round2b_oblique_transparent_chord', q: 'stage=2b&view=oblique&t=1&zoom=1.15&hid=chord' },
+  { name: '03c_round2b_oblique_opaque', q: 'stage=2b&view=oblique&zoom=1.15' },
   { name: '04_step_mid_highlight', q: 'stage=2b&k=10&view=top&zoom=1.6&color=type' },
   { name: '05_closing_zoom', q: 'stage=2b&k=17&view=top&zoom=9&focus=np&color=type&t=1&pins=0' },
   { name: '07_tip_zoom', q: 'stage=2b&k=4&view=top&zoom=5&focus=tip1&color=type&t=1' },
@@ -38,15 +40,20 @@ for (const s of shots) {
 }
 await browser.close();
 
-// Сравнение двух наборов параметров рядом (только область 3D-вида, без панели)
-const a = PNG.sync.read(fs.readFileSync(path.join(out, '06a_params_C240_w0714.png')));
-const b = PNG.sync.read(fs.readFileSync(path.join(out, '06b_params_C300_w1.png')));
-const cw = 1160, ch = 1000;
-const c = new PNG({ width: cw * 2, height: ch });
-for (const [img, ox] of [[a, 0], [b, cw]]) for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
-  const si = (y * img.width + x) * 4, di = (y * c.width + x + ox) * 4;
-  for (let k = 0; k < 4; k++) c.data[di + k] = img.data[si + k];
+// Сравнения рядом (только область 3D-вида, без панели)
+function sideBySide(fa, fb, outName) {
+  const a = PNG.sync.read(fs.readFileSync(path.join(out, fa)));
+  const b = PNG.sync.read(fs.readFileSync(path.join(out, fb)));
+  const cw = 1160, ch = 1000;
+  const c = new PNG({ width: cw * 2, height: ch });
+  for (const [img, ox] of [[a, 0], [b, cw]]) for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const si = (y * img.width + x) * 4, di = (y * c.width + x + ox) * 4;
+    for (let k = 0; k < 4; k++) c.data[di + k] = img.data[si + k];
+  }
+  fs.writeFileSync(path.join(out, outName), PNG.sync.write(c));
+  console.log(outName);
 }
-fs.writeFileSync(path.join(out, '06_compare_C240w0714_vs_C300w1.png'), PNG.sync.write(c));
-console.log('06_compare_C240w0714_vs_C300w1.png');
+sideBySide('06a_params_C240_w0714.png', '06b_params_C300_w1.png', '06_compare_C240w0714_vs_C300w1.png');
+if (fs.existsSync(path.join(out, '03_before_chords_opacity028.png')))
+  sideBySide('03_before_chords_opacity028.png', '03_round2b_oblique_transparent.png', '03_compare_before_after.png');
 if (logs.length) console.log('console:\n' + logs.join('\n'));

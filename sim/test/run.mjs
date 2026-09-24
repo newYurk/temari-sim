@@ -3,6 +3,9 @@ import { loadRecipe, loadJSON } from '../src/recipe.js';
 import { computeAll } from '../src/layers.js';
 import { runValidators, summary, refKey } from '../src/validators.js';
 import { PARAM_SCHEMA } from '../src/params.js';
+import { displayGeometry } from '../src/display.js';
+import { tubeMesh } from '../src/tube.js';
+import { norm, unit, mul, sub, dot } from '../src/geom.js';
 
 const recipe = await loadRecipe();
 const ref = await loadJSON('../data/calc_reference.json');
@@ -104,6 +107,40 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const txt = JSON.stringify(recipe);
   check(!/bite|pickupWidth|pickup_width/i.test(txt), 'рецепт не содержит ширины захвата');
   check(!PARAM_SCHEMA.some((p) => /bite|pickup/i.test(p.key)), 'параметры не содержат ширины захвата');
+}
+
+// 6. Нить не парит (V14) и «крючки» у полюса на скриншоте 03 — проекция, а не отрыв от шара
+{
+  const A = computeAll(recipe, {});
+  const V = runValidators(A, '2b', ref);
+  const v14 = V.find((v) => v.id === 'V14');
+  check(v14.status === 'pass', `V14: плечи на R (|r − R| ≤ ${v14.numbers.legDev.toExponential(1)}), меш ≤ R + ${v14.numbers.meshMax.toFixed(3)} = R + w`);
+  // отрицательный тест: подвинуть одну точку плеча на 1 мм наружу — V14 обязан упасть
+  const bad = computeAll(recipe, {});
+  const leg = bad.path.segs.find((s) => s.type === 'leg');
+  const i = Math.floor(leg.pts.length / 2);
+  leg.pts[i] = mul(unit(leg.pts[i]), bad.base.R + 1);
+  check(runValidators(bad, '2b', ref).find((v) => v.id === 'V14').status === 'fail', 'V14 ловит нить, поднятую на 1 мм над шаром');
+  // камера вида «Косо» как на скриншоте 03 (render.js view('oblique')): D = 7,2R, fov 28°, кадр 1000 px, zoom 1,15
+  const R = A.base.R, w = A.params.w_mm, D = 7.2 * R, c = mul(unit([0.55, -0.95, 0.9]), D);
+  const ang = (v) => { const a = sub(v, c), b = mul(c, -1); return Math.acos(dot(a, b) / norm(a) / norm(b)); };
+  const sil = Math.asin(R / D), fpx = 500 * 1.15 / Math.tan(14 * Math.PI / 180);
+  let crossing = 0, worstPx = -Infinity;
+  for (const dg of displayGeometry(A, null)) {
+    if (dg.hidden) continue;
+    const front = dg.seg.pts.map((p) => dot(p, c) > R * R);
+    if (front.some((x, k) => k > 0 && x !== front[k - 1])) crossing++;
+    for (const v of tubeMesh(dg.pts, dg.radius).pos) worstPx = Math.max(worstPx, (Math.tan(ang(v)) - Math.tan(sil)) * fpx);
+  }
+  const wPx = (w / D) * fpx * 1.05;   // проекция толщины трубки у лимба (+5 % на перспективу)
+  console.log(`  вид «Косо»: плеч, пересекающих лимб шара: ${crossing}; трубка выходит за силуэт максимум на ${worstPx.toFixed(2)} px (толщина трубки ≈ ${(w / D * fpx).toFixed(2)} px)`);
+  check(crossing > 0 && worstPx <= wPx, '«крючки» у полюса — плечи, уходящие за лимб (видны сквозь прозрачный шар); за силуэт выходит только толщина трубки');
+  // скрытый старт: схема у поверхности не проходит сквозь шар; режим «хорда» совпадает с моделью
+  const surf = displayGeometry(A, null, { hidMode: 'surf' }).filter((d) => d.seg.type === 'hidden-start');
+  const chord = displayGeometry(A, null, { hidMode: 'chord' }).filter((d) => d.seg.type === 'hidden-start');
+  const depth = (ds) => Math.max(...ds.flatMap((d) => d.pts.map((p) => R - norm(p))));
+  check(surf.every((d) => d.schematic) && depth(surf) <= w + 1e-9, `скрытый старт по умолчанию — схема на ≤ w = ${w} мм под поверхностью (глубина ${depth(surf).toFixed(3)})`);
+  check(chord.every((d) => !d.schematic) && Math.abs(depth(chord) - v14.numbers.hidDepth) < 1e-2, `режим «хорда»: глубина ${depth(chord).toFixed(2)} мм = модель`);
 }
 
 console.log(`\n${failures === 0 ? 'ВСЕ ТЕСТЫ ПРОШЛИ' : `ПРОВАЛОВ: ${failures}`}`);

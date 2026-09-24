@@ -26,6 +26,8 @@ R3.opts.hidden = q.get('h') !== '0';
 R3.opts.labels = q.get('lab') !== '0';
 R3.opts.pins = q.get('pins') !== '0';
 R3.opts.color = q.get('color') === 'type' ? 'type' : 'u';
+R3.opts.hidMode = q.get('hid') === 'chord' ? 'chord' : 'surf';
+$('optChord').checked = R3.opts.hidMode === 'chord';
 $('optTransparent').checked = R3.opts.transparent; $('optHidden').checked = R3.opts.hidden;
 $('optLabels').checked = R3.opts.labels; $('optPins').checked = R3.opts.pins;
 document.querySelector(`input[name=color][value=${R3.opts.color}]`).checked = true;
@@ -63,6 +65,7 @@ function syncURL() {
   u.set('stage', state.stage); u.set('k', state.k); u.set('view', state.view);
   if (R3.opts.transparent) u.set('t', '1'); if (!R3.opts.hidden) u.set('h', '0');
   if (!R3.opts.labels) u.set('lab', '0'); if (!R3.opts.pins) u.set('pins', '0'); if (R3.opts.color !== 'u') u.set('color', R3.opts.color);
+  if (R3.opts.hidMode === 'chord') u.set('hid', 'chord');
   history.replaceState(null, '', '?' + u.toString());
 }
 
@@ -172,6 +175,7 @@ $('first').addEventListener('click', () => { state.k = 0; update(); });
 $('last').addEventListener('click', () => { state.k = A.path.stageEnd[state.stage]; update(); });
 for (const [id, key] of [['optTransparent', 'transparent'], ['optHidden', 'hidden'], ['optLabels', 'labels'], ['optPins', 'pins']])
   $(id).addEventListener('change', (e) => { R3.opts[key] = e.target.checked; R3.applyOpts(); syncURL(); });
+$('optChord').addEventListener('change', (e) => { R3.opts.hidMode = e.target.checked ? 'chord' : 'surf'; update(); });
 document.querySelectorAll('input[name=color]').forEach((r) => r.addEventListener('change', (e) => { R3.opts.color = e.target.value; update(); }));
 $('recompute').addEventListener('click', (e) => { e.preventDefault(); state.raw = readForm(); recompute(); });
 $('reset').addEventListener('click', (e) => { e.preventDefault(); state.raw = defaults(); buildForm(); recompute(); });

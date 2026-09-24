@@ -1,10 +1,13 @@
 // Рендер (three.js). Вход — ТОЛЬКО результат конвейера (слои + префикс пути). Рендер ничего не возвращает в модель.
 // Отображение: нить — трубка круглого сечения диаметра w, лежащая на поверхности (ось на R + w/2);
-// скрытые участки — пунктирные трубки по каналу; видимое → скрытое: короткий «нырок» в отверстие.
+// скрытые участки — пунктирные трубки (display.js: скрытый старт по умолчанию схемой у поверхности, режим «хорда» — как в модели);
+// видимое → скрытое: короткий «нырок» в отверстие.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { point, eEast, unit, mul, add, sub, norm, dist } from './geom.js';
+import { tubeMesh } from './tube.js';
+import { displayGeometry } from './display.js';
 
 const COLORS = { leg: 0x2f6bd6, pickup: 0xd6336c, 'hidden-start': 0x7a7a7a, current: 0xff8c00 };
 // диагностическая палитра по длине нити u (viridis, 6 опорных цветов)
@@ -16,47 +19,16 @@ export function viridis(t) {
   return new THREE.Color(c[0], c[1], c[2]);
 }
 
-/** Трубка вдоль полилинии (параллельный перенос рамки), цвет по доле длины. */
+/** Трубка вдоль полилинии (геометрия — чистая tubeMesh из tube.js, её же проверяет V14), цвет по доле длины. */
 function tubeGeometry(pts, radius, colorAt, radial = 14) {
-  const n = pts.length;
-  const P = pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
-  const T = P.map((p, i) => {
-    const a = P[Math.max(0, i - 1)], b = P[Math.min(n - 1, i + 1)];
-    return b.clone().sub(a).normalize();
-  });
-  let nrm = new THREE.Vector3(0, 0, 1);
-  if (Math.abs(nrm.dot(T[0])) > 0.9) nrm = new THREE.Vector3(1, 0, 0);
-  nrm = nrm.sub(T[0].clone().multiplyScalar(nrm.dot(T[0]))).normalize();
-  const cum = [0];
-  for (let i = 1; i < n; i++) cum.push(cum[i - 1] + P[i].distanceTo(P[i - 1]));
-  const total = cum[n - 1] || 1;
-  const pos = [], col = [], nor = [], idx = [];
-  for (let i = 0; i < n; i++) {
-    if (i > 0) { // параллельный перенос нормали: поворот на угол между касательными
-      const axis = new THREE.Vector3().crossVectors(T[i - 1], T[i]);
-      const sn = axis.length(), cs = T[i - 1].dot(T[i]);
-      if (sn > 1e-12) nrm.applyAxisAngle(axis.divideScalar(sn), Math.atan2(sn, cs));
-      nrm.sub(T[i].clone().multiplyScalar(nrm.dot(T[i]))).normalize();
-    }
-    const bin = new THREE.Vector3().crossVectors(T[i], nrm);
-    const c = colorAt(cum[i] / total);
-    for (let j = 0; j <= radial; j++) {
-      const a = (j / radial) * Math.PI * 2;
-      const d = nrm.clone().multiplyScalar(Math.cos(a)).add(bin.clone().multiplyScalar(Math.sin(a)));
-      pos.push(P[i].x + d.x * radius, P[i].y + d.y * radius, P[i].z + d.z * radius);
-      nor.push(d.x, d.y, d.z);
-      col.push(c.r, c.g, c.b);
-    }
-  }
-  for (let i = 0; i < n - 1; i++) for (let j = 0; j < radial; j++) {
-    const a = i * (radial + 1) + j, b = a + radial + 1;
-    idx.push(a, b, a + 1, b, b + 1, a + 1);
-  }
+  const m = tubeMesh(pts, radius, radial);
+  const col = [];
+  for (const t of m.frac) { const c = colorAt(t); col.push(c.r, c.g, c.b); }
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('position', new THREE.Float32BufferAttribute(m.pos.flat(), 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(m.nor.flat(), 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  g.setIndex(idx);
+  g.setIndex(m.idx);
   return g;
 }
 
@@ -77,16 +49,6 @@ function dashes(pts, dash, gap) {
     for (let i = 0; i < cum.length; i++) if (cum[i] > a && cum[i] < b) piece.push(pts[i]);
     piece.push(at(b));
     out.push(piece);
-  }
-  return out;
-}
-
-/** Уплотнить прямой отрезок/полилинию до шага h. */
-function densify(pts, h) {
-  const out = [pts[0]];
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1], b = pts[i], n = Math.max(1, Math.ceil(dist(a, b) / h));
-    for (let k = 1; k <= n; k++) out.push(add(a, mul(sub(b, a), k / n)));
   }
   return out;
 }
@@ -113,7 +75,7 @@ export class Renderer {
     this.world.rotation.x = -Math.PI / 2;
     this.scene.add(this.world);
     this.static = null; this.dynamic = null;
-    this.opts = { transparent: false, hidden: true, labels: true, pins: true, color: 'u' };
+    this.opts = { transparent: false, hidden: true, labels: true, pins: true, color: 'u', hidMode: 'surf' };
     window.addEventListener('resize', () => this.resize());
     this.controls.addEventListener('change', () => this.draw());
     this.resize();
@@ -220,35 +182,24 @@ export class Renderer {
     const matHidden = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, transparent: true, opacity: 0.85 });
     const matCur = new THREE.MeshBasicMaterial({ color: COLORS.current, transparent: true, opacity: 0.45, depthWrite: false, depthTest: false });   // текущая операция видна всегда (даже внутри шара)
     this.hiddenGroup = new THREE.Group();
-    const lift = (p, r) => mul(unit(p), r);
-    for (const s of path.segs) {
-      if (!ids.has(s.id)) continue;
+    for (const dg of displayGeometry(A, ids, { hidMode: this.opts.hidMode })) {
+      const s = dg.seg, pts = dg.pts, radius = dg.radius;
       const colorAt = this.opts.color === 'u'
         ? (t) => viridis((s.u0 + t * (s.u1 - s.u0) - uStart) / (uMax - uStart))
         : () => new THREE.Color(COLORS[s.type]);
-      let pts, radius = w / 2, hidden = false;
-      if (s.type === 'leg') {
-        pts = [lift(s.from, R - w / 2), ...s.pts.map((p) => lift(p, R + w / 2)), lift(s.to, R - w / 2)];
-      } else if (s.type === 'pickup') {
-        pts = densify([lift(s.from, R - w / 2), lift(s.to, R - w / 2)], 0.05); hidden = true; radius = w * 0.35;
-      } else {
-        pts = densify(s.pts, 0.2); hidden = true; radius = w * 0.35;
-      }
-      if (!hidden) {
+      if (!dg.hidden) {
         g.add(new THREE.Mesh(tubeGeometry(pts, radius, colorAt), matSolid));
       } else {
-        const L = s.length;
-        const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + dist(pts[i], pts[i - 1]));
         for (const d of dashes(pts, s.type === 'pickup' ? 0.28 : 1.2, s.type === 'pickup' ? 0.18 : 0.8)) {
           if (d.length < 2) continue;
           this.hiddenGroup.add(new THREE.Mesh(tubeGeometry(d, radius, colorAt, 10), matHidden));
         }
-        void L; void cum;
+        if (s.type === 'hidden-start' && s.id === path.segs[0].id) {
+          const mid = pts[Math.floor(pts.length / 2)];
+          this.hiddenGroup.add(this.label(dg.schematic ? 'скрытый старт — схема у поверхности (модель: прямая хорда)' : 'скрытый старт — хорда иглы (модель)', mul(unit(mid), R + 1.5), 'lbl small'));
+        }
       }
-      if (curIds.has(s.id)) {
-        const hp = hidden ? pts : pts;
-        g.add(new THREE.Mesh(tubeGeometry(hp, radius * 1.9, () => new THREE.Color(COLORS.current)), matCur));
-      }
+      if (curIds.has(s.id)) g.add(new THREE.Mesh(tubeGeometry(pts, radius * 1.9, () => new THREE.Color(COLORS.current)), matCur));
     }
     g.add(this.hiddenGroup);
     // подписи стежков
@@ -282,13 +233,14 @@ export class Renderer {
   applyOpts() {
     if (this.ball) {
       const m = this.ball.material;
-      m.transparent = this.opts.transparent; m.opacity = this.opts.transparent ? 0.28 : 1; m.depthWrite = !this.opts.transparent;
+      m.transparent = this.opts.transparent; m.opacity = this.opts.transparent ? 0.4 : 1; m.depthWrite = !this.opts.transparent;
       m.needsUpdate = true;
     }
     if (this.goldMat) { this.goldMat.transparent = this.opts.transparent; this.goldMat.opacity = this.opts.transparent ? 0.45 : 1; this.goldMat.depthWrite = !this.opts.transparent; this.goldMat.needsUpdate = true; }
     if (this.hiddenGroup) this.hiddenGroup.visible = this.opts.hidden;
     if (this.pinGroup) this.pinGroup.visible = this.opts.pins;
     for (const grp of [this.staticLabels, this.threadLabels]) if (grp) grp.traverse((o) => { if (o.isCSS2DObject) o.visible = this.opts.labels; });
+    if (this.hiddenGroup) this.hiddenGroup.traverse((o) => { if (o.isCSS2DObject) o.visible = this.opts.labels && this.opts.hidden; });
     this.draw();
   }
 
