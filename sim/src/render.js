@@ -11,6 +11,10 @@ import { displayGeometry } from './display.js';
 
 const COLORS = { leg: 0x2f6bd6, pickup: 0xd6336c, 'hidden-start': 0x7a7a7a, current: 0xff8c00 };
 export const SET_COLORS = { A: 0x1f5fbf, B: 0xc2185b };   // набор A — синий, набор B — малиновый (цвета условные)
+// окраска «по обходу» (по умолчанию): каждый обход в порядке работы — свой контрастный цвет; без жёлтого/золотого (разметка)
+// и без оранжевого (подсветка текущей операции); 12 цветов, дальше по кругу
+export const ROUND_COLORS = [0x1d4ed8, 0xc2185b, 0x16a34a, 0x7c3aed, 0x0891b2, 0xdc2626, 0x7c4a1e, 0x334155, 0x65a30d, 0xf472b6, 0x60a5fa, 0x115e59];
+export const roundColor = (i) => ROUND_COLORS[((i % ROUND_COLORS.length) + ROUND_COLORS.length) % ROUND_COLORS.length];
 // «тёплая» шкала для нити B (по длине u), 5 опорных цветов
 const WARM = [[80, 10, 60], [150, 20, 80], [210, 60, 70], [240, 130, 50], [250, 210, 90]];
 export function warm(t) {
@@ -28,8 +32,8 @@ export function viridis(t) {
 }
 
 /** Трубка вдоль полилинии (геометрия — чистая tubeMesh из tube.js, её же проверяет V14), цвет по доле длины. */
-function tubeGeometry(pts, radius, colorAt, radial = 14) {
-  const m = tubeMesh(pts, radius, radial);
+function tubeGeometry(pts, radius, colorAt, radial = 14, caps = true) {
+  const m = tubeMesh(pts, radius, radial, caps);
   const col = [];
   for (const t of m.frac) { const c = colorAt(t); col.push(c.r, c.g, c.b); }
   const g = new THREE.BufferGeometry();
@@ -83,7 +87,7 @@ export class Renderer {
     this.world.rotation.x = -Math.PI / 2;
     this.scene.add(this.world);
     this.static = null; this.dynamic = null;
-    this.opts = { transparent: false, hidden: true, labels: true, pins: true, color: 'u', hidMode: 'surf' };
+    this.opts = { transparent: false, hidden: true, labels: true, pins: true, color: 'round', hidMode: 'surf' };
     window.addEventListener('resize', () => this.resize());
     this.controls.addEventListener('change', () => this.draw());
     this.resize();
@@ -167,7 +171,7 @@ export class Renderer {
     g.add(this.pinGroup);
     // подписи линий и полюса
     this.staticLabels = new THREE.Group();
-    A.marking.phis.forEach((phi, k) => this.staticLabels.add(this.label(`L${k}`, point(R + 1.5, A.layout.sBot + 7, phi), 'lbl line')));
+    A.marking.phis.forEach((phi, k) => this.staticLabels.add(this.label(`L${k}`, point(R + 3, Q, phi), 'lbl line')));
     this.staticLabels.add(this.label('СП', point(R + 1.6, 1.6, -3 * Math.PI / 8), 'lbl pole'));
     this.staticLabels.add(this.label('экватор', point(R + 1.5, Q, -Math.PI / 2 + 0.25), 'lbl line'));
     g.add(this.staticLabels);
@@ -186,8 +190,12 @@ export class Renderer {
     const ids = new Set(ops.flatMap((o) => o.segIds));
     const curIds = new Set(cur ? cur.segIds : []);
     const curRound = path.rounds.find((r) => r.id === cur.round);
-    const matSolid = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 });
-    const matHidden = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, transparent: true, opacity: 0.85 });
+    const matSolid = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide });
+    // скрытые участки: светлее цвета своего обхода и полупрозрачны; канал иглы — сплошная тонкая трубка, скрытый старт — штрихи с заглушками
+    const matHidden = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
+    const matXray = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false });
+    const w = A.params.w_mm;
+    this.roundIdx = Object.fromEntries(path.rounds.map((r, i) => [r.id, i]));
     const matCur = new THREE.MeshBasicMaterial({ color: COLORS.current, transparent: true, opacity: 0.45, depthWrite: false, depthTest: false });   // текущая операция видна всегда (даже внутри шара)
     this.hiddenGroup = new THREE.Group();
     const thr = Object.fromEntries(Object.values(path.threads).map((t) => [t.id, t]));
@@ -197,9 +205,19 @@ export class Renderer {
       if (!dg.hidden) {
         g.add(new THREE.Mesh(tubeGeometry(pts, radius, colorAt), matSolid));
       } else {
-        for (const d of dashes(pts, s.type === 'pickup' ? 0.28 : 1.2, s.type === 'pickup' ? 0.18 : 0.8)) {
+        const light = (x) => colorAt(x).clone().lerp(new THREE.Color(0xffffff), 0.45);
+        if (s.type === 'pickup') {
+          this.hiddenGroup.add(new THREE.Mesh(tubeGeometry(pts, radius, light, 10), matHidden));
+          // «рентген»: канал иглы проходит ПОД нитями, поэтому сверху его закрывают трубки; поверх всего рисуется
+          // его штриховой контур (условное обозначение скрытой линии, depthTest выключен) — видно, под чем идёт игла
+          for (const d of dashes(pts, 0.22, 0.14)) {
+            if (d.length < 2) continue;
+            const m = new THREE.Mesh(tubeGeometry(d, w * 0.14, colorAt, 8), matXray); m.renderOrder = 10; this.hiddenGroup.add(m);
+          }
+        }
+        else for (const d of dashes(pts, 1.2, 0.8)) {
           if (d.length < 2) continue;
-          this.hiddenGroup.add(new THREE.Mesh(tubeGeometry(d, radius, colorAt, 10), matHidden));
+          this.hiddenGroup.add(new THREE.Mesh(tubeGeometry(d, radius, light, 10), matHidden));
         }
         if (s.type === 'hidden-start' && s.run === 1) {
           const mid = pts[Math.floor(pts.length / 2)];
@@ -243,11 +261,11 @@ export class Renderer {
    *  'type' — по типу участка. Возвращает (t ∈ [0,1] вдоль сегмента) → THREE.Color. */
   colorFn(s, t) {
     const mode = this.opts.color;
+    if (mode === 'round') { const c = new THREE.Color(roundColor(this.roundIdx ? this.roundIdx[s.round] ?? 0 : 0)); return () => c; }
     if (mode === 'type') return () => new THREE.Color(COLORS[s.type]);
     if (mode === 'set') {
       const base = new THREE.Color(SET_COLORS[s.set] || 0x888888);
       const c = base.clone().offsetHSL(0, 0, (s.row - 1) * 0.14);
-      if (s.type !== 'leg') c.offsetHSL(0, -0.2, 0.1);
       return () => c;
     }
     const pal = s.thread === 'B' ? warm : viridis;
@@ -269,11 +287,11 @@ export class Renderer {
   }
 
   /** Виды камеры (в координатах симулятора: СП = +z). */
-  view(name, R = this.R || 38.2, distMm = null) {
+  view(name, R = this.R || 38.2, distMm = null, dirVec = null) {   // dirVec — произвольное направление камеры (параметр URL dir=x,y,z)
     const D = distMm || R * 7.2;          // distMm — фиксированная дистанция (сравнение размеров разных мари)
     const toThree = (v) => new THREE.Vector3(v[0], v[2], -v[1]);
     const dirs = { top: [0, -0.0008, 1], oblique: [0.55, -0.95, 0.9], bottom: [0, 0.0008, -1], side: [0, -1, 0.05] };
-    const d = unit(dirs[name] || dirs.top);
+    const d = unit(dirVec && dirVec.length === 3 && dirVec.every(Number.isFinite) ? dirVec : dirs[name] || dirs.top);
     this.camera.position.copy(toThree(mul(d, D)));
     this.controls.target.set(0, 0, 0);
     this.camera.lookAt(0, 0, 0);

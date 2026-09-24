@@ -7,7 +7,7 @@ function rotate(v, axis, ang) { // формула Родрига, axis — ед�
   return add(add(mul(v, c), mul(cross(axis, v), s)), mul(axis, dot(axis, v) * (1 - c)));
 }
 
-export function tubeMesh(pts, radius, radial = 14) {
+export function tubeMesh(pts, radius, radial = 14, caps = false) {
   const n = pts.length;
   const T = pts.map((p, i) => unit(sub(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)])));
   let nrm = Math.abs(T[0][2]) > 0.9 ? [1, 0, 0] : [0, 0, 1];
@@ -34,6 +34,25 @@ export function tubeMesh(pts, radius, radial = 14) {
   for (let i = 0; i < n - 1; i++) for (let j = 0; j < radial; j++) {
     const a = i * (radial + 1) + j, b = a + radial + 1;
     idx.push(a, b, a + 1, b, b + 1, a + 1);
+  }
+  if (caps) {   // заглушки-полусферы на концах (иначе короткие куски выглядят плоскими «коробочками»)
+    for (const [i, sgn] of [[0, -1], [n - 1, 1]]) {
+      const base = i * (radial + 1), t = mul(T[i], sgn), rings = 3;
+      let prev = Array.from({ length: radial + 1 }, (_, j) => base + j);
+      for (let r = 1; r <= rings; r++) {
+        const a = (r / rings) * Math.PI / 2, cur = [];
+        for (let j = 0; j <= radial; j++) {
+          const v0 = pos[base + j], d0 = sub(v0, pts[i]);
+          const d = add(mul(d0, Math.cos(a)), mul(t, radius * Math.sin(a)));
+          cur.push(pos.length); pos.push(add(pts[i], d)); nor.push(unit(d)); frac.push(cum[i] / total);
+        }
+        for (let j = 0; j < radial; j++) {
+          if (sgn > 0) idx.push(prev[j], cur[j], prev[j + 1], cur[j], cur[j + 1], prev[j + 1]);
+          else idx.push(prev[j], prev[j + 1], cur[j], cur[j], prev[j + 1], cur[j + 1]);
+        }
+        prev = cur;
+      }
+    }
   }
   return { pos, nor, frac, idx };
 }

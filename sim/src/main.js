@@ -3,7 +3,7 @@ import { loadRecipe, loadJSON } from './recipe.js';
 import { computeAll } from './layers.js';
 import { runValidators, summary, refKey } from './validators.js';
 import { PARAM_SCHEMA, GROUPS, STATUS_LABEL, defaults, paramsFromQuery } from './params.js';
-import { Renderer, viridis, warm, SET_COLORS } from './render.js';
+import { Renderer, viridis, warm, SET_COLORS, roundColor } from './render.js';
 
 const $ = (id) => document.getElementById(id);
 const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : '—');
@@ -25,7 +25,7 @@ R3.opts.transparent = q.get('t') === '1';
 R3.opts.hidden = q.get('h') !== '0';
 R3.opts.labels = q.get('lab') !== '0';
 R3.opts.pins = q.get('pins') !== '0';
-R3.opts.color = ['type', 'set'].includes(q.get('color')) ? q.get('color') : 'u';
+R3.opts.color = ['type', 'set', 'u'].includes(q.get('color')) ? q.get('color') : 'round';
 R3.opts.hidMode = q.get('hid') === 'chord' ? 'chord' : 'surf';
 $('optChord').checked = R3.opts.hidMode === 'chord';
 $('optTransparent').checked = R3.opts.transparent; $('optHidden').checked = R3.opts.hidden;
@@ -64,7 +64,7 @@ function syncURL() {
   for (const p of PARAM_SCHEMA) if (String(state.raw[p.key]) !== String(d[p.key])) u.set(p.key, state.raw[p.key]);
   u.set('stage', state.stage); u.set('k', state.k); u.set('view', state.view);
   if (R3.opts.transparent) u.set('t', '1'); if (!R3.opts.hidden) u.set('h', '0');
-  if (!R3.opts.labels) u.set('lab', '0'); if (!R3.opts.pins) u.set('pins', '0'); if (R3.opts.color !== 'u') u.set('color', R3.opts.color);
+  if (!R3.opts.labels) u.set('lab', '0'); if (!R3.opts.pins) u.set('pins', '0'); if (R3.opts.color !== 'round') u.set('color', R3.opts.color);
   if (R3.opts.hidMode === 'chord') u.set('hid', 'chord');
   history.replaceState(null, '', '?' + u.toString());
 }
@@ -75,7 +75,7 @@ function recompute(first = false) {
   $('perr').textContent = errs.length ? 'Входы: ' + errs.join('; ') : '';
   R3.buildStatic(A);
   if (first) {
-    R3.view(state.view, A.base.R, q.has('dist') ? Number(q.get('dist')) : null);
+    R3.view(state.view, A.base.R, q.has('dist') ? Number(q.get('dist')) : null, q.has('dir') ? q.get('dir').split(',').map(Number) : null);
     const fq = q.get('focus');
     const stOf = (round, i) => A.path.stitches.find((st) => st.round === round && st.i === i);
     const focus = fq === 'np' ? [0, 0, A.base.R] : fq === 'tip1' ? stOf('A1', 1).E : fq === 'a2top' ? stOf('A2', 2).E : fq === 'a2tip' ? stOf('A2', 1).E : null;
@@ -133,7 +133,8 @@ function renderLengths() {
     const byRound = {};
     for (const s of ts) { const b = byRound[s.round] || (byRound[s.round] = { hid: 0, leg: 0, pk: 0, nLeg: 0 }); if (s.type === 'hidden-start') b.hid += s.length; else if (s.type === 'leg') { b.leg += s.length; b.nLeg++; } else b.pk += s.length; }
     for (const [rid, b] of Object.entries(byRound)) {
-      rows.push([`<span class="sw" style="background:#${SET_COLORS[t].toString(16).padStart(6, '0')}"></span>${rid}: ${b.hid ? `скрытый старт ${f(b.hid, 1)} + ` : ''}плечи (${b.nLeg}) ${f(b.leg, 1)} + захваты ${f(b.pk, 1)}`, f(b.hid + b.leg + b.pk)]);
+      const ri = path.rounds.findIndex((r) => r.id === rid), sw = R3.opts.color === 'round' ? roundColor(ri) : SET_COLORS[t];
+      rows.push([`<span class="sw" style="background:#${sw.toString(16).padStart(6, '0')}"></span>${rid}: ${b.hid ? `скрытый старт ${f(b.hid, 1)} + ` : ''}плечи (${b.nLeg}) ${f(b.leg, 1)} + захваты ${f(b.pk, 1)}`, f(b.hid + b.leg + b.pk)]);
     }
     const tot = ts.reduce((a, s) => a + s.length, 0);
     const used = path.segs.filter((s) => s.thread === t && ids2.has(s.id)).reduce((a, s) => a + s.length, 0);
@@ -159,11 +160,14 @@ function renderValidators() {
 
 function renderLegend() {
   const grad = (fn) => `linear-gradient(90deg,${Array.from({ length: 11 }, (_, i) => `#${fn(i / 10).getHexString()}`).join(',')})`;
-  if (R3.opts.color === 'u') {
+  const liftNote = '<div class="note">Верхняя нить в перекрёстке приподнята на 0,6·w на уровень стопки — только изображение (высоты — механика, позже). Скрытые участки — светлее цвета своего обхода; канал иглы E→X — тонкая бледная трубка под всеми нитями.</div>';
+  if (R3.opts.color === 'round') {
+    const shown = new Set(A.path.ops.slice(0, state.k + 1).map((o) => o.round));
+    $('legend').innerHTML = A.path.rounds.map((r, i) => `<span${shown.has(r.id) ? '' : ' style="opacity:.4"'}><span class="sw" style="background:#${roundColor(i).toString(16).padStart(6, '0')}"></span>${r.id} — нить ${r.thread}, ряд ${r.row}${shown.has(r.id) ? '' : ' (ещё не шит)'}</span>`).join('') + liftNote;
+  } else if (R3.opts.color === 'u') {
     $('legend').innerHTML = Object.values(A.path.threads).map((t) => `нить ${t.id}: u = 0 (конец)<div class="bar" style="background:${grad(t.id === 'B' ? warm : viridis)}"></div>${f(t.uEnd, 1)} мм`).join('<br>');
   } else if (R3.opts.color === 'set') {
-    $('legend').innerHTML = Object.entries(SET_COLORS).map(([k2, c]) => `<span><span class="sw" style="background:#${c.toString(16).padStart(6, '0')}"></span>набор ${k2} (нить ${k2}); ряд 2 светлее, скрытые участки бледнее</span>`).join('') +
-      '<div class="note">Верхняя нить в перекрёстке приподнята на 0,6·w на уровень стопки — только изображение (высоты — механика, позже).</div>';
+    $('legend').innerHTML = Object.entries(SET_COLORS).map(([k2, c]) => `<span><span class="sw" style="background:#${c.toString(16).padStart(6, '0')}"></span>набор ${k2} (нить ${k2}); ряд 2 светлее</span>`).join('') + liftNote;
   } else {
     $('legend').innerHTML = `<span><span class="sw" style="background:#2f6bd6"></span>плечо</span><span><span class="sw" style="background:#d6336c"></span>захват (скрыт)</span><span><span class="sw" style="background:#7a7a7a"></span>скрытый старт</span><span><span class="sw" style="background:#ff8c00"></span>текущая операция</span>`;
   }
