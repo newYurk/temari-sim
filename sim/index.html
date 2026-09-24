@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Темари · кику S8 · симулятор нити (этап 2a/2b)</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <div id="view"><div id="caption" class="caption"></div></div>
+  <aside id="panel">
+    <h1>Кику S8 · путь одной нити</h1>
+    <div class="sub">рецепт → явный путь → (механика — позже) → рендер. Этап 2a/2b.</div>
+
+    <section>
+      <h2>Этап и шаг</h2>
+      <div class="row">
+        <button data-stage="2a" class="stage">2a · один проход</button>
+        <button data-stage="2b" class="stage">2b · один обход</button>
+      </div>
+      <div class="row">
+        <button id="first" title="в начало">⏮</button><button id="prev" title="назад">◀</button>
+        <input id="step" type="range" min="0" max="0" value="0">
+        <button id="next" title="вперёд">▶</button><button id="last" title="в конец">⏭</button>
+      </div>
+      <div id="opinfo" class="opinfo"></div>
+    </section>
+
+    <section>
+      <h2>Вид</h2>
+      <div class="row">
+        <button data-view="top">Сверху (СП)</button><button data-view="oblique">Косо</button>
+        <button data-view="side">Сбоку</button><button data-view="bottom">Снизу</button>
+      </div>
+      <div class="row wrap">
+        <label><input type="checkbox" id="optTransparent"> прозрачный шар</label>
+        <label><input type="checkbox" id="optHidden" checked> скрытые участки</label>
+        <label><input type="checkbox" id="optLabels" checked> подписи</label>
+        <label><input type="checkbox" id="optPins" checked> булавки</label>
+      </div>
+      <div class="row wrap">
+        окраска: <label><input type="radio" name="color" value="u" checked> по длине нити u</label>
+        <label><input type="radio" name="color" value="type"> по типу участка</label>
+      </div>
+      <div id="legend" class="legend"></div>
+    </section>
+
+    <section>
+      <h2>Длина нити</h2>
+      <table id="lengths" class="tbl"></table>
+    </section>
+
+    <section>
+      <h2>Проверки (валидаторы)</h2>
+      <div id="vsum" class="vsum"></div>
+      <ul id="validators" class="vlist"></ul>
+    </section>
+
+    <section>
+      <h2>Параметры</h2>
+      <div class="note">Все входы — органы управления. Изменение любого входа пересчитывает все слои по порядку:
+        шар → разметка → булавки → план рядов → путь → проверки. Ширины захвата нет: E/X выводятся из занятости у линии.</div>
+      <form id="params"></form>
+      <div class="row"><button id="recompute" class="primary">Пересчитать</button><button id="reset">Сброс</button></div>
+      <div id="perr" class="err"></div>
+      <div id="plan" class="note"></div>
+    </section>
+  </aside>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
