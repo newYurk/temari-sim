@@ -40,9 +40,9 @@
 <circle cx="497.7" cy="487.7" r="3.2" fill="#c8102e"/>
 <circle cx="480" cy="470" r="6" fill="white" stroke="black" stroke-width="2"/>
 <text x="360" y="456" font-size="12.5">北極 NP (булавка)</text>
-<path d="M 504.5 475.0 L 654.5 325.0" stroke="black" stroke-width="1" fill="none"/>
-<text x="656" y="321" font-size="12">старт нити A: выход на стороне −φ от L0 (ниже L0 на рисунке),</text>
-<text x="656" y="336" font-size="12">= «just to the left» по ходу; s = 5 мм от NP (TK-GT14)</text>
+<path d="M 504.6 474.3 L 654.6 324.3" stroke="black" stroke-width="1" fill="none"/>
+<text x="657" y="320" font-size="12">старт нити A: выход на стороне −φ от L0 (ниже L0 на рисунке),</text>
+<text x="657" y="335" font-size="12">= «just to the left» по ходу; s = 5 мм от NP (TK-GT14)</text>
 <defs><marker id="ar" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 z" fill="black"/></marker></defs>
 <path d="M 530.0 556.6 A 100.0 100.0 0 0 0 574.0 504.2" stroke="black" stroke-width="2" fill="none" marker-end="url(#ar)"/>
 <text x="536" y="579" font-size="12">ход обхода: против часовой</text>

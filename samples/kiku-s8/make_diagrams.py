@@ -66,7 +66,7 @@ def diagram1():
     L.append(f'<circle cx="{cx}" cy="{cy}" r="6" fill="white" stroke="black" stroke-width="2"/>')
     L.append(f'<text x="{cx-120}" y="{cy-14}" font-size="12.5">北極 NP (булавка)</text>')
     # старт A
-    X0 = C.offset_pt(r1['s_top'], C.PHI[0], -r1['bite_top'] / 2)
+    X0 = C.offset_pt(r1['s_top'], C.PHI[0], C.start_exit_offset())
     x0, y0 = proj(X0, cx, cy)
     L.append(f'<path d="M {x0:.1f} {y0:.1f} L {x0+150:.1f} {y0-150:.1f}" stroke="black" stroke-width="1" fill="none"/>')
     L.append(f'<text x="{x0+152:.0f}" y="{y0-154:.0f}" font-size="12">старт нити A: выход на стороне −φ от L0 (ниже L0 на рисунке),</text>')
@@ -154,7 +154,7 @@ def diagram3():
     L.append(f'<circle cx="{cx}" cy="{cy}" r="{SC*C.Q}" fill="#fafafa" stroke="{GOLD}" stroke-width="2"/>')
     L += meridians(cx, cy, C.Q)
     # скрытый старт (схематично, по параллели назад на start_run_mm)
-    X0 = C.offset_pt(r1['s_top'], C.PHI[0], -r1['bite_top'] / 2)
+    X0 = C.offset_pt(r1['s_top'], C.PHI[0], C.start_exit_offset())
     s0, ph0 = C.to_s_phi(X0)
     Sst = C.point(s0 + 20, ph0 - 0.55)
     L.append(f'<polyline points="{poly(C.slerp(Sst, X0, 30), cx, cy)}" stroke="#555" stroke-width="2.5" fill="none" stroke-dasharray="6,4"/>')
@@ -193,7 +193,7 @@ def diagram3():
         L.append(f'<text x="760" y="{ty+18*st["i"]}" font-size="12">{st["i"]}: L{st["line"]}, {"низ" if st["kind"]=="bottom" else "верх"}, {uu:.0f} мм</text>')
         uu += b
     L.append(f'<text x="20" y="{H-40}" font-size="12">Порядок A: старт у L0 (верх) → 1 низ L1 → 2 верх L2 → 3 низ L3 → … → 7 низ L7 → 8 верх L0 (замыкает обход, охватывая начало нити — вывод).</text>')
-    L.append(f'<text x="20" y="{H-22}" font-size="12">Видимые плечи — геодезические (допущение натянутой нити). Короткие чёрные штрихи — захваты E→X (~2 мм) под линией: их длина входит в u.</text>')
+    L.append(f'<text x="20" y="{H-22}" font-size="12">Видимые плечи — геодезические (допущение натянутой нити). Короткие чёрные штрихи — захваты E→X (выведены из ширин нитей, ≈1,7 мм) под линией: их длина входит в u.</text>')
     L.append('</svg>')
     open(os.path.join(OUT, '03_one_round_thread_path.svg'), 'w', encoding='utf-8').write('\n'.join(L))
 

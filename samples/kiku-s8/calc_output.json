@@ -5,9 +5,8 @@
   "s_top1_mm": 5.0,
   "bottom_from_eq": 0.3333333333333333,
   "w_mm": 0.714,
-  "bite0_mm": 2.0,
+  "marking_width_mm": 1.0,
   "top_step": "w",
-  "top_bite_growth_mm": null,
   "bottom_rule": "geom",
   "bottom_fixed_mm": 2.0,
   "tip_limit": "equator",
@@ -25,7 +24,14 @@
   {
    "n": 1,
    "s_top": 5.0,
-   "bite_top": 2.0,
+   "bite_top": 1.714,
+   "e_top": 0.857,
+   "x_top": -0.857,
+   "x_top_close": -1.571,
+   "bite_close": 2.428,
+   "e_bot": 0.857,
+   "x_bot": -0.857,
+   "bite_bot": 1.714,
    "s_bot": 40.00000000000001,
    "alpha_B": 6.480984649638433,
    "gamma_T": 48.495327069343965,
@@ -36,7 +42,14 @@
   {
    "n": 2,
    "s_top": 5.714,
-   "bite_top": 2.714,
+   "bite_top": 3.142,
+   "e_top": 1.571,
+   "x_top": -1.571,
+   "x_top_close": -2.285,
+   "bite_close": 3.856,
+   "e_bot": 0.857,
+   "x_bot": -0.857,
+   "bite_bot": 1.714,
    "s_bot": 46.32566767420889,
    "alpha_B": 6.758764043596602,
    "gamma_T": 47.69839724199768,
@@ -47,7 +60,14 @@
   {
    "n": 3,
    "s_top": 6.428000000000001,
-   "bite_top": 3.428,
+   "bite_top": 4.57,
+   "e_top": 2.285,
+   "x_top": -2.285,
+   "x_top_close": -2.9989999999999997,
+   "bite_close": 5.284,
+   "e_bot": 0.857,
+   "x_bot": -0.857,
+   "bite_bot": 1.714,
    "s_bot": 52.39248952414468,
    "alpha_B": 7.158831549431188,
    "gamma_T": 46.8304180740331,
@@ -58,7 +78,14 @@
   {
    "n": 4,
    "s_top": 7.142000000000001,
-   "bite_top": 4.1419999999999995,
+   "bite_top": 5.997999999999999,
+   "e_top": 2.9989999999999997,
+   "x_top": -2.9989999999999997,
+   "x_top_close": -3.713,
+   "bite_close": 6.712,
+   "e_bot": 0.857,
+   "x_bot": -0.857,
+   "bite_bot": 1.714,
    "s_bot": 58.12189122756304,
    "alpha_B": 7.678588409759305,
    "gamma_T": 45.88325283807568,
@@ -70,27 +97,27 @@
  "per_round": [
   {
    "n": 1,
-   "arms": 300.11813699347397,
-   "bites": 15.94525037802886,
-   "total": 316.0633873715028
+   "arms": 298.9634834910598,
+   "bites": 14.376027726570332,
+   "total": 313.3395112176301
   },
   {
    "n": 2,
-   "arms": 349.1419136647236,
-   "bites": 18.752438950547862,
-   "total": 367.89435261527143
+   "arms": 350.8439451823966,
+   "bites": 19.944861024135157,
+   "total": 370.7888062065318
   },
   {
    "n": 3,
-   "arms": 395.84919617810783,
-   "bites": 21.547606705886416,
-   "total": 417.39680288399427
+   "arms": 400.1854278193872,
+   "bites": 25.41086328691425,
+   "total": 425.59629110630146
   },
   {
    "n": 4,
-   "arms": 439.7331331820843,
-   "bites": 24.3331685797008,
-   "total": 464.0663017617851
+   "arms": 446.73610536050035,
+   "bites": 30.78404504355283,
+   "total": 477.5201504040532
   }
  ],
  "arc_param_row1": [
@@ -99,84 +126,84 @@
    "line": 1,
    "kind": "bottom",
    "u_arm_start": 0.0,
-   "u_E": 37.51476712418424,
-   "u_X": 39.51446252068291
+   "u_E": 37.37043543638247,
+   "u_X": 39.08424370966956
   },
   {
    "stitch": 2,
    "line": 2,
    "kind": "top",
-   "u_arm_start": 39.51446252068291,
-   "u_E": 77.02922964486716,
-   "u_X": 79.01584684287569
+   "u_arm_start": 39.08424370966956,
+   "u_E": 76.45467914605203,
+   "u_X": 78.16025120452315
   },
   {
    "stitch": 3,
    "line": 3,
    "kind": "bottom",
-   "u_arm_start": 79.0158468428757,
-   "u_E": 116.53061396705994,
-   "u_X": 118.5303093635586
+   "u_arm_start": 78.16025120452315,
+   "u_E": 115.53068664090563,
+   "u_X": 117.24449491419273
   },
   {
    "stitch": 4,
    "line": 4,
    "kind": "top",
-   "u_arm_start": 118.53030936355862,
-   "u_E": 156.04507648774285,
-   "u_X": 158.03169368575138
+   "u_arm_start": 117.24449491419273,
+   "u_E": 154.6149303505752,
+   "u_X": 156.32050240904633
   },
   {
    "stitch": 5,
    "line": 5,
    "kind": "bottom",
-   "u_arm_start": 158.0316936857514,
-   "u_E": 195.54646080993564,
-   "u_X": 197.54615620643432
+   "u_arm_start": 156.32050240904633,
+   "u_E": 193.6909378454288,
+   "u_X": 195.4047461187159
   },
   {
    "stitch": 6,
    "line": 6,
    "kind": "top",
-   "u_arm_start": 197.54615620643432,
-   "u_E": 235.06092333061855,
-   "u_X": 237.04754052862708
+   "u_arm_start": 195.4047461187159,
+   "u_E": 232.77518155509838,
+   "u_X": 234.4807536135695
   },
   {
    "stitch": 7,
    "line": 7,
    "kind": "bottom",
-   "u_arm_start": 237.0475405286271,
-   "u_E": 274.56230765281134,
-   "u_X": 276.56200304931
+   "u_arm_start": 234.4807536135695,
+   "u_E": 271.851189049952,
+   "u_X": 273.564997323239
   },
   {
    "stitch": 8,
    "line": 0,
    "kind": "top",
-   "u_arm_start": 276.5620030493101,
-   "u_E": 314.0767701734943,
-   "u_X": 316.06338737150287
+   "u_arm_start": 273.564997323239,
+   "u_E": 310.9354327596215,
+   "u_X": 313.3395112176301
   }
  ],
  "totals": {
-  "per_colour_mm": 3630.841689265107,
+  "per_colour_mm": 3674.489517869033,
   "start_hidden": 70.0,
   "end_hidden": 60.0
  },
  "sensitivity_mm": {
-  "geom/equator": 3630.841689265107,
-  "geom/olympus7": 2702.709085741537,
-  "fixed/equator": 9365.313338181633,
-  "fixed/olympus7": 5659.109175307954
+  "geom/equator": 3674.489517869033,
+  "geom/olympus7": 2719.4492170609265,
+  "fixed/equator": 9891.237046165023,
+  "fixed/olympus7": 5848.007121145052
  },
  "thread_path_north": [
   {
    "op": "start",
    "thread": "A",
    "at": [
-    4.8858,
-    -0.9933,
+    4.9123,
+    -0.8528,
     37.8704
    ],
    "hidden_run_mm": 35.0,
@@ -191,19 +218,19 @@
    "line": 1,
    "kind": "bottom",
    "s_mm": 40.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    22.6732,
-    24.0872,
+    22.7771,
+    23.989,
     19.0986
    ],
    "X": [
-    24.0872,
-    22.6732,
+    23.989,
+    22.7771,
     19.0986
    ],
-   "u_E": 37.515,
-   "u_X": 39.514,
+   "u_E": 37.37,
+   "u_X": 39.084,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -216,19 +243,19 @@
    "line": 2,
    "kind": "top",
    "s_mm": 5.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -0.9933,
-    4.8858,
+    -0.8528,
+    4.9123,
     37.8704
    ],
    "X": [
-    0.9933,
-    4.8858,
+    0.8528,
+    4.9123,
     37.8704
    ],
-   "u_E": 77.029,
-   "u_X": 79.016,
+   "u_E": 76.455,
+   "u_X": 78.16,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -241,19 +268,19 @@
    "line": 3,
    "kind": "bottom",
    "s_mm": 40.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -24.0872,
-    22.6732,
+    -23.989,
+    22.7771,
     19.0986
    ],
    "X": [
-    -22.6732,
-    24.0872,
+    -22.7771,
+    23.989,
     19.0986
    ],
-   "u_E": 116.531,
-   "u_X": 118.53,
+   "u_E": 115.531,
+   "u_X": 117.244,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -266,19 +293,19 @@
    "line": 4,
    "kind": "top",
    "s_mm": 5.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -4.8858,
-    -0.9933,
+    -4.9123,
+    -0.8528,
     37.8704
    ],
    "X": [
-    -4.8858,
-    0.9933,
+    -4.9123,
+    0.8528,
     37.8704
    ],
-   "u_E": 156.045,
-   "u_X": 158.032,
+   "u_E": 154.615,
+   "u_X": 156.321,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -291,19 +318,19 @@
    "line": 5,
    "kind": "bottom",
    "s_mm": 40.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -22.6732,
-    -24.0872,
+    -22.7771,
+    -23.989,
     19.0986
    ],
    "X": [
-    -24.0872,
-    -22.6732,
+    -23.989,
+    -22.7771,
     19.0986
    ],
-   "u_E": 195.546,
-   "u_X": 197.546,
+   "u_E": 193.691,
+   "u_X": 195.405,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -316,19 +343,19 @@
    "line": 6,
    "kind": "top",
    "s_mm": 5.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    0.9933,
-    -4.8858,
+    0.8528,
+    -4.9123,
     37.8704
    ],
    "X": [
-    -0.9933,
-    -4.8858,
+    -0.8528,
+    -4.9123,
     37.8704
    ],
-   "u_E": 235.061,
-   "u_X": 237.048,
+   "u_E": 232.775,
+   "u_X": 234.481,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -341,19 +368,19 @@
    "line": 7,
    "kind": "bottom",
    "s_mm": 40.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    24.0872,
-    -22.6732,
+    23.989,
+    -22.7771,
     19.0986
    ],
    "X": [
-    22.6732,
-    -24.0872,
+    22.7771,
+    -23.989,
     19.0986
    ],
-   "u_E": 274.562,
-   "u_X": 276.562,
+   "u_E": 271.851,
+   "u_X": 273.565,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -366,19 +393,19 @@
    "line": 0,
    "kind": "top",
    "s_mm": 5.0,
-   "bite_mm": 2.0,
+   "bite_mm": 2.428,
    "E": [
-    4.8858,
-    0.9933,
+    4.9123,
+    0.8528,
     37.8704
    ],
    "X": [
-    4.8858,
-    -0.9933,
+    4.7403,
+    -1.5451,
     37.8704
    ],
-   "u_E": 314.077,
-   "u_X": 316.063,
+   "u_E": 310.935,
+   "u_X": 313.34,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": true
@@ -387,8 +414,8 @@
    "op": "park",
    "thread": "A",
    "at": [
-    4.8858,
-    -0.9933,
+    4.7403,
+    -1.5451,
     37.8704
    ]
   },
@@ -396,8 +423,8 @@
    "op": "start",
    "thread": "B",
    "at": [
-    4.1571,
-    2.7524,
+    4.0765,
+    2.8705,
     37.8704
    ],
    "hidden_run_mm": 35.0,
@@ -412,19 +439,19 @@
    "line": 2,
    "kind": "bottom",
    "s_mm": 40.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -0.9998,
-    33.0646,
+    -0.8569,
+    33.0686,
     19.0986
    ],
    "X": [
-    0.9998,
-    33.0646,
+    0.8569,
+    33.0686,
     19.0986
    ],
-   "u_E": 37.515,
-   "u_X": 39.514,
+   "u_E": 37.37,
+   "u_X": 39.084,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -437,19 +464,19 @@
    "line": 3,
    "kind": "top",
    "s_mm": 5.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -4.1571,
-    2.7524,
+    -4.0765,
+    2.8705,
     37.8704
    ],
    "X": [
-    -2.7524,
-    4.1571,
+    -2.8705,
+    4.0765,
     37.8704
    ],
-   "u_E": 77.029,
-   "u_X": 79.016,
+   "u_E": 76.455,
+   "u_X": 78.16,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -462,19 +489,19 @@
    "line": 4,
    "kind": "bottom",
    "s_mm": 40.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -33.0646,
-    -0.9998,
+    -33.0686,
+    -0.8569,
     19.0986
    ],
    "X": [
-    -33.0646,
-    0.9998,
+    -33.0686,
+    0.8569,
     19.0986
    ],
-   "u_E": 116.531,
-   "u_X": 118.53,
+   "u_E": 115.531,
+   "u_X": 117.244,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -487,19 +514,19 @@
    "line": 5,
    "kind": "top",
    "s_mm": 5.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -2.7524,
-    -4.1571,
+    -2.8705,
+    -4.0765,
     37.8704
    ],
    "X": [
-    -4.1571,
-    -2.7524,
+    -4.0765,
+    -2.8705,
     37.8704
    ],
-   "u_E": 156.045,
-   "u_X": 158.032,
+   "u_E": 154.615,
+   "u_X": 156.321,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -512,19 +539,19 @@
    "line": 6,
    "kind": "bottom",
    "s_mm": 40.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    0.9998,
-    -33.0646,
+    0.8569,
+    -33.0686,
     19.0986
    ],
    "X": [
-    -0.9998,
-    -33.0646,
+    -0.8569,
+    -33.0686,
     19.0986
    ],
-   "u_E": 195.546,
-   "u_X": 197.546,
+   "u_E": 193.691,
+   "u_X": 195.405,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -537,19 +564,19 @@
    "line": 7,
    "kind": "top",
    "s_mm": 5.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    4.1571,
-    -2.7524,
+    4.0765,
+    -2.8705,
     37.8704
    ],
    "X": [
-    2.7524,
-    -4.1571,
+    2.8705,
+    -4.0765,
     37.8704
    ],
-   "u_E": 235.061,
-   "u_X": 237.048,
+   "u_E": 232.775,
+   "u_X": 234.481,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -562,19 +589,19 @@
    "line": 0,
    "kind": "bottom",
    "s_mm": 40.0,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    33.0646,
-    0.9998,
+    33.0686,
+    0.8569,
     19.0986
    ],
    "X": [
-    33.0646,
-    -0.9998,
+    33.0686,
+    -0.8569,
     19.0986
    ],
-   "u_E": 274.562,
-   "u_X": 276.562,
+   "u_E": 271.851,
+   "u_X": 273.565,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -587,19 +614,19 @@
    "line": 1,
    "kind": "top",
    "s_mm": 5.0,
-   "bite_mm": 2.0,
+   "bite_mm": 2.428,
    "E": [
-    2.7524,
-    4.1571,
+    2.8705,
+    4.0765,
     37.8704
    ],
    "X": [
-    4.1571,
-    2.7524,
+    4.4444,
+    2.2593,
     37.8704
    ],
-   "u_E": 314.077,
-   "u_X": 316.063,
+   "u_E": 310.935,
+   "u_X": 313.34,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": true
@@ -608,8 +635,8 @@
    "op": "park",
    "thread": "B",
    "at": [
-    4.1571,
-    2.7524,
+    4.4444,
+    2.2593,
     37.8704
    ]
   },
@@ -617,252 +644,252 @@
    "op": "resume",
    "thread": "A",
    "at": [
-    4.8858,
-    -0.9933,
-    37.8704
-   ],
-   "basis": "TK-GT14 park/resume; TK-UWA"
-  },
-  {
-   "op": "stitch",
-   "thread": "A",
-   "row": 2,
-   "i": 1,
-   "line": 1,
-   "kind": "bottom",
-   "s_mm": 46.3257,
-   "bite_mm": 2.0,
-   "E": [
-    24.5802,
-    25.9943,
-    13.3841
-   ],
-   "X": [
-    25.9943,
-    24.5802,
-    13.3841
-   ],
-   "u_E": 359.843,
-   "u_X": 361.842,
-   "lay_before": "geodesic arc from previous X [A]",
-   "over_previous_rows": false,
-   "closing": false
-  },
-  {
-   "op": "stitch",
-   "thread": "A",
-   "row": 2,
-   "i": 2,
-   "line": 2,
-   "kind": "top",
-   "s_mm": 5.714,
-   "bite_mm": 2.714,
-   "E": [
-    -1.3442,
-    5.5317,
-    37.7706
-   ],
-   "X": [
-    1.3442,
-    5.5317,
-    37.7706
-   ],
-   "u_E": 405.466,
-   "u_X": 408.154,
-   "lay_before": "geodesic arc from previous X [A]",
-   "over_previous_rows": true,
-   "closing": false
-  },
-  {
-   "op": "stitch",
-   "thread": "A",
-   "row": 2,
-   "i": 3,
-   "line": 3,
-   "kind": "bottom",
-   "s_mm": 46.3257,
-   "bite_mm": 2.0,
-   "E": [
-    -25.9943,
-    24.5802,
-    13.3841
-   ],
-   "X": [
-    -24.5802,
-    25.9943,
-    13.3841
-   ],
-   "u_E": 451.777,
-   "u_X": 453.777,
-   "lay_before": "geodesic arc from previous X [A]",
-   "over_previous_rows": false,
-   "closing": false
-  },
-  {
-   "op": "stitch",
-   "thread": "A",
-   "row": 2,
-   "i": 4,
-   "line": 4,
-   "kind": "top",
-   "s_mm": 5.714,
-   "bite_mm": 2.714,
-   "E": [
-    -5.5317,
-    -1.3442,
-    37.7706
-   ],
-   "X": [
-    -5.5317,
-    1.3442,
-    37.7706
-   ],
-   "u_E": 497.4,
-   "u_X": 500.089,
-   "lay_before": "geodesic arc from previous X [A]",
-   "over_previous_rows": true,
-   "closing": false
-  },
-  {
-   "op": "stitch",
-   "thread": "A",
-   "row": 2,
-   "i": 5,
-   "line": 5,
-   "kind": "bottom",
-   "s_mm": 46.3257,
-   "bite_mm": 2.0,
-   "E": [
-    -24.5802,
-    -25.9943,
-    13.3841
-   ],
-   "X": [
-    -25.9943,
-    -24.5802,
-    13.3841
-   ],
-   "u_E": 543.712,
-   "u_X": 545.712,
-   "lay_before": "geodesic arc from previous X [A]",
-   "over_previous_rows": false,
-   "closing": false
-  },
-  {
-   "op": "stitch",
-   "thread": "A",
-   "row": 2,
-   "i": 6,
-   "line": 6,
-   "kind": "top",
-   "s_mm": 5.714,
-   "bite_mm": 2.714,
-   "E": [
-    1.3442,
-    -5.5317,
-    37.7706
-   ],
-   "X": [
-    -1.3442,
-    -5.5317,
-    37.7706
-   ],
-   "u_E": 589.335,
-   "u_X": 592.023,
-   "lay_before": "geodesic arc from previous X [A]",
-   "over_previous_rows": true,
-   "closing": false
-  },
-  {
-   "op": "stitch",
-   "thread": "A",
-   "row": 2,
-   "i": 7,
-   "line": 7,
-   "kind": "bottom",
-   "s_mm": 46.3257,
-   "bite_mm": 2.0,
-   "E": [
-    25.9943,
-    -24.5802,
-    13.3841
-   ],
-   "X": [
-    24.5802,
-    -25.9943,
-    13.3841
-   ],
-   "u_E": 635.646,
-   "u_X": 637.646,
-   "lay_before": "geodesic arc from previous X [A]",
-   "over_previous_rows": false,
-   "closing": false
-  },
-  {
-   "op": "stitch",
-   "thread": "A",
-   "row": 2,
-   "i": 8,
-   "line": 0,
-   "kind": "top",
-   "s_mm": 5.714,
-   "bite_mm": 2.714,
-   "E": [
-    5.5317,
-    1.3442,
-    37.7706
-   ],
-   "X": [
-    5.5317,
-    -1.3442,
-    37.7706
-   ],
-   "u_E": 681.269,
-   "u_X": 683.958,
-   "lay_before": "geodesic arc from previous X [A]",
-   "over_previous_rows": true,
-   "closing": true
-  },
-  {
-   "op": "park",
-   "thread": "A",
-   "at": [
-    5.5317,
-    -1.3442,
-    37.7706
-   ]
-  },
-  {
-   "op": "resume",
-   "thread": "B",
-   "at": [
-    4.1571,
-    2.7524,
+    4.7403,
+    -1.5451,
     37.8704
    ],
    "basis": "TK-GT14 park/resume; TK-UWA"
   },
   {
    "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 1,
+   "line": 1,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 1.714,
+   "E": [
+    24.6839,
+    25.8958,
+    13.3841
+   ],
+   "X": [
+    25.8958,
+    24.6839,
+    13.3841
+   ],
+   "u_E": 357.614,
+   "u_X": 359.327,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 2,
+   "line": 2,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 3.142,
+   "E": [
+    -1.5511,
+    5.4773,
+    37.7706
+   ],
+   "X": [
+    1.5511,
+    5.4773,
+    37.7706
+   ],
+   "u_E": 403.123,
+   "u_X": 406.225,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 3,
+   "line": 3,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 1.714,
+   "E": [
+    -25.8958,
+    24.6839,
+    13.3841
+   ],
+   "X": [
+    -24.6839,
+    25.8958,
+    13.3841
+   ],
+   "u_E": 450.021,
+   "u_X": 451.735,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 4,
+   "line": 4,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 3.142,
+   "E": [
+    -5.4773,
+    -1.5511,
+    37.7706
+   ],
+   "X": [
+    -5.4773,
+    1.5511,
+    37.7706
+   ],
+   "u_E": 495.531,
+   "u_X": 498.633,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 5,
+   "line": 5,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 1.714,
+   "E": [
+    -24.6839,
+    -25.8958,
+    13.3841
+   ],
+   "X": [
+    -25.8958,
+    -24.6839,
+    13.3841
+   ],
+   "u_E": 542.429,
+   "u_X": 544.142,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 6,
+   "line": 6,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 3.142,
+   "E": [
+    1.5511,
+    -5.4773,
+    37.7706
+   ],
+   "X": [
+    -1.5511,
+    -5.4773,
+    37.7706
+   ],
+   "u_E": 587.938,
+   "u_X": 591.04,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 7,
+   "line": 7,
+   "kind": "bottom",
+   "s_mm": 46.3257,
+   "bite_mm": 1.714,
+   "E": [
+    25.8958,
+    -24.6839,
+    13.3841
+   ],
+   "X": [
+    24.6839,
+    -25.8958,
+    13.3841
+   ],
+   "u_E": 634.836,
+   "u_X": 636.55,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": false,
+   "closing": false
+  },
+  {
+   "op": "stitch",
+   "thread": "A",
+   "row": 2,
+   "i": 8,
+   "line": 0,
+   "kind": "top",
+   "s_mm": 5.714,
+   "bite_mm": 3.856,
+   "E": [
+    5.4773,
+    1.5511,
+    37.7706
+   ],
+   "X": [
+    5.2402,
+    -2.2241,
+    37.7706
+   ],
+   "u_E": 680.346,
+   "u_X": 684.128,
+   "lay_before": "geodesic arc from previous X [A]",
+   "over_previous_rows": true,
+   "closing": true
+  },
+  {
+   "op": "park",
+   "thread": "A",
+   "at": [
+    5.2402,
+    -2.2241,
+    37.7706
+   ]
+  },
+  {
+   "op": "resume",
+   "thread": "B",
+   "at": [
+    4.4444,
+    2.2593,
+    37.8704
+   ],
+   "basis": "TK-GT14 park/resume; TK-UWA"
+  },
+  {
+   "op": "stitch",
    "thread": "B",
    "row": 2,
    "i": 1,
    "line": 2,
    "kind": "bottom",
    "s_mm": 46.3257,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -0.9999,
-    35.7616,
+    -0.8569,
+    35.7653,
     13.3841
    ],
    "X": [
-    0.9999,
-    35.7616,
+    0.8569,
+    35.7653,
     13.3841
    ],
-   "u_E": 359.843,
-   "u_X": 361.842,
+   "u_E": 357.614,
+   "u_X": 359.327,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -875,19 +902,19 @@
    "line": 3,
    "kind": "top",
    "s_mm": 5.714,
-   "bite_mm": 2.714,
+   "bite_mm": 3.142,
    "E": [
-    -4.862,
-    2.961,
+    -4.9699,
+    2.7762,
     37.7706
    ],
    "X": [
-    -2.961,
-    4.862,
+    -2.7762,
+    4.9699,
     37.7706
    ],
-   "u_E": 405.466,
-   "u_X": 408.154,
+   "u_E": 403.123,
+   "u_X": 406.225,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -900,19 +927,19 @@
    "line": 4,
    "kind": "bottom",
    "s_mm": 46.3257,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -35.7616,
-    -0.9999,
+    -35.7653,
+    -0.8569,
     13.3841
    ],
    "X": [
-    -35.7616,
-    0.9999,
+    -35.7653,
+    0.8569,
     13.3841
    ],
-   "u_E": 451.777,
-   "u_X": 453.777,
+   "u_E": 450.021,
+   "u_X": 451.735,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -925,19 +952,19 @@
    "line": 5,
    "kind": "top",
    "s_mm": 5.714,
-   "bite_mm": 2.714,
+   "bite_mm": 3.142,
    "E": [
-    -2.961,
-    -4.862,
+    -2.7762,
+    -4.9699,
     37.7706
    ],
    "X": [
-    -4.862,
-    -2.961,
+    -4.9699,
+    -2.7762,
     37.7706
    ],
-   "u_E": 497.4,
-   "u_X": 500.089,
+   "u_E": 495.531,
+   "u_X": 498.633,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -950,19 +977,19 @@
    "line": 6,
    "kind": "bottom",
    "s_mm": 46.3257,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    0.9999,
-    -35.7616,
+    0.8569,
+    -35.7653,
     13.3841
    ],
    "X": [
-    -0.9999,
-    -35.7616,
+    -0.8569,
+    -35.7653,
     13.3841
    ],
-   "u_E": 543.712,
-   "u_X": 545.712,
+   "u_E": 542.429,
+   "u_X": 544.142,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -975,19 +1002,19 @@
    "line": 7,
    "kind": "top",
    "s_mm": 5.714,
-   "bite_mm": 2.714,
+   "bite_mm": 3.142,
    "E": [
-    4.862,
-    -2.961,
+    4.9699,
+    -2.7762,
     37.7706
    ],
    "X": [
-    2.961,
-    -4.862,
+    2.7762,
+    -4.9699,
     37.7706
    ],
-   "u_E": 589.335,
-   "u_X": 592.023,
+   "u_E": 587.938,
+   "u_X": 591.04,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1000,19 +1027,19 @@
    "line": 0,
    "kind": "bottom",
    "s_mm": 46.3257,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    35.7616,
-    0.9999,
+    35.7653,
+    0.8569,
     13.3841
    ],
    "X": [
-    35.7616,
-    -0.9999,
+    35.7653,
+    -0.8569,
     13.3841
    ],
-   "u_E": 635.646,
-   "u_X": 637.646,
+   "u_E": 634.836,
+   "u_X": 636.55,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1025,19 +1052,19 @@
    "line": 1,
    "kind": "top",
    "s_mm": 5.714,
-   "bite_mm": 2.714,
+   "bite_mm": 3.856,
    "E": [
-    2.961,
-    4.862,
+    2.7762,
+    4.9699,
     37.7706
    ],
    "X": [
-    4.862,
-    2.961,
+    5.2781,
+    2.1327,
     37.7706
    ],
-   "u_E": 681.269,
-   "u_X": 683.958,
+   "u_E": 680.346,
+   "u_X": 684.128,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": true
@@ -1046,8 +1073,8 @@
    "op": "park",
    "thread": "B",
    "at": [
-    4.862,
-    2.961,
+    5.2781,
+    2.1327,
     37.7706
    ]
   },
@@ -1055,8 +1082,8 @@
    "op": "resume",
    "thread": "A",
    "at": [
-    5.5317,
-    -1.3442,
+    5.2402,
+    -2.2241,
     37.7706
    ],
    "basis": "TK-GT14 park/resume; TK-UWA"
@@ -1069,19 +1096,19 @@
    "line": 1,
    "kind": "bottom",
    "s_mm": 52.3925,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    25.7591,
-    27.1732,
+    25.8627,
+    27.0746,
     7.5573
    ],
    "X": [
-    27.1732,
-    25.7591,
+    27.0746,
+    25.8627,
     7.5573
    ],
-   "u_E": 733.584,
-   "u_X": 735.583,
+   "u_E": 734.585,
+   "u_X": 736.299,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1094,19 +1121,19 @@
    "line": 2,
    "kind": "top",
    "s_mm": 6.428,
-   "bite_mm": 3.428,
+   "bite_mm": 4.57,
    "E": [
-    -1.6936,
-    6.1695,
+    -2.2367,
+    5.994,
     37.6576
    ],
    "X": [
-    1.6936,
-    6.1695,
+    2.2367,
+    5.994,
     37.6576
    ],
-   "u_E": 785.044,
-   "u_X": 788.431,
+   "u_E": 786.26,
+   "u_X": 790.733,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1119,19 +1146,19 @@
    "line": 3,
    "kind": "bottom",
    "s_mm": 52.3925,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -27.1732,
-    25.7591,
+    -27.0746,
+    25.8627,
     7.5573
    ],
    "X": [
-    -25.7591,
-    27.1732,
+    -25.8627,
+    27.0746,
     7.5573
    ],
-   "u_E": 837.891,
-   "u_X": 839.891,
+   "u_E": 840.695,
+   "u_X": 842.409,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1144,19 +1171,19 @@
    "line": 4,
    "kind": "top",
    "s_mm": 6.428,
-   "bite_mm": 3.428,
+   "bite_mm": 4.57,
    "E": [
-    -6.1695,
-    -1.6936,
+    -5.994,
+    -2.2367,
     37.6576
    ],
    "X": [
-    -6.1695,
-    1.6936,
+    -5.994,
+    2.2367,
     37.6576
    ],
-   "u_E": 889.352,
-   "u_X": 892.739,
+   "u_E": 892.37,
+   "u_X": 896.843,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1169,19 +1196,19 @@
    "line": 5,
    "kind": "bottom",
    "s_mm": 52.3925,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -25.7591,
-    -27.1732,
+    -25.8627,
+    -27.0746,
     7.5573
    ],
    "X": [
-    -27.1732,
-    -25.7591,
+    -27.0746,
+    -25.8627,
     7.5573
    ],
-   "u_E": 942.199,
-   "u_X": 944.199,
+   "u_E": 946.805,
+   "u_X": 948.518,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1194,19 +1221,19 @@
    "line": 6,
    "kind": "top",
    "s_mm": 6.428,
-   "bite_mm": 3.428,
+   "bite_mm": 4.57,
    "E": [
-    1.6936,
-    -6.1695,
+    2.2367,
+    -5.994,
     37.6576
    ],
    "X": [
-    -1.6936,
-    -6.1695,
+    -2.2367,
+    -5.994,
     37.6576
    ],
-   "u_E": 993.66,
-   "u_X": 997.047,
+   "u_E": 998.48,
+   "u_X": 1002.953,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1219,19 +1246,19 @@
    "line": 7,
    "kind": "bottom",
    "s_mm": 52.3925,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    27.1732,
-    -25.7591,
+    27.0746,
+    -25.8627,
     7.5573
    ],
    "X": [
-    25.7591,
-    -27.1732,
+    25.8627,
+    -27.0746,
     7.5573
    ],
-   "u_E": 1046.507,
-   "u_X": 1048.507,
+   "u_E": 1052.914,
+   "u_X": 1054.628,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1244,19 +1271,19 @@
    "line": 0,
    "kind": "top",
    "s_mm": 6.428,
-   "bite_mm": 3.428,
+   "bite_mm": 5.284,
    "E": [
-    6.1695,
-    1.6936,
+    5.994,
+    2.2367,
     37.6576
    ],
    "X": [
-    6.1695,
-    -1.6936,
+    5.7076,
+    -2.8904,
     37.6576
    ],
-   "u_E": 1097.967,
-   "u_X": 1101.355,
+   "u_E": 1104.59,
+   "u_X": 1109.725,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": true
@@ -1265,8 +1292,8 @@
    "op": "park",
    "thread": "A",
    "at": [
-    6.1695,
-    -1.6936,
+    5.7076,
+    -2.8904,
     37.6576
    ]
   },
@@ -1274,8 +1301,8 @@
    "op": "resume",
    "thread": "B",
    "at": [
-    4.862,
-    2.961,
+    5.2781,
+    2.1327,
     37.7706
    ],
    "basis": "TK-GT14 park/resume; TK-UWA"
@@ -1288,19 +1315,19 @@
    "line": 2,
    "kind": "bottom",
    "s_mm": 52.3925,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -0.9999,
-    37.4288,
+    -0.8569,
+    37.4323,
     7.5573
    ],
    "X": [
-    0.9999,
-    37.4288,
+    0.8569,
+    37.4323,
     7.5573
    ],
-   "u_E": 733.584,
-   "u_X": 735.583,
+   "u_E": 734.585,
+   "u_X": 736.299,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1313,19 +1340,19 @@
    "line": 3,
    "kind": "top",
    "s_mm": 6.428,
-   "bite_mm": 3.428,
+   "bite_mm": 4.57,
    "E": [
-    -5.56,
-    3.1649,
+    -5.82,
+    2.6568,
     37.6576
    ],
    "X": [
-    -3.1649,
-    5.56,
+    -2.6568,
+    5.82,
     37.6576
    ],
-   "u_E": 785.044,
-   "u_X": 788.431,
+   "u_E": 786.26,
+   "u_X": 790.733,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1338,19 +1365,19 @@
    "line": 4,
    "kind": "bottom",
    "s_mm": 52.3925,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -37.4288,
-    -0.9999,
+    -37.4323,
+    -0.8569,
     7.5573
    ],
    "X": [
-    -37.4288,
-    0.9999,
+    -37.4323,
+    0.8569,
     7.5573
    ],
-   "u_E": 837.891,
-   "u_X": 839.891,
+   "u_E": 840.695,
+   "u_X": 842.409,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1363,19 +1390,19 @@
    "line": 5,
    "kind": "top",
    "s_mm": 6.428,
-   "bite_mm": 3.428,
+   "bite_mm": 4.57,
    "E": [
-    -3.1649,
-    -5.56,
+    -2.6568,
+    -5.82,
     37.6576
    ],
    "X": [
-    -5.56,
-    -3.1649,
+    -5.82,
+    -2.6568,
     37.6576
    ],
-   "u_E": 889.352,
-   "u_X": 892.739,
+   "u_E": 892.37,
+   "u_X": 896.843,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1388,19 +1415,19 @@
    "line": 6,
    "kind": "bottom",
    "s_mm": 52.3925,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    0.9999,
-    -37.4288,
+    0.8569,
+    -37.4323,
     7.5573
    ],
    "X": [
-    -0.9999,
-    -37.4288,
+    -0.8569,
+    -37.4323,
     7.5573
    ],
-   "u_E": 942.199,
-   "u_X": 944.199,
+   "u_E": 946.805,
+   "u_X": 948.518,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1413,19 +1440,19 @@
    "line": 7,
    "kind": "top",
    "s_mm": 6.428,
-   "bite_mm": 3.428,
+   "bite_mm": 4.57,
    "E": [
-    5.56,
-    -3.1649,
+    5.82,
+    -2.6568,
     37.6576
    ],
    "X": [
-    3.1649,
-    -5.56,
+    2.6568,
+    -5.82,
     37.6576
    ],
-   "u_E": 993.66,
-   "u_X": 997.047,
+   "u_E": 998.48,
+   "u_X": 1002.953,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1438,19 +1465,19 @@
    "line": 0,
    "kind": "bottom",
    "s_mm": 52.3925,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    37.4288,
-    0.9999,
+    37.4323,
+    0.8569,
     7.5573
    ],
    "X": [
-    37.4288,
-    -0.9999,
+    37.4323,
+    -0.8569,
     7.5573
    ],
-   "u_E": 1046.507,
-   "u_X": 1048.507,
+   "u_E": 1052.914,
+   "u_X": 1054.628,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1463,19 +1490,19 @@
    "line": 1,
    "kind": "top",
    "s_mm": 6.428,
-   "bite_mm": 3.428,
+   "bite_mm": 5.284,
    "E": [
-    3.1649,
-    5.56,
+    2.6568,
+    5.82,
     37.6576
    ],
    "X": [
-    5.56,
-    3.1649,
+    6.0797,
+    1.9921,
     37.6576
    ],
-   "u_E": 1097.967,
-   "u_X": 1101.355,
+   "u_E": 1104.59,
+   "u_X": 1109.725,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": true
@@ -1484,8 +1511,8 @@
    "op": "park",
    "thread": "B",
    "at": [
-    5.56,
-    3.1649,
+    6.0797,
+    1.9921,
     37.6576
    ]
   },
@@ -1493,8 +1520,8 @@
    "op": "resume",
    "thread": "A",
    "at": [
-    6.1695,
-    -1.6936,
+    5.7076,
+    -2.8904,
     37.6576
    ],
    "basis": "TK-GT14 park/resume; TK-UWA"
@@ -1507,19 +1534,19 @@
    "line": 1,
    "kind": "bottom",
    "s_mm": 58.1219,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    26.2606,
-    27.6746,
+    26.3641,
+    27.576,
     1.8774
    ],
    "X": [
-    27.6746,
-    26.2606,
+    27.576,
+    26.3641,
     1.8774
    ],
-   "u_E": 1156.476,
-   "u_X": 1158.476,
+   "u_E": 1166.015,
+   "u_X": 1167.729,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1532,19 +1559,19 @@
    "line": 2,
    "kind": "top",
    "s_mm": 7.142,
-   "bite_mm": 4.142,
+   "bite_mm": 5.998,
    "E": [
-    -2.0418,
-    6.8006,
+    -2.9106,
+    6.4765,
     37.5314
    ],
    "X": [
-    2.0418,
-    6.8006,
+    2.9106,
+    6.4765,
     37.5314
    ],
-   "u_E": 1213.42,
-   "u_X": 1217.504,
+   "u_E": 1223.507,
+   "u_X": 1229.328,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1557,19 +1584,19 @@
    "line": 3,
    "kind": "bottom",
    "s_mm": 58.1219,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -27.6746,
-    26.2606,
+    -27.576,
+    26.3641,
     1.8774
    ],
    "X": [
-    -26.2606,
-    27.6746,
+    -26.3641,
+    27.576,
     1.8774
    ],
-   "u_E": 1272.448,
-   "u_X": 1274.448,
+   "u_E": 1285.106,
+   "u_X": 1286.82,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1582,19 +1609,19 @@
    "line": 4,
    "kind": "top",
    "s_mm": 7.142,
-   "bite_mm": 4.142,
+   "bite_mm": 5.998,
    "E": [
-    -6.8006,
-    -2.0418,
+    -6.4765,
+    -2.9106,
     37.5314
    ],
    "X": [
-    -6.8006,
-    2.0418,
+    -6.4765,
+    2.9106,
     37.5314
    ],
-   "u_E": 1329.393,
-   "u_X": 1333.476,
+   "u_E": 1342.598,
+   "u_X": 1348.419,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1607,19 +1634,19 @@
    "line": 5,
    "kind": "bottom",
    "s_mm": 58.1219,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -26.2606,
-    -27.6746,
+    -26.3641,
+    -27.576,
     1.8774
    ],
    "X": [
-    -27.6746,
-    -26.2606,
+    -27.576,
+    -26.3641,
     1.8774
    ],
-   "u_E": 1388.421,
-   "u_X": 1390.42,
+   "u_E": 1404.197,
+   "u_X": 1405.911,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1632,19 +1659,19 @@
    "line": 6,
    "kind": "top",
    "s_mm": 7.142,
-   "bite_mm": 4.142,
+   "bite_mm": 5.998,
    "E": [
-    2.0418,
-    -6.8006,
+    2.9106,
+    -6.4765,
     37.5314
    ],
    "X": [
-    -2.0418,
-    -6.8006,
+    -2.9106,
+    -6.4765,
     37.5314
    ],
-   "u_E": 1445.365,
-   "u_X": 1449.448,
+   "u_E": 1461.689,
+   "u_X": 1467.51,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1657,19 +1684,19 @@
    "line": 7,
    "kind": "bottom",
    "s_mm": 58.1219,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    27.6746,
-    -26.2606,
+    27.576,
+    -26.3641,
     1.8774
    ],
    "X": [
-    26.2606,
-    -27.6746,
+    26.3641,
+    -27.576,
     1.8774
    ],
-   "u_E": 1504.393,
-   "u_X": 1506.393,
+   "u_E": 1523.288,
+   "u_X": 1525.002,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1682,19 +1709,19 @@
    "line": 0,
    "kind": "top",
    "s_mm": 7.142,
-   "bite_mm": 4.142,
+   "bite_mm": 6.712,
    "E": [
-    6.8006,
-    2.0418,
+    6.4765,
+    2.9106,
     37.5314
    ],
    "X": [
-    6.8006,
-    -2.0418,
+    6.1516,
+    -3.5461,
     37.5314
    ],
-   "u_E": 1561.337,
-   "u_X": 1565.421,
+   "u_E": 1580.78,
+   "u_X": 1587.245,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": true
@@ -1703,8 +1730,8 @@
    "op": "park",
    "thread": "A",
    "at": [
-    6.8006,
-    -2.0418,
+    6.1516,
+    -3.5461,
     37.5314
    ]
   },
@@ -1712,8 +1739,8 @@
    "op": "resume",
    "thread": "B",
    "at": [
-    5.56,
-    3.1649,
+    6.0797,
+    1.9921,
     37.6576
    ],
    "basis": "TK-GT14 park/resume; TK-UWA"
@@ -1726,19 +1753,19 @@
    "line": 2,
    "kind": "bottom",
    "s_mm": 58.1219,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -0.9999,
-    38.1379,
+    -0.8569,
+    38.1414,
     1.8774
    ],
    "X": [
-    0.9999,
-    38.1379,
+    0.8569,
+    38.1414,
     1.8774
    ],
-   "u_E": 1156.476,
-   "u_X": 1158.476,
+   "u_E": 1166.015,
+   "u_X": 1167.729,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1751,19 +1778,19 @@
    "line": 3,
    "kind": "top",
    "s_mm": 7.142,
-   "bite_mm": 4.142,
+   "bite_mm": 5.998,
    "E": [
-    -6.2525,
-    3.365,
+    -6.6377,
+    2.5214,
     37.5314
    ],
    "X": [
-    -3.365,
-    6.2525,
+    -2.5214,
+    6.6377,
     37.5314
    ],
-   "u_E": 1213.42,
-   "u_X": 1217.504,
+   "u_E": 1223.507,
+   "u_X": 1229.328,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1776,19 +1803,19 @@
    "line": 4,
    "kind": "bottom",
    "s_mm": 58.1219,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    -38.1379,
-    -0.9999,
+    -38.1414,
+    -0.8569,
     1.8774
    ],
    "X": [
-    -38.1379,
-    0.9999,
+    -38.1414,
+    0.8569,
     1.8774
    ],
-   "u_E": 1272.448,
-   "u_X": 1274.448,
+   "u_E": 1285.106,
+   "u_X": 1286.82,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1801,19 +1828,19 @@
    "line": 5,
    "kind": "top",
    "s_mm": 7.142,
-   "bite_mm": 4.142,
+   "bite_mm": 5.998,
    "E": [
-    -3.365,
-    -6.2525,
+    -2.5214,
+    -6.6377,
     37.5314
    ],
    "X": [
-    -6.2525,
-    -3.365,
+    -6.6377,
+    -2.5214,
     37.5314
    ],
-   "u_E": 1329.393,
-   "u_X": 1333.476,
+   "u_E": 1342.598,
+   "u_X": 1348.419,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1826,19 +1853,19 @@
    "line": 6,
    "kind": "bottom",
    "s_mm": 58.1219,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    0.9999,
-    -38.1379,
+    0.8569,
+    -38.1414,
     1.8774
    ],
    "X": [
-    -0.9999,
-    -38.1379,
+    -0.8569,
+    -38.1414,
     1.8774
    ],
-   "u_E": 1388.421,
-   "u_X": 1390.42,
+   "u_E": 1404.197,
+   "u_X": 1405.911,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1851,19 +1878,19 @@
    "line": 7,
    "kind": "top",
    "s_mm": 7.142,
-   "bite_mm": 4.142,
+   "bite_mm": 5.998,
    "E": [
-    6.2525,
-    -3.365,
+    6.6377,
+    -2.5214,
     37.5314
    ],
    "X": [
-    3.365,
-    -6.2525,
+    2.5214,
+    -6.6377,
     37.5314
    ],
-   "u_E": 1445.365,
-   "u_X": 1449.448,
+   "u_E": 1461.689,
+   "u_X": 1467.51,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": false
@@ -1876,19 +1903,19 @@
    "line": 0,
    "kind": "bottom",
    "s_mm": 58.1219,
-   "bite_mm": 2.0,
+   "bite_mm": 1.714,
    "E": [
-    38.1379,
-    0.9999,
+    38.1414,
+    0.8569,
     1.8774
    ],
    "X": [
-    38.1379,
-    -0.9999,
+    38.1414,
+    -0.8569,
     1.8774
    ],
-   "u_E": 1504.393,
-   "u_X": 1506.393,
+   "u_E": 1523.288,
+   "u_X": 1525.002,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": false,
    "closing": false
@@ -1901,19 +1928,19 @@
    "line": 1,
    "kind": "top",
    "s_mm": 7.142,
-   "bite_mm": 4.142,
+   "bite_mm": 6.712,
    "E": [
-    3.365,
-    6.2525,
+    2.5214,
+    6.6377,
     37.5314
    ],
    "X": [
-    6.2525,
-    3.365,
+    6.8573,
+    1.8424,
     37.5314
    ],
-   "u_E": 1561.337,
-   "u_X": 1565.421,
+   "u_E": 1580.78,
+   "u_X": 1587.245,
    "lay_before": "geodesic arc from previous X [A]",
    "over_previous_rows": true,
    "closing": true
@@ -1922,8 +1949,8 @@
    "op": "park",
    "thread": "B",
    "at": [
-    6.2525,
-    3.365,
+    6.8573,
+    1.8424,
     37.5314
    ]
   },
@@ -1931,8 +1958,8 @@
    "op": "finish",
    "thread": "A",
    "at": [
-    6.8006,
-    -2.0418,
+    6.1516,
+    -3.5461,
     37.5314
    ],
    "hidden_run_mm": 30.0,
@@ -1942,8 +1969,8 @@
    "op": "finish",
    "thread": "B",
    "at": [
-    6.2525,
-    3.365,
+    6.8573,
+    1.8424,
     37.5314
    ],
    "hidden_run_mm": 30.0,

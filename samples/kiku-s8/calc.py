@@ -23,9 +23,14 @@ P = dict(
     s_top1_mm=5.0,       # [M] TK-GT14: верхний стежок «5 mm down from the NP» (OLY-TM7: 3–4 мм от северной булавки)
     bottom_from_eq=1/3,  # [M] TK-GT14: нижние булавки на 1/3 расстояния полюс–экватор, считая от экватора (OLY-TM7: 2/3 от полюса — то же)
     w_mm=0.714,          # [A] ширина уложенной нити Perle #5 в плотном ряду: TK-GAUGE «7 threads = 0.5cm» (тот же сайт даёт пример 10 рядов ≈ 7.5 мм => 0.75)
-    bite0_mm=2.0,        # [M/A] TK-KAGARI «about 2mm»; TK-LITTLE «about 1-2 mm» — ширина захвата обычного стежка
+    marking_width_mm=1.0,  # [A] ширина нити разметки (металлик). TK-GAUGE: «Rainbow Gallery Nordic Gold - 1 strand = 1mm» —
+                         # единственный калибр золотого металлика в источниках; GT14 бренд не называет; для разметки часто
+                         # берут более тонкий металлик (TK-GAUGE) => верхняя оценка, НЕ измерено.
+                         # Ширина захвата стежка НЕ параметр (stage 2, решение D16): E/X выводятся из того, что уже лежит
+                         # на шаре — рабочая нить входит/выходит вплотную к нити разметки: смещение оси = (m + w)/2.
+                         # Проверка (не навязывание): выведенный захват m + w = 1.71 мм попадает в «about 1-2 mm» (TK-LITTLE),
+                         # «about 2mm» (TK-KAGARI).
     top_step='w',        # [M] TK-GT14/TK-UWA: каждый следующий верхний стежок «about 1 thread width wider and lower»
-    top_bite_growth_mm=None,  # [A] рост ширины верхнего захвата за ряд; None => = w (TK-GT14 «1 thread width wider»)
     bottom_rule='geom',  # 'geom' — вывод из правила «положи нить параллельно, стежок там, где она пересекает линию» (TK-STRETCH),
                          # 'fixed' — постоянный шаг bottom_fixed_mm (TK-UWA/TK-STRETCH «usually about 2mm»)
     bottom_fixed_mm=2.0, # [M] TK-UWA, TK-STRETCH (#5: ~2 мм); RU-JARILO 1.5–2; RU-MYJULIA 2–3; RU-EAGLE 5 мм
@@ -123,9 +128,30 @@ def gc_intersection(a1, a2, b1, b2):
 # 3. ПРАВИЛА РЯДОВ
 # ----------------------------------------------------------------------------
 w = P['w_mm']
-g_top = P['top_bite_growth_mm'] if P['top_bite_growth_mm'] is not None else w
 s_b1 = Q * (1 - P['bottom_from_eq'])
 tip_lim = Q if P['tip_limit'] == 'equator' else Q - 7.0
+
+def configure(**kw):
+    """Пересчитать производные глобальные величины после изменения параметров (для sim/tools/calc_reference.py:
+    кросс-проверка JS-симулятора независимой реализацией при других C, w, m, N)."""
+    global R, Q, PHI, w, s_b1, tip_lim
+    P.update(kw)
+    R = P['C_mm'] / (2 * math.pi)
+    Q = P['C_mm'] / 4
+    PHI = [2 * math.pi * k / P['N_DIV'] for k in range(P['N_DIV'])]
+    w = P['w_mm']
+    s_b1 = Q * (1 - P['bottom_from_eq'])
+    tip_lim = Q if P['tip_limit'] == 'equator' else Q - 7.0
+
+def clear0():
+    """Смещение оси рабочей нити от оси нити разметки в точке входа/выхода иглы: вплотную, без наложения
+    (TK-LITTLE: «the jiwari should not be split, or moved out of place by the stitching thread»):
+    c0 = m/2 + w/2 — следует из ширин, свободного числа нет. (b) вывод; ширины m, w — параметры [A]."""
+    return (P['marking_width_mm'] + w) / 2
+
+def start_exit_offset():
+    """Выход нити после скрытого старта: «just to the left of one marking line» (TK-GT14) => −c0."""
+    return -clear0()
 
 def rows_geometry(bottom_rule=P['bottom_rule'], fixed=P['bottom_fixed_mm'], limit=tip_lim, max_rows=60):
     """Возвращает список рядов: s_top, bite_top, s_bot, углы, шаг. Геометрия одинакова для всех 4 лепестков
@@ -133,12 +159,22 @@ def rows_geometry(bottom_rule=P['bottom_rule'], fixed=P['bottom_fixed_mm'], limi
     rows = []
     s_t, s_b = P['s_top1_mm'], s_b1
     for n in range(1, max_rows + 1):
-        bite_t = P['bite0_mm'] + (n - 1) * g_top
+        # Боковые смещения E (+, по ходу) и X (−) от линии. Ряд 1: вокруг только нити разметки => ±c0;
+        # замыкающий верхний стежок на стартовой линии: слева уже выходит стартовая нить => X = −(c0 + w).
+        # Ряд n≥2 (оценка stage 1, будет заменена занятостью по фактическому пути в stage 2c): E/X — вплотную
+        # снаружи прежнего захвата: ±w с каждой стороны (+2w за ряд). Правило источника «about 1 thread width wider»
+        # (GT14/TK-UWA) — проверяется как следствие, а не задаётся (model/spec.md G5').
+        c0 = clear0()
+        e_t = c0 + (n - 1) * w
+        x_t = -c0 - (n - 1) * w
+        x_tc = -c0 - w - (n - 1) * w
+        bite_t = e_t - x_t
         T = point(s_t, PHI[0]); B = point(s_b, PHI[1])
         aB = angle_with_meridian(B, T)            # полуугол кончика лепестка
         aT = angle_with_meridian(T, B)
-        rows.append(dict(n=n, s_top=s_t, bite_top=bite_t, s_bot=s_b, alpha_B=aB, gamma_T=aT,
-                         tip_angle=2 * aB))
+        rows.append(dict(n=n, s_top=s_t, bite_top=bite_t, e_top=e_t, x_top=x_t, x_top_close=x_tc,
+                         bite_close=e_t - x_tc, e_bot=c0, x_bot=-c0, bite_bot=2 * c0,
+                         s_bot=s_b, alpha_B=aB, gamma_T=aT, tip_angle=2 * aB))
         # следующий ряд
         if bottom_rule == 'geom':
             d_b = w / math.sin(math.radians(aB))   # параллельный сдвиг на w -> вдоль меридиана w/sin(alpha)
@@ -152,21 +188,23 @@ def rows_geometry(bottom_rule=P['bottom_rule'], fixed=P['bottom_fixed_mm'], limi
         s_t, s_b = s_t + d_t, s_b + d_b
     return rows
 
-def round_path(row, set_offset=0, bite_bottom=None):
+def round_path(row, set_offset=0):
     """Одна «окружность» (周, round) набора: 8 стежков в порядке обхода.
     set_offset=0 -> набор A (верх на чётных линиях, низ на нечётных), 1 -> набор B.
     Порядок для A: B1,T2,B3,T4,B5,T6,B7,T0 (старт — выход нити слева от линии 0 на уровне верха).
     Каждый стежок: вход E справа (по ходу, +phi) от линии на bite/2, выход X слева (−phi) — игла идёт
-    против хода обхода (OLY-BASIC, TK-GT14 фото, RU-MYJULIA)."""
-    bb = P['bite0_mm'] if bite_bottom is None else bite_bottom
+    против хода обхода (OLY-BASIC, TK-GT14 фото, RU-MYJULIA). Смещения E/X выводятся (rows_geometry), не задаются."""
     seq = []
     for i in range(1, P['N_DIV'] + 1):
         k = (i + set_offset) % P['N_DIV']
         is_bottom = (i % 2 == 1)
         s = row['s_bot'] if is_bottom else row['s_top']
-        b = bb if is_bottom else row['bite_top']
-        E = offset_pt(s, PHI[k], +b / 2)
-        X = offset_pt(s, PHI[k], -b / 2)
+        closing = (i == P['N_DIV'])
+        e_off = row['e_bot'] if is_bottom else row['e_top']
+        x_off = row['x_bot'] if is_bottom else (row['x_top_close'] if closing else row['x_top'])
+        b = e_off - x_off
+        E = offset_pt(s, PHI[k], e_off)
+        X = offset_pt(s, PHI[k], x_off)
         C = point(s, PHI[k])
         seq.append(dict(i=i, line=k, kind='bottom' if is_bottom else 'top', s=s, bite=b, E=E, X=X, C=C))
     return seq
@@ -175,7 +213,7 @@ def round_lengths(row, prev_exit=None, set_offset=0):
     seq = round_path(row, set_offset)
     k0 = set_offset % P['N_DIV']
     if prev_exit is None:   # начало ряда 1: нить выходит слева от стартовой линии на уровне верха (TK-GT14)
-        prev_exit = offset_pt(row['s_top'], PHI[k0], -row['bite_top'] / 2)
+        prev_exit = offset_pt(row['s_top'], PHI[k0], start_exit_offset())
     arms, bites = [], []
     cur = prev_exit
     for st in seq:
@@ -306,7 +344,7 @@ def export_thread_path(rows):
     for n, row in enumerate(rows, 1):
         for th, off in (('A', 0), ('B', 1)):
             if n == 1:
-                X0 = offset_pt(row['s_top'], PHI[off % P['N_DIV']], -row['bite_top'] / 2)
+                X0 = offset_pt(row['s_top'], PHI[off % P['N_DIV']], start_exit_offset())
                 ops.append(dict(op='start', thread=th, at=r3(X0), hidden_run_mm=P['start_run_mm'],
                                 backtrack=P['start_backtrack'], basis='TK-ANCHOR / TK-GT14'))
                 cur[th] = X0
@@ -339,8 +377,8 @@ def main():
     L.append("Обозначения: [M] параметр мастера/источника, [A] аппроксимация, [C] вычислено.\n")
     L.append("## 1. Параметры\n")
     L.append("| параметр | значение | тип |\n|---|---|---|")
-    tags = dict(C_mm='M', N_DIV='M', s_top1_mm='M', bottom_from_eq='M', w_mm='A', bite0_mm='M/A', top_step='M',
-                top_bite_growth_mm='A', bottom_rule='вариант', bottom_fixed_mm='M', tip_limit='M', start_run_mm='M',
+    tags = dict(C_mm='M', N_DIV='M', s_top1_mm='M', bottom_from_eq='M', w_mm='A', marking_width_mm='A', top_step='M',
+                bottom_rule='вариант', bottom_fixed_mm='M', tip_limit='M', start_run_mm='M',
                 start_backtrack='M', end_run_mm='A', end_backtrack='M', handling_reserve_mm='A (без источника)',
                 hemispheres='M', skein_m='M')
     for k, v in P.items():
@@ -363,10 +401,14 @@ def main():
 
     L.append("## 3. Ряды (один набор, одно полушарие) — основной вариант: "
              f"bottom_rule='{P['bottom_rule']}', tip_limit='{P['tip_limit']}'\n")
-    L.append("| ряд n | s_top, мм | захват верха, мм | s_bot, мм | α_B (полуугол кончика), ° | угол кончика, ° | γ_T, ° | шаг низа к n+1, мм |")
-    L.append("|---|---|---|---|---|---|---|---|")
+    L.append(f"Захваты E→X **выводятся** из ширин (не параметр): c0 = (m + w)/2 = {fmt(clear0(),3)} мм от оси линии "
+             f"(m = {P['marking_width_mm']} мм разметка [A], w = {w} мм нить [A]); низ: ±c0; верх ряда 1: ±c0; "
+             "замыкающий верх на стартовой линии: X = −(c0 + w) (слева уже выходит стартовая нить); "
+             "верх ряда n≥2: ±w с каждой стороны за ряд — оценка до stage 2c.\n")
+    L.append("| ряд n | s_top, мм | захват верха, мм | захват замыкающего верха, мм | захват низа, мм | s_bot, мм | α_B (полуугол кончика), ° | угол кончика, ° | γ_T, ° | шаг низа к n+1, мм |")
+    L.append("|---|---|---|---|---|---|---|---|---|---|")
     for r in main_rows:
-        L.append(f"| {r['n']} | {fmt(r['s_top'])} | {fmt(r['bite_top'])} | {fmt(r['s_bot'])} | {fmt(r['alpha_B'],1)} | "
+        L.append(f"| {r['n']} | {fmt(r['s_top'])} | {fmt(r['bite_top'])} | {fmt(r['bite_close'])} | {fmt(r['bite_bot'])} | {fmt(r['s_bot'])} | {fmt(r['alpha_B'],1)} | "
                  f"{fmt(r['tip_angle'],1)} | {fmt(r['gamma_T'],1)} | {fmt(r['next_d_bot'])} |")
     L.append("")
     L.append("### 3.1 Сравнение правил шага нижней точки и пределов (число рядов на набор)\n")
