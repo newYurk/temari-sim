@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="680" viewBox="0 0 1100 680" font-family="DejaVu Sans, Arial, sans-serif">
+<rect width="1100" height="680" fill="white"/>
+<text x="20" y="30" font-size="19" font-weight="bold">Схема 2. Один стежок кику (かがり): вход/выход иглы, ход, наложение нитей</text>
+<text x="20" y="52" font-size="12.5" fill="#444">Схема, не масштаб. Сплошное — нить на поверхности; пунктир — внутри обмотки (под линией разметки). Вверх на рисунке = к северному полюсу.</text>
+<defs><marker id="ar" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 z" fill="black"/></marker><marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 z" fill="#c00"/></marker></defs>
+<text x="20" y="95" font-size="15" font-weight="bold">а) нижняя точка (кончик лепестка)</text>
+<line x1="240" y1="120" x2="240" y2="560" stroke="#b8860b" stroke-width="5"/>
+<text x="248" y="572" font-size="12" fill="#b8860b">линия 地割り k</text>
+<path d="M 170 130 L 270 380" stroke="#2f3b52" stroke-width="7" fill="none" stroke-linecap="round"/>
+<path d="M 210 380 L 310 130" stroke="#6b7fa8" stroke-width="7" fill="none" stroke-linecap="round"/>
+<text x="20" y="118" font-size="12">① приходит от верхней точки (линия k−1)</text>
+<text x="318" y="160" font-size="12">③ уходит к верхней</text>
+<text x="318" y="175" font-size="12">точке (k+1)</text>
+<text x="270" y="300" font-size="12">перекрест ③ над ① (вывод)</text>
+<text x="40" y="470" font-size="12">Шаг следующего ряда: ниже на Δ ≈ w/sin α</text>
+<text x="40" y="486" font-size="12">(TK-STRETCH: «stretch the points»)</text>
+<line x1="270" y1="380" x2="210" y2="380" stroke="black" stroke-width="3" stroke-dasharray="7,5"/>
+<line x1="310" y1="410" x2="200" y2="410" stroke="#c00" stroke-width="2" marker-end="url(#arr)"/>
+<text x="200" y="430" font-size="12" fill="#c00">② игла: справа → налево, ⟂ линии</text>
+<circle cx="270" cy="380" r="5" fill="white" stroke="black" stroke-width="2"/><text x="278" y="372" font-size="13" font-weight="bold">E</text>
+<circle cx="210" cy="380" r="5" fill="black"/><text x="188" y="372" font-size="13" font-weight="bold">X</text>
+<text x="580" y="95" font-size="15" font-weight="bold">б) верхняя точка, ряд n ≥ 2 (上掛け)</text>
+<line x1="800" y1="120" x2="800" y2="560" stroke="#b8860b" stroke-width="5"/>
+<text x="808" y="572" font-size="12" fill="#b8860b">линия 地割り k</text>
+<path d="M 640 440 L 795 320 L 960 440" stroke="#aaa" stroke-width="6" fill="none"/>
+<path d="M 640 460 L 795 340 L 960 460" stroke="#aaa" stroke-width="6" fill="none"/>
+<path d="M 640 480 L 795 360 L 960 480" stroke="#aaa" stroke-width="6" fill="none"/>
+<path d="M 620 550 L 870 390" stroke="#2f3b52" stroke-width="7" fill="none"/>
+<path d="M 730 390 L 980 550" stroke="#6b7fa8" stroke-width="7" fill="none"/>
+<text x="590" y="270" font-size="12">серые — нити предыдущих рядов у верхней точки</text>
+<text x="570" y="580" font-size="12">① приходит снизу (от кончика k−1)</text>
+<text x="830" y="580" font-size="12">③ уходит к кончику k+1</text>
+<text x="590" y="252" font-size="12">① проходит ПОВЕРХ предыдущих рядов (上掛け, TK-UWA)</text>
+<text x="590" y="160" font-size="12">захват шире на ~1 толщину нити за ряд и ниже;</text>
+<text x="590" y="176" font-size="12">игла проходит под всеми предыдущими нитями (TK-GT14, TK-UWA)</text>
+<line x1="870" y1="390" x2="730" y2="390" stroke="black" stroke-width="3" stroke-dasharray="7,5"/>
+<line x1="910" y1="420" x2="720" y2="420" stroke="#c00" stroke-width="2" marker-end="url(#arr)"/>
+<text x="720" y="465" font-size="12" fill="#c00">② игла: справа → налево, ⟂ линии</text>
+<circle cx="870" cy="390" r="5" fill="white" stroke="black" stroke-width="2"/><text x="878" y="382" font-size="13" font-weight="bold">E</text>
+<circle cx="730" cy="390" r="5" fill="black"/><text x="708" y="382" font-size="13" font-weight="bold">X</text>
+<line x1="700" y1="72" x2="900" y2="72" stroke="black" stroke-width="2.5" marker-end="url(#ar)"/>
+<text x="440" y="77" font-size="13">ход обхода (к линии справа, +φ):</text>
+<text x="20" y="640" font-size="12" fill="#333">Документировано: игла ⟂ линии, против хода (OLY-BASIC, фото TK-GT14, RU-MYJULIA); захват ~1–2 мм под линией вместе с поверхностью обмотки (TK-KAGARI).</text>
+<text x="20" y="658" font-size="12" fill="#333">Вывод (не подтверждено практикой): ③ ложится поверх ① в точке перекреста, т.к. уложена позже.</text>
+</svg>

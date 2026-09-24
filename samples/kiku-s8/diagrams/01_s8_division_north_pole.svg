@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="920" viewBox="0 0 1060 920" font-family="DejaVu Sans, Arial, sans-serif">
+<rect width="1060" height="920" fill="white"/>
+<text x="20" y="30" font-size="19" font-weight="bold">Схема 1. Разметка S8 (8等分) — вид с северного полюса, булавки и опорные точки кику</text>
+<text x="20" y="52" font-size="12.5" fill="#444">Схема. Азимутальная равнопромежуточная проекция: радиус = дуга s от полюса. C = 240 мм, R = 38.20 мм, Q = 60 мм.</text>
+<circle cx="480" cy="470" r="300.0" fill="#fafafa" stroke="#b8860b" stroke-width="2.2"/>
+<text x="720" y="690" font-size="12.5" fill="#b8860b">экватор 赤道 (s = 60 мм)</text>
+<circle cx="480" cy="470" r="200.00000000000003" fill="none" stroke="#999" stroke-dasharray="5,4"/>
+<circle cx="480" cy="470" r="25.0" fill="none" stroke="#999" stroke-dasharray="2,2"/>
+<line x1="480" y1="470" x2="780.0" y2="470.0" stroke="#b8860b" stroke-width="1.6"/>
+<text x="805.0" y="474.0" font-size="13" text-anchor="middle" fill="#b8860b">L0 (0°)</text>
+<line x1="480" y1="470" x2="692.1" y2="257.9" stroke="#b8860b" stroke-width="1.6"/>
+<text x="709.8" y="244.2" font-size="13" text-anchor="middle" fill="#b8860b">L1 (45°)</text>
+<line x1="480" y1="470" x2="480.0" y2="170.0" stroke="#b8860b" stroke-width="1.6"/>
+<text x="480.0" y="149.0" font-size="13" text-anchor="middle" fill="#b8860b">L2 (90°)</text>
+<line x1="480" y1="470" x2="267.9" y2="257.9" stroke="#b8860b" stroke-width="1.6"/>
+<text x="250.2" y="244.2" font-size="13" text-anchor="middle" fill="#b8860b">L3 (135°)</text>
+<line x1="480" y1="470" x2="180.0" y2="470.0" stroke="#b8860b" stroke-width="1.6"/>
+<text x="155.0" y="474.0" font-size="13" text-anchor="middle" fill="#b8860b">L4 (180°)</text>
+<line x1="480" y1="470" x2="267.9" y2="682.1" stroke="#b8860b" stroke-width="1.6"/>
+<text x="250.2" y="703.8" font-size="13" text-anchor="middle" fill="#b8860b">L5 (225°)</text>
+<line x1="480" y1="470" x2="480.0" y2="770.0" stroke="#b8860b" stroke-width="1.6"/>
+<text x="480.0" y="799.0" font-size="13" text-anchor="middle" fill="#b8860b">L6 (270°)</text>
+<line x1="480" y1="470" x2="692.1" y2="682.1" stroke="#b8860b" stroke-width="1.6"/>
+<text x="709.8" y="703.8" font-size="13" text-anchor="middle" fill="#b8860b">L7 (315°)</text>
+<circle cx="680.0" cy="470.0" r="7" fill="#c8102e" stroke="black"/>
+<circle cx="505.0" cy="470.0" r="3.2" fill="#2f3b52"/>
+<circle cx="621.4" cy="328.6" r="7" fill="#2f3b52" stroke="black"/>
+<circle cx="497.7" cy="452.3" r="3.2" fill="#c8102e"/>
+<circle cx="480.0" cy="270.0" r="7" fill="#c8102e" stroke="black"/>
+<circle cx="480.0" cy="445.0" r="3.2" fill="#2f3b52"/>
+<circle cx="338.6" cy="328.6" r="7" fill="#2f3b52" stroke="black"/>
+<circle cx="462.3" cy="452.3" r="3.2" fill="#c8102e"/>
+<circle cx="280.0" cy="470.0" r="7" fill="#c8102e" stroke="black"/>
+<circle cx="455.0" cy="470.0" r="3.2" fill="#2f3b52"/>
+<circle cx="338.6" cy="611.4" r="7" fill="#2f3b52" stroke="black"/>
+<circle cx="462.3" cy="487.7" r="3.2" fill="#c8102e"/>
+<circle cx="480.0" cy="670.0" r="7" fill="#c8102e" stroke="black"/>
+<circle cx="480.0" cy="495.0" r="3.2" fill="#2f3b52"/>
+<circle cx="621.4" cy="611.4" r="7" fill="#2f3b52" stroke="black"/>
+<circle cx="497.7" cy="487.7" r="3.2" fill="#c8102e"/>
+<circle cx="480" cy="470" r="6" fill="white" stroke="black" stroke-width="2"/>
+<text x="360" y="456" font-size="12.5">北極 NP (булавка)</text>
+<path d="M 504.5 475.0 L 654.5 325.0" stroke="black" stroke-width="1" fill="none"/>
+<text x="656" y="321" font-size="12">старт нити A: выход на стороне −φ от L0 (ниже L0 на рисунке),</text>
+<text x="656" y="336" font-size="12">= «just to the left» по ходу; s = 5 мм от NP (TK-GT14)</text>
+<defs><marker id="ar" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 z" fill="black"/></marker></defs>
+<path d="M 530.0 556.6 A 100.0 100.0 0 0 0 574.0 504.2" stroke="black" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+<text x="536" y="579" font-size="12">ход обхода: против часовой</text>
+<text x="536" y="594" font-size="12">(вид снаружи на полюс; правша)</text>
+<circle cx="40" cy="835" r="7" fill="#2f3b52" stroke="black"/><text x="55" y="839" font-size="12.5">нижняя булавка набора A (цвет A) — линии L1,L3,L5,L7; s = 40 мм = 1/3 Q над экватором</text>
+<circle cx="40" cy="857" r="7" fill="#c8102e" stroke="black"/><text x="55" y="861" font-size="12.5">нижняя булавка набора B (цвет B) — линии L0,L2,L4,L6</text>
+<circle cx="40" cy="879" r="3.2" fill="#2f3b52"/><circle cx="50" cy="879" r="3.2" fill="#c8102e"/><text x="60" y="883" font-size="12.5">верхние точки (5 мм от NP): A — чётные линии, B — нечётные (TK-GT14). Пунктир: s = 5 и s = 40 мм</text>
+<line x1="860" y1="120" x2="910.0" y2="120" stroke="black" stroke-width="3"/><text x="860" y="112" font-size="12">10 мм (по радиусу)</text>
+</svg>
