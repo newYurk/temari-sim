@@ -1,9 +1,9 @@
 // Конвейер слоёв: чистая функция (рецепт + параметры) → слои в порядке зависимостей
-// base → marking → layout → rowPlan → path(A1) → validators. Каждый слой несёт штамп: хэш собственных входов
+// base → marking → layout → rowPlan → path(A1, B1, A2 … по recipe.work.order) → validators. Каждый слой несёт штамп: хэш собственных входов
 // и штампы слоёв-родителей. Пересчёт всегда с нуля: никаких кэшей между наборами параметров.
 import { point, angleWithMeridian, rad } from './geom.js';
 import { normalizeParams } from './params.js';
-import { buildRoundPath, stageLastOp } from './path.js';
+import { buildWork, stageLastOp } from './path.js';
 
 export function canonical(x) {
   if (Array.isArray(x)) return '[' + x.map(canonical).join(',') + ']';
@@ -65,10 +65,17 @@ export function layerRowPlan(recipe, P, base, marking, layout) {
 export function layerPath(recipe, P, base, marking, layout, rowPlan) {
   const inputs = pick(P, ['w_mm', 'm_mm', 'startRule', 'startRun_mm']);
   const parents = [base.stamp, marking.stamp, layout.stamp, rowPlan.stamp];
-  const res = buildRoundPath(recipe, P, base, marking, layout);
-  return { id: 'path:A1', inputs, parents, stamp: hash({ inputs, parents }), ...res,
-    stageEnd: { '2a': stageLastOp(recipe, res.ops, '2a'), '2b': stageLastOp(recipe, res.ops, '2b') } };
+  const res = buildWork(recipe, P, base, marking, layout);
+  const stageEnd = Object.fromEntries(Object.keys(recipe.stages).map((k) => [k, stageLastOp(recipe, res.ops, k)]));
+  const A1 = res.rounds[0];
+  return { id: `path:${recipe.work.order.join('+')}`, inputs, parents, stamp: hash({ inputs, parents, order: recipe.work.order }), ...res, stageEnd,
+    // первый обход — для совместимости диагностики этапов 2a/2b
+    start: A1.start, startLegId: A1.firstLegId };
 }
+
+/** Крючок механики (этап 2.4+): слой, который по пути вычислит реальные подъёмы нить-на-нить и формы плеч.
+ *  Сейчас его нет — рендер использует условное смещение по порядку стопки (display.js), помеченное как изображение. */
+export function layerMechanics() { return null; }
 
 /** Полный пересчёт. raw — сырые параметры (из UI/URL/теста). */
 export function computeAll(recipe, raw) {
@@ -78,12 +85,13 @@ export function computeAll(recipe, raw) {
   const layout = layerLayout(recipe, P, base, marking);
   const rowPlan = layerRowPlan(recipe, P, base, marking, layout);
   const path = layerPath(recipe, P, base, marking, layout, rowPlan);
-  return { recipeId: recipe.id, params: P, base, marking, layout, rowPlan, path, computedAt: Date.now() };
+  const mechanics = layerMechanics(recipe, P, path);
+  return { recipeId: recipe.id, params: P, base, marking, layout, rowPlan, path, mechanics, computedAt: Date.now() };
 }
 
-/** Префикс пути до операции k включительно (последовательное шитьё: префикс причинен). */
+/** Префикс работы до операции k включительно (последовательное шитьё: префикс причинен). */
 export function prefix(path, k) {
   const ops = path.ops.slice(0, k + 1);
   const ids = new Set(ops.flatMap((o) => o.segIds));
-  return { ops, segs: path.segs.filter((s) => ids.has(s.id)) };
+  return { ops, segs: path.segs.filter((s) => ids.has(s.id)), ids };
 }
