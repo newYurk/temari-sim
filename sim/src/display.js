@@ -8,6 +8,32 @@
 import { unit, mul, dist, angle } from './geom.js';
 
 export const HID_DEPTH_W = 1.0;      // глубина схематичной дуги скрытого старта, в ширинах нити (условность изображения, не модель)
+//  • перекрест/клин: верхняя (по правилу над/под) нить приподнята на DISPLAY_STACK_LIFT_W·w на каждый уровень стопки
+//    с плавным спадом — ТОЛЬКО чтобы на экране была видна верхняя нить. Это не высота стопки: подъём нить-на-нить,
+//    сжатие и изгиб — механика (этап 2.4). Крючок: если A.mechanics.liftAt(segId, i) есть — берётся он.
+export const DISPLAY_STACK_LIFT_W = 0.6;
+
+/** Профиль уровня стопки вдоль плеча (в уровнях, не в мм): из перекрестов, где плечо сверху. */
+export function stackProfile(A, seg) {
+  const n = seg.pts.length, prof = new Float64Array(n);
+  const step = seg.length / (n - 1);
+  for (const c of A.path.crossings) {
+    if (c.over !== seg.id) continue;
+    const ic = c.over === c.a ? c.iA : c.iB;
+    const half = c.halfMm, taper = Math.max(A.params.w_mm, half);
+    for (let i = 0; i < n; i++) {
+      const d = Math.abs(i - ic) * step;
+      let t = d <= half ? 1 : d >= half + taper ? 0 : 0.5 * (1 + Math.cos(Math.PI * (d - half) / taper));
+      if (c.kind === 'wedge') {   // клин тянется от верхней точки на длину зоны налегания
+        const iTop = c.iA <= 2 ? 0 : n - 1, zoneN = Math.ceil(c.lenMm / step);
+        const dz = Math.abs(i - iTop);
+        t = dz <= zoneN ? 1 : dz >= zoneN + taper / step ? 0 : 0.5 * (1 + Math.cos(Math.PI * (dz - zoneN) * step / taper));
+      }
+      prof[i] = Math.max(prof[i], c.stack * t);
+    }
+  }
+  return prof;
+}
 
 const lift = (p, r) => mul(unit(p), r);
 function densifyLine(a, b, h) {
@@ -35,8 +61,13 @@ export function displayGeometry(A, segIds = null, opts = {}) {
   for (const s of A.path.segs) {
     if (segIds && !segIds.has(s.id)) continue;
     if (s.type === 'leg') {
-      out.push({ seg: s, pts: [lift(s.from, R - w / 2), ...s.pts.map((p) => lift(p, R + w / 2)), lift(s.to, R - w / 2)],
-        radius: w / 2, hidden: false, schematic: false });
+      const mech = A.mechanics && A.mechanics.liftAt ? (i) => A.mechanics.liftAt(s.id, i) : null;
+      const prof = mech ? null : stackProfile(A, s);
+      const liftAt = (i) => (mech ? mech(i) : DISPLAY_STACK_LIFT_W * w * prof[i]);
+      let liftMax = 0;
+      const axis = s.pts.map((p, i) => { const l = liftAt(i); liftMax = Math.max(liftMax, l); return lift(p, R + w / 2 + l); });
+      out.push({ seg: s, pts: [lift(s.from, R - w / 2), ...axis, lift(s.to, R - w / 2)],
+        radius: w / 2, hidden: false, schematic: false, liftMax, liftSource: mech ? 'mechanics' : 'display' });
     } else if (s.type === 'pickup') {
       out.push({ seg: s, pts: densifyLine(lift(s.from, R - w / 2), lift(s.to, R - w / 2), 0.05), radius: w * 0.35, hidden: true, schematic: false });
     } else if (hidMode === 'chord') {
