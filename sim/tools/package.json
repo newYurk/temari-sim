@@ -1,0 +1,9 @@
+{
+ "name": "temari-sim-tools",
+ "private": true,
+ "type": "module",
+ "devDependencies": {
+  "playwright-core": "^1.47.2",
+  "pngjs": "^7.0.0"
+ }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "kiku-s8-gt14",
+  "title": "Кику S8 (八重菊, 2 набора × N/2 лепестков) — 上掛け千鳥かがり, по TemariKai GT14",
+  "derivedFrom": "samples/kiku-s8/recipe.md (шаги 3–9), thread-path.md (шаги 1–9)",
+  "note": "Рецепт хранит ЗАМЫСЕЛ и операции иглы, а не координаты. Все координаты выводит генератор пути из параметров. Ширины захвата здесь нет (D16): E/X выводятся из занятости у линии.",
+  "conventions": {
+    "travel": { "value": "+phi", "text": "обход против часовой стрелки при взгляде снаружи на рабочий полюс", "basis": "TK-GT14 «Move 1 marking line to the right»; A16", "tag": "a" },
+    "needle": { "value": "againstTravel", "text": "игла против хода: вход E справа (+φ), выход X слева (−φ)", "basis": "OLY-BASIC «※かがる向きは、進行方向とは常に逆方向です»", "tag": "a" },
+    "perpendicular": { "value": true, "text": "игла ⟂ линии разметки", "basis": "OLY-BASIC «針は地割り糸と垂直に交わるように»; TK-LITTLE «perpendicular (right angle)»", "tag": "a" },
+    "channel": { "value": "straightChord", "text": "скрытый участок — прямой канал иглы (хорда) между E и X", "basis": "model/spec.md Ф5: игла — жёсткий прямой стержень", "tag": "a+b" },
+    "sides": { "value": "besideOccupied", "text": "E — вплотную справа от самой правой уже уложенной нити у линии (включая нить разметки), X — вплотную слева от самой левой; нить не расщепляет и не сдвигает разметку; зазор < w не пропускает нить", "basis": "TK-LITTLE «the jiwari should not be split, or moved out of place by the stitching thread»; prior #105 (между нитями, не сквозь); OLY-TM7-V «自然に交わる所»", "tag": "a+b" },
+    "lay": { "value": "geodesic", "text": "видимое плечо — дуга большого круга (натянутая нить, идеализация)", "basis": "model/spec.md Ф3; geometry.md §7", "tag": "b" },
+    "crossing": { "value": "laterOver", "text": "в перекресте позже уложенная ветвь сверху, если рецепт не велит пройти под", "basis": "model/spec.md G8; ambiguities A14; prior #102", "tag": "b" }
+  },
+  "layers": [
+    { "id": "base", "type": "ball", "inputs": ["C_mm", "baseWrap"] },
+    { "id": "marking", "type": "simpleDivision", "inputs": ["N", "m_mm"], "basis": "TK-SIMPLE; TK-GT14 «Simple 8 division»" },
+    { "id": "layout", "type": "kikuPins", "inputs": ["topMode", "sTop_mm", "sTopFrac", "bottomFromEq"],
+      "basis": "TK-GT14: верх «5 mm down from the NP»; булавки «1/3 of this distance up from the equator»; TK-KIKU" },
+    { "id": "rowPlan", "type": "kikuRows", "inputs": ["rowsMode", "rowsCount", "spacingMode", "pitch_mm", "w_mm"],
+      "basis": "TK-GT14 «Work to the equator»; TK-STRETCH/OLY-TM7-V (уложить → колоть в пересечении); TK-UWA «about 2mm»",
+      "note": "План уровней рядов. В этапе 2a/2b путь строится только для ряда 1." },
+    {
+      "id": "A1", "type": "round", "thread": "A", "set": "A", "row": 1, "startLine": 0, "startLevel": "top",
+      "basis": "TK-GT14; recipe.md шаги 4–9",
+      "start": {
+        "exit": { "line": 0, "level": "top", "side": "left", "text": "выход нити вплотную слева от нити разметки L0 на уровне верха",
+                  "basis": "TK-GT14 «enter … just to the left of one marking line, 5 mm down from the NP»", "tag": "a" },
+        "rules": {
+          "TK-ANCHOR": { "runs": 2, "text": "проход под обмоткой, выход, вход в то же отверстие, второй проход", "basis": "TK-ANCHOR «Insert the needle in the exact same place that the thread exits … Pull the thread through again»", "tag": "a" },
+          "OLY-BASIC": { "runs": 1, "text": "вход в 2–3 см, узла нет", "basis": "OLY-BASIC «糸は、２～３㎝ほど離れた所から…※糸に玉とめなどはしません»", "tag": "a" }
+        },
+        "direction": { "value": "towardPrevSectorBisectorAtPins", "text": "проходы — в плоскости большого круга от выхода к биссектрисе предыдущего сектора на уровне булавок; оба прохода в линию",
+                       "basis": "в источниках направление НЕ указано; выбор модели влияет только на скрытую геометрию, не на мотив и не на длину", "tag": "E" }
+      },
+      "pattern": ["bottom", "top"],
+      "patternBasis": "TK-GT14: «Move 1 marking line to the right and take small stitch just below pin. Move 1 line to the right, and take a small top stitch»",
+      "closing": {
+        "line": "startLine", "level": "top", "passUnder": ["startLeg"], "complete": true,
+        "text": "последнее плечо проходит ПОД стартовым участком нити, затем стежок завершается",
+        "basis": "TK-LITTLE «Carry the working thread under the starting thread to achieve this, and then complete the stitch»; TK-GT14 «until you return to the starting point», «Complete the stitch but then allow the thread to park»",
+        "tag": "a"
+      },
+      "end": { "op": "park", "basis": "TK-GT14 «Park the thread»", "tag": "a" }
+    }
+  ],
+  "stages": {
+    "2a": { "text": "один проход: скрытый старт → нижний стежок у L1 → подход к первой верхней точке L2", "throughOp": { "kind": "lay", "stitch": 2 } },
+    "2b": { "text": "один полный обход набора A, ряд 1 (N стежков, замыкание через стартовый участок)", "throughOp": { "kind": "park" } }
+  }
+}

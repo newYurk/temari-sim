@@ -108,6 +108,16 @@ def offset_pt(s, phi, d_east):
     th = s / R
     return point(s, phi + d_east / (R * math.sin(th)))
 
+def perp_pt(s, phi, d):
+    """Точка на расстоянии d мм (по поверхности) от точки линии p(s, phi) вдоль большого круга, ПЕРПЕНДИКУЛЯРНОГО
+    линии в этой точке (+ = по ходу, +phi). Так лежат E и X: игла прямая и ⟂ линии (OLY-BASIC «垂直に», TK-LITTLE
+    «right angle»). Stage 1 откладывал смещение по параллели (offset_pt): у полюса параллель заметно искривлена,
+    и при несимметричном захвате (замыкающий стежок) хорда E→X отклонялась бы от перпендикуляра на ~4°."""
+    c = point(s, phi)
+    u = c / np.linalg.norm(c)
+    t = e_east(c)
+    return R * (math.cos(d / R) * u + math.sin(d / R) * t)
+
 def gc_intersection(a1, a2, b1, b2):
     """Точка пересечения двух дуг больших кругов (если есть внутри обеих дуг)."""
     n1 = np.cross(a1, a2); n2 = np.cross(b1, b2)
@@ -203,8 +213,8 @@ def round_path(row, set_offset=0):
         e_off = row['e_bot'] if is_bottom else row['e_top']
         x_off = row['x_bot'] if is_bottom else (row['x_top_close'] if closing else row['x_top'])
         b = e_off - x_off
-        E = offset_pt(s, PHI[k], e_off)
-        X = offset_pt(s, PHI[k], x_off)
+        E = perp_pt(s, PHI[k], e_off)
+        X = perp_pt(s, PHI[k], x_off)
         C = point(s, PHI[k])
         seq.append(dict(i=i, line=k, kind='bottom' if is_bottom else 'top', s=s, bite=b, E=E, X=X, C=C))
     return seq
@@ -213,7 +223,7 @@ def round_lengths(row, prev_exit=None, set_offset=0):
     seq = round_path(row, set_offset)
     k0 = set_offset % P['N_DIV']
     if prev_exit is None:   # начало ряда 1: нить выходит слева от стартовой линии на уровне верха (TK-GT14)
-        prev_exit = offset_pt(row['s_top'], PHI[k0], start_exit_offset())
+        prev_exit = perp_pt(row['s_top'], PHI[k0], start_exit_offset())
     arms, bites = [], []
     cur = prev_exit
     for st in seq:
@@ -344,7 +354,7 @@ def export_thread_path(rows):
     for n, row in enumerate(rows, 1):
         for th, off in (('A', 0), ('B', 1)):
             if n == 1:
-                X0 = offset_pt(row['s_top'], PHI[off % P['N_DIV']], start_exit_offset())
+                X0 = perp_pt(row['s_top'], PHI[off % P['N_DIV']], start_exit_offset())
                 ops.append(dict(op='start', thread=th, at=r3(X0), hidden_run_mm=P['start_run_mm'],
                                 backtrack=P['start_backtrack'], basis='TK-ANCHOR / TK-GT14'))
                 cur[th] = X0

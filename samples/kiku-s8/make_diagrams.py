@@ -66,7 +66,7 @@ def diagram1():
     L.append(f'<circle cx="{cx}" cy="{cy}" r="6" fill="white" stroke="black" stroke-width="2"/>')
     L.append(f'<text x="{cx-120}" y="{cy-14}" font-size="12.5">北極 NP (булавка)</text>')
     # старт A
-    X0 = C.offset_pt(r1['s_top'], C.PHI[0], C.start_exit_offset())
+    X0 = C.perp_pt(r1['s_top'], C.PHI[0], C.start_exit_offset())
     x0, y0 = proj(X0, cx, cy)
     L.append(f'<path d="M {x0:.1f} {y0:.1f} L {x0+150:.1f} {y0-150:.1f}" stroke="black" stroke-width="1" fill="none"/>')
     L.append(f'<text x="{x0+152:.0f}" y="{y0-154:.0f}" font-size="12">старт нити A: выход на стороне −φ от L0 (ниже L0 на рисунке),</text>')
@@ -154,7 +154,7 @@ def diagram3():
     L.append(f'<circle cx="{cx}" cy="{cy}" r="{SC*C.Q}" fill="#fafafa" stroke="{GOLD}" stroke-width="2"/>')
     L += meridians(cx, cy, C.Q)
     # скрытый старт (схематично, по параллели назад на start_run_mm)
-    X0 = C.offset_pt(r1['s_top'], C.PHI[0], C.start_exit_offset())
+    X0 = C.perp_pt(r1['s_top'], C.PHI[0], C.start_exit_offset())
     s0, ph0 = C.to_s_phi(X0)
     Sst = C.point(s0 + 20, ph0 - 0.55)
     L.append(f'<polyline points="{poly(C.slerp(Sst, X0, 30), cx, cy)}" stroke="#555" stroke-width="2.5" fill="none" stroke-dasharray="6,4"/>')
