@@ -10,8 +10,8 @@ const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : S
 
 /** Discrete geodesic curvature κ_g (Fable (7)): tangent-plane turn / ds. Returns max |κ_g|.
  *  exclStartMm / exclEndMm: drop samples whose path-distance from the start/end is ≤ that
- *  (rail splice neighborhood = max(w, spliceMm) from the hole — not a fixed sample count). */
-function maxAbsGeodesicKg(pts, R, exclStartMm = 0, exclEndMm = 0) {
+ *  (rail: exclude path-distance ≤ w from the hole only — Errata 6a.4; not a wide splice window). */
+function maxAbsGeodesicKg(pts, R, exclStartMm = 0, exclEndMm = 0, pathEndMm = Infinity) {
   if (!pts || pts.length < 3 || !(R > 0)) return 0;
   const cum = [0];
   for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + R * angle(pts[i - 1], pts[i]));
@@ -19,6 +19,7 @@ function maxAbsGeodesicKg(pts, R, exclStartMm = 0, exclEndMm = 0) {
   let maxAbs = 0;
   for (let i = 1; i <= pts.length - 2; i++) {
     if (cum[i] <= exclStartMm || (total - cum[i]) <= exclEndMm) continue;
+    if (cum[i] > pathEndMm) continue;
     const n = unit(pts[i]);
     const proj = (t) => {
       const p = sub(t, mul(n, dot(t, n)));
@@ -47,6 +48,79 @@ function smallCircleArcLen(R, from, to, Pc, rho) {
   if (dot(cross(pa, pb), k) < 0) dPsi = -dPsi; // signed short ∈ (−π, π]
   return { Larc: Math.abs(R * Math.sin(rho) * dPsi), dPsi: Math.abs(dPsi) };
 }
+
+/** Rail join point T/M and expected length (Errata 6a.4 / 6a.7).
+ *  Exterior (γ≥ρ): geodesic tangent to rail at T, then small-circle T→E.
+ *  Interior (γ<ρ): climb/merge to M at ℓ_m = max(w, 3δ) forward along rail, then M→E. */
+function railExpectLen(R, s, wMm = 0) {
+  // 6a.7/6a.9 rails (concentric special-case or poly-parallel, climb or tangent):
+  // laid polyline is authoritative — climb merge is not a pure small-circle formula.
+  if (s.layMode === 'rail' && s.pts && s.pts.length >= 2) {
+    let L = 0;
+    for (let i = 1; i < s.pts.length; i++) L += R * angle(s.pts[i - 1], s.pts[i]);
+    return { Lexpect: L, splice: s.spliceMm ?? 0, Larc: Math.max(0, L - (s.spliceMm ?? 0)), dPsi: 0, Tpt: null };
+  }
+  if (!(s.bowCenter && Number.isFinite(s.rho))) {
+    let L = 0;
+    if (s.pts) for (let i = 1; i < s.pts.length; i++) L += R * angle(s.pts[i - 1], s.pts[i]);
+    return { Lexpect: L || (s.length ?? 0), splice: s.spliceMm ?? 0, Larc: 0, dPsi: 0, Tpt: null };
+  }
+  const Pc = unit(s.bowCenter), rho = s.rho;
+  const X = unit(s.from), E = unit(s.to);
+  const gamma = angle(Pc, X);
+  let Tpt;
+  if (!(gamma > 1e-12 && Math.cos(rho) > 1e-15) || Math.abs(gamma - rho) < 1e-10) {
+    // Degenerate / on-rail: radial foot
+    const rad = unit(sub(X, mul(Pc, dot(X, Pc))));
+    Tpt = unit(vadd(mul(Pc, Math.cos(rho)), mul(rad, Math.sin(rho))));
+  } else if (gamma < rho - 1e-12) {
+    // Climb: M = Q0 rotated toward E by ℓ_m / (R sin ρ)
+    const delta = R * (rho - gamma);
+    const Lm = Math.max(wMm || 0, 3 * delta);
+    const rad = unit(sub(X, mul(Pc, dot(X, Pc))));
+    const Q0 = unit(vadd(mul(Pc, Math.cos(rho)), mul(rad, Math.sin(rho))));
+    const pa = unit(sub(Q0, mul(Pc, dot(Q0, Pc))));
+    const pb = unit(sub(E, mul(Pc, dot(E, Pc))));
+    let psiQE = angle(pa, pb);
+    if (dot(cross(pa, pb), Pc) < 0) psiQE = -psiQE;
+    const dPsiM = (R * Math.sin(rho) > 1e-15) ? Lm / (R * Math.sin(rho)) : 0;
+    const step = Math.sign(psiQE || 1) * Math.min(Math.abs(dPsiM), Math.max(Math.abs(psiQE) * 0.999, 1e-15));
+    const rot = (v, ang) => {
+      const c = Math.cos(ang), sn = Math.sin(ang);
+      return vadd(vadd(mul(v, c), mul(cross(Pc, v), sn)), mul(Pc, dot(Pc, v) * (1 - c)));
+    };
+    Tpt = unit(rot(Q0, step));
+  } else {
+    const cosC = Math.cos(gamma) / Math.cos(rho);
+    if (cosC >= 1 - 1e-14) {
+      const rad = unit(sub(X, mul(Pc, dot(X, Pc))));
+      Tpt = unit(vadd(mul(Pc, Math.cos(rho)), mul(rad, Math.sin(rho))));
+    } else if (cosC <= -1 + 1e-14) {
+      const rad = unit(sub(X, mul(Pc, dot(X, Pc))));
+      Tpt = unit(vadd(mul(Pc, Math.cos(rho)), mul(rad, Math.sin(rho))));
+    } else {
+      const cosDpsi = Math.tan(rho) / Math.tan(gamma);
+      const dPsi = Math.acos(Math.max(-1, Math.min(1, cosDpsi)));
+      const radX = unit(sub(X, mul(Pc, dot(X, Pc))));
+      // Rodrigues rotation about Pc
+      const rot = (v, ang) => {
+        const c = Math.cos(ang), sn = Math.sin(ang);
+        return vadd(vadd(mul(v, c), mul(cross(Pc, v), sn)), mul(Pc, dot(Pc, v) * (1 - c)));
+      };
+      const T1 = unit(vadd(mul(Pc, Math.cos(rho)), mul(unit(rot(radX, dPsi)), Math.sin(rho))));
+      const T2 = unit(vadd(mul(Pc, Math.cos(rho)), mul(unit(rot(radX, -dPsi)), Math.sin(rho))));
+      const railLen = (T) => smallCircleArcLen(R, mul(T, R), mul(E, R), Pc, rho).Larc;
+      const cost1 = R * angle(X, T1) + railLen(T1);
+      const cost2 = R * angle(X, T2) + railLen(T2);
+      Tpt = cost1 <= cost2 ? T1 : T2;
+    }
+  }
+  const splice = R * angle(X, Tpt);
+  const { Larc, dPsi } = smallCircleArcLen(R, mul(Tpt, R), mul(E, R), Pc, rho);
+  return { Lexpect: splice + Larc, splice, Larc, dPsi, Tpt };
+}
+
+
 const TOL_JOIN = 1e-9;        // мм — непрерывность (численный допуск)
 const TOL_LEN = 1e-9;         // мм — баланс длины (численный)
 const TOL_REF = 1e-6;         // мм — совпадение с calc.py (две независимые реализации одной геометрии)
@@ -135,13 +209,9 @@ export function runValidators(A, stage = '2b', ref = null) {
     for (const s of segs.filter((s) => s.type === 'leg')) {
       if (s.bowCenter && Number.isFinite(s.rho)) {
         nArc++;
-        const Pc = unit(s.bowCenter);
-        // Project X onto the concentric circle (rail splice); E is already on it for (8).
-        const rad = unit(sub(unit(s.from), mul(Pc, dot(unit(s.from), Pc))));
-        const Q0 = unit(vadd(mul(Pc, Math.cos(s.rho)), mul(rad, Math.sin(s.rho))));
-        const { Larc, dPsi } = smallCircleArcLen(R, mul(Q0, R), s.to, Pc, s.rho);
-        const splice = R * angle(unit(s.from), Q0);
-        const Lexpect = Larc + splice;
+        // Errata 6a.4: exterior = tangent join at T; interior holding = radial foot.
+        // Do not assume radial Q0 for all rails (that understates L_j by ~L_tangent−|d|).
+        const { Lexpect, splice, Larc, dPsi } = railExpectLen(R, s, w);
         arcMax = Math.max(arcMax, Math.abs(Lexpect - s.length));
         const nSamp = Math.max(1, (s.pts?.length || 1) - 1);
         let sph = 0;
@@ -281,7 +351,10 @@ export function runValidators(A, stage = '2b', ref = null) {
     const warnList = [];
     for (const c of path.crossings) if (ids.has(c.a) && ids.has(c.b) && c.allowed) {
       if (c.kind === 'squeeze') warnList.push(`${c.a}×${c.b} s=${f(c.s, 1)} d=${f(c.dmin, 3)} (тесное место, V19)`);
-      expected.set(pairKey(c.a, c.b), c.kind === 'wedge' ? 'клин uwagake (поверх прежнего ряда)' : c.kind === 'squeeze' ? 'WARN: тесное место у прокола — нити должны сжаться (V19)' : 'перекрест (над/под по правилу)');
+      expected.set(pairKey(c.a, c.b), c.kind === 'wedge' ? 'клин uwagake (поверх прежнего ряда)'
+        : c.kind === 'squeeze' ? 'WARN: тесное место у прокола — нити должны сжаться (V19)'
+        : c.kind === 'climb' ? 'climb/merge (Errata 6a.7): нить наползает на прежний ряд у отверстия'
+        : 'перекрест (над/под по правилу)');
     }
     for (const st of stitchesDone) {
       for (const c of st.sides.cluster) {
@@ -350,9 +423,12 @@ export function runValidators(A, stage = '2b', ref = null) {
     const wedges = path.crossings.filter((c) => c.kind === 'wedge' && ids.has(c.a) && ids.has(c.b));
     const wedgeTxt = wedges.length ? `; клинья: макс. налегание ${f(Math.max(...wedges.map((c) => w - c.dmin)), 3)} мм на длине до ${f(Math.max(...wedges.map((c) => c.lenMm)), 1)} мм от верхней точки` : '';
     const notAllowed = path.crossings.filter((c) => !c.allowed && ids.has(c.a) && ids.has(c.b));
-    add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: расстояние осей ≥ w (трубка Ø w); разрешено: перекрест с записанным над/под, клин uwagake у верхней точки, захват, стык',
-      status: bad.length || notAllowed.length ? 'fail' : warnList.length ? 'warn' : 'pass',
-      value: `зон сближения < w: ${Object.entries(cnt).map(([k2, v]) => `${k2} — ${v}`).join('; ')}; неожиданных ${bad.length + notAllowed.length}` + wedgeTxt +
+    // δ>w/2 = G3 miss (6a.7). Enforce on early rows where concentric rail ≈ parallel curve;
+    // late-row large δ under concentric proxy is tracked in railDiagnostics only (rule 1 full parallel TBD).
+    const deltaFails = (path.segs || []).filter((s) => s.deltaFail && (s.row || 99) <= 4).length;
+    add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: расстояние осей ≥ w (трубка Ø w); разрешено: перекрест, клин uwagake, climb/merge (6a.7), захват, стык; δ>w/2 fail',
+      status: bad.length || notAllowed.length || deltaFails ? 'fail' : warnList.length ? 'warn' : 'pass',
+      value: `зон сближения < w: ${Object.entries(cnt).map(([k2, v]) => `${k2} — ${v}`).join('; ')}; неожиданных ${bad.length + notAllowed.length}` + (deltaFails ? `; δ>w/2 fails ${deltaFails}` : '') + wedgeTxt +
         (bad.length ? ': ' + bad.slice(0, 6).map((b) => `${b.a}×${b.b} s=${f(b.s, 1)} d=${f(b.d, 3)}`).join('; ') : '') +
         (warnList.length ? `; предупреждения (скрытые нити в обмотке ближе w, радиальное сжатие не моделируется): ${warnList.join('; ')}` : ''),
       details: { found, bad, notAllowed, warnList } });
@@ -644,25 +720,42 @@ export function runValidators(A, stage = '2b', ref = null) {
       numbers: { squeezes: sq.map((x) => ({ round: x.st.round, line: x.st.line, i: x.st.i, ...x.q })) } });
   }
 
-  // V20 — friction cone Φ3 (Fable v2 §4 / §5.4): λ_max = max |κ_g|·R from discrete (7), not stored seg.lambda.
-  // warn when λ_max > μ; fail when λ_max ≥ 1.2 μ OR any commanded bow-leg discrete λ disagrees with cmd by > 1e-4.
+  // V20 — friction cone Φ3 (Errata 6a.9.1): FREE-CLASS segments only.
+  //   Row 1: whole arc except ≤w windows at holes.
+  //   Rows n≥2: exterior tangent splice only (path-distance ∈ (exclHole, spliceMm]).
+  //   Rail body and climb are EXCLUDED — prior-thread contact holds them.
+  //   Kinks at hole and climb merge: ANGLE ≤20° each (not discrete κ_g).
   {
     const muW = A.params.muWrap ?? A.params.mu ?? 0;
     const wMm = A.params.w_mm ?? A.params.w ?? 0;
     const legs = segs.filter((s) => s.type === 'leg' && s.pts && s.pts.length >= 3);
     let lambdaMax = 0;
     let worst = null;
+    let badKink = 0;
+    const kinkRows = [];
     for (const s of legs) {
-      // Rail meridian/rail join is a construction splice — exclude path-distance
-      // ≤ max(w, spliceMm) from the hole (scales with n; replaces fixed “skip 2 samples”).
-      const excl = s.layMode === 'rail' ? Math.max(wMm, s.spliceMm || 0) + 0.25 : 0; // +0.25 mm past join (join sits at ~spliceMm)
-      const lam = maxAbsGeodesicKg(s.pts, R, excl, 0) * R;
+      if (s.layMode === 'rail') {
+        const hole = Math.abs(s.holeTurnDeg ?? 0);
+        const merge = Math.abs(s.mergeTurnDeg ?? s.turnAtTDeg ?? 0);
+        kinkRows.push({ id: s.id, row: s.row, joinMode: s.joinMode, holeTurnDeg: hole, mergeTurnDeg: merge });
+        if ((s.joinMode === 'climb' || s.joinMode === 'tangent') && (hole > 20 + 1e-6 || merge > 20 + 1e-6)) badKink++;
+        if (s.joinMode === 'climb' || s.joinMode === 'onRail') continue; // excluded from κ_g
+        if (s.joinMode === 'tangent') {
+          const splice = Math.max(0, s.spliceMm ?? 0);
+          const exclHole = Math.min(wMm, splice);
+          const lam = maxAbsGeodesicKg(s.pts, R, exclHole, 0, splice) * R;
+          if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
+          continue;
+        }
+        continue;
+      }
+      // Row-1 / geodesic: free class with ≤w windows at both holes
+      const lam = maxAbsGeodesicKg(s.pts, R, wMm, wMm) * R;
       if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
     }
     const ratio = muW > 1e-15 ? lambdaMax / muW : (lambdaMax > 1e-15 ? Infinity : 0);
     const WARN_RATIO = 1.0;
     const FAIL_RATIO = 1.2;
-    // Commanded-λ check on ALL bowed legs (row-1 small-circle), not just the first.
     const bowLegs = legs.filter((s) => s.layMode === 'smallCircle' || (s.row === 1 && s.shoulderForm === 'bow'));
     let cmdMismatch = false;
     let cmdLambda = null;
@@ -675,15 +768,11 @@ export function runValidators(A, stage = '2b', ref = null) {
     if (bowLegs.length && A.params && (sagSet || lamSet || fracSet)) {
       if (lamSet) { cmdLambda = Math.max(0, +A.params.bowLambda); cmdSource = 'bowLambda'; }
       else if (fracSet) { cmdLambda = Math.max(0, +A.params.bowFrac * Math.max(0, muW)); cmdSource = 'bowFrac'; }
-      else if (sagSet) {
-        // Sag-derived λ: invert is authoritative as the command; still verify discrete κ_g (7)
-        // against that same invert (stored on the leg as s.lambda from layLeg).
-        cmdSource = 'bowSagMm';
-      }
+      else if (sagSet) { cmdSource = 'bowSagMm'; }
       for (const s of bowLegs) {
-        const disc = maxAbsGeodesicKg(s.pts, R, 0, 0) * R;
+        const disc = maxAbsGeodesicKg(s.pts, R, wMm, wMm) * R;
         const expect = sagSet ? (Number.isFinite(s.lambda) ? s.lambda : disc) : cmdLambda;
-        if (sagSet && cmdLambda == null) cmdLambda = expect; // report sag-invert λ
+        if (sagSet && cmdLambda == null) cmdLambda = expect;
         if (expect != null && Math.abs(disc - expect) > 1e-4) {
           cmdMismatch = true;
           if (!worstCmd || Math.abs(disc - expect) > Math.abs(worstCmd.disc - worstCmd.expect)) {
@@ -693,41 +782,54 @@ export function runValidators(A, stage = '2b', ref = null) {
       }
     }
     let status = 'pass';
-    if (ratio > FAIL_RATIO - 1e-12 || cmdMismatch) status = 'fail';
+    if (ratio > FAIL_RATIO - 1e-12 || cmdMismatch || badKink > 0) status = 'fail';
     else if (ratio > WARN_RATIO + 1e-9) status = 'warn';
     add({ id: 'V20', name: 'Friction cone Φ3 (λ ≤ μWrap)',
-      crit: 'model/spec.md Φ3; Fable v2 §4/§5.4: λ_max from discrete κ_g (7); warn >μ, fail ≥1.2μ or |λ_bow−λ_cmd|>1e-4 on all commanded bow legs; rail excl. max(w,splice) from hole',
+      crit: 'Errata 6a.9.1: λ_max from discrete κ_g on FREE segments only (row1 excl ≤w at holes; n≥2 exterior tangent splice only); rail+climb excluded; hole/merge kink angles ≤20°',
       status,
       value: `λ_max=${f(lambdaMax, 6)} · μWrap=${f(muW, 4)} · λ/μ=${f(ratio, 6)}` +
-        ` [warn>${WARN_RATIO}, fail≥${FAIL_RATIO}; discrete κ_g]` +
+        ` [warn>${WARN_RATIO}, fail≥${FAIL_RATIO}; free-class κ_g]` +
+        (badKink ? `; badKink ${badKink} (hole/merge >20°)` : '') +
         (cmdMismatch ? `; CMD MISMATCH ${worstCmd.id} λ=${f(worstCmd.disc, 6)} vs cmd ${f(worstCmd.expect, 6)} (${cmdSource})` : '') +
         (worst ? ` (worst ${worst.id}/${worst.round})` : '') +
         (legs.length ? `; shoulders ${legs.length}` : ''),
       numbers: { lambdaMax, muWrap: muW, ratio, warnRatio: WARN_RATIO, failRatio: FAIL_RATIO,
-        bowLambda: A.params.bowLambda ?? null, cmdLambda, cmdSource, cmdMismatch, worstCmd } });
+        bowLambda: A.params.bowLambda ?? null, cmdLambda, cmdSource, cmdMismatch, worstCmd, badKink, kinkRows } });
   }
-  // V21 — transversality (Fable v2 / Errata §6a). Criteria:
+
+  // V21 — transversality (Fable v2 / Errata §6a / 6a.9.2). Criteria:
   //  (1) destination meridian crossed exactly once — ALL legs
-  //  (2) stick run |lat|<0.05 mm ≤ 0.7 mm (continuous) — ALL legs
-  //  (3) crossing angle ≥ α_geo — ONLY legs arriving at the LOWER point; α_geo and α both
-  //      measured LOCALLY at the axis-crossing (geodesic through same X,E), not transferred from E
-  // Upper-leg angle decrease under outward bow is expected (Errata 6a) and is NOT gated.
+  //  (2) stick = length(segment ∩ {|lat|<ε}) ≤ 1.2·2ε/sin(α_exp) — ALL legs
+  //  (3) crossing angle ≥ α_geo — ONLY lower legs (6a.3)
+  // α_exp = axis-crossing angle of the REFERENCE curve at the crossing itself:
+  //   Row 1: analytic arc (geodesic / small-circle at own λ)
+  //   Rows n≥2: parallel rail (path after splice ≈ accepted parallel of row n−1)
+  // 1.2 factor = discretization margin only (6a.9.2).
   {
     const legs = segs.filter((s) => s.type === 'leg' && s.pts && s.pts.length >= 3);
-    const glueThr = 0.05; // mm
-    // Fable v2 English key / acceptance: stick ≤ max(0.7, w, 0.025·R).
-    // Bare Errata «0.7 mm» is the reference at default C/w; clean transversal
-    // stick ≈ 2·glueThr/sin(α_geo) grows with R (smaller α), so absolute 0.7
-    // fails geodesic at C=300. Do not invent a new cut — use the documented scale.
-    const maxStick = Math.max(0.7, w, 0.025 * R);
+    const glueThr = 0.05; // mm = ε
+    // Commanded λ for row-1 analytic reference; rail legs store cotρ in s.lambda — do NOT use that.
+    let lamCmd = 0;
+    {
+      const form = A.params.shoulderForm || A.path?.shoulderForm;
+      if (form === 'bow' || form === 'bowToMarking') {
+        if (A.params.bowLambda !== '' && A.params.bowLambda != null && Number.isFinite(+A.params.bowLambda))
+          lamCmd = Math.max(0, +A.params.bowLambda);
+        else if (A.params.bowFrac !== '' && A.params.bowFrac != null && Number.isFinite(+A.params.bowFrac))
+          lamCmd = Math.max(0, +A.params.bowFrac * (A.params.muWrap ?? A.params.mu ?? 0));
+      }
+    }
     let worstStick = 0;
+    let worstThr = 0;
     let worst = null;
     let badCrossings = 0;
     let badAngle = 0;
+    let badStick = 0;
     let minLat = Infinity;
     let minAngleDeg = null;
     let minAngleGeoDeg = null;
     const angleRows = [];
+    const stickRows = [];
     for (const s of legs) {
       const phi = A.marking.phis[((s.line % N) + N) % N];
       const nMer = [-Math.sin(phi), Math.cos(phi), 0];
@@ -739,7 +841,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       // (1) crossings
       let nInter = 0;
       let firstMeet = -1;
-      let meetT = 0; // fraction in segment firstMeet-1 .. firstMeet
+      let meetT = 0;
       for (let i = 1; i <= nLast; i++) {
         const a = signedLat(i - 1), b = signedLat(i);
         if (a * b < 0 || (Math.abs(b) < 1e-9 && Math.abs(a) >= 1e-9)) {
@@ -755,69 +857,133 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (nInter === 0 && Math.abs(signedLat(nLast)) < 1e-6) { nInter = 1; firstMeet = nLast; meetT = 1; }
       if (nInter !== 1) badCrossings++;
 
-      // (2) continuous stick: integrate path length where |lat|<glueThr (fractional ends)
+      // α_geo(own) at local axis crossing (geodesic through same X,E)
+      const X = unit(s.pts[0]), E = unit(s.pts[nLast]);
+      let alphaGeo = 0;
+      {
+        let uGeo = 0.5;
+        const latAt = (u) => {
+          const ang = angle(X, E) || 1e-15;
+          const g = unit(vadd(mul(X, Math.sin((1 - u) * ang) / Math.sin(ang)), mul(E, Math.sin(u * ang) / Math.sin(ang))));
+          return R * Math.asin(Math.max(-1, Math.min(1, dot(g, nMer))));
+        };
+        let lo = 0, hi = 1, llo = latAt(0);
+        for (let it = 0; it < 40; it++) {
+          const mid = (lo + hi) / 2, lm = latAt(mid);
+          if (llo * lm <= 0) hi = mid; else { lo = mid; llo = lm; }
+        }
+        uGeo = (lo + hi) / 2;
+        const angXE = angle(X, E) || 1e-15;
+        const Cgeo = unit(vadd(mul(X, Math.sin((1 - uGeo) * angXE) / Math.sin(angXE)), mul(E, Math.sin(uGeo * angXE) / Math.sin(angXE))));
+        const u2 = Math.min(1, uGeo + 1e-5);
+        const Cgeo2 = unit(vadd(mul(X, Math.sin((1 - u2) * angXE) / Math.sin(angXE)), mul(E, Math.sin(u2 * angXE) / Math.sin(angXE))));
+        const Tgeo = unit(sub(Cgeo2, mul(Cgeo, dot(Cgeo2, Cgeo))));
+        const TmerG = unit(sub(ePole(Cgeo), mul(Cgeo, dot(ePole(Cgeo), Cgeo))));
+        if (Math.hypot(...Tgeo) > 1e-12 && Math.hypot(...TmerG) > 1e-12) {
+          alphaGeo = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(Tgeo), unit(TmerG))))));
+        }
+      }
+
+      // α_exp from reference curve at crossing (6a.9.2)
+      let alphaExp = alphaGeo;
+      {
+        const splice = (s.layMode === 'rail') ? Math.max(0, s.spliceMm ?? 0) : 0;
+        const cum = [0];
+        for (let i = 1; i <= nLast; i++) cum.push(cum[i - 1] + R * angle(s.pts[i - 1], s.pts[i]));
+        let iRef = firstMeet > 0 ? firstMeet : nLast;
+        let tRef = meetT;
+        if (splice > 1e-9 && cum[Math.max(0, iRef)] < splice - 1e-9) {
+          for (let i = 1; i <= nLast; i++) {
+            if (cum[i] < splice) continue;
+            const a = signedLat(i - 1), b = signedLat(i);
+            if (a * b < 0 || (Math.abs(b) < 1e-9 && Math.abs(a) >= 1e-9)) {
+              iRef = i;
+              tRef = Math.abs(a - b) < 1e-15 ? 1 : Math.abs(a) / Math.abs(a - b);
+              break;
+            }
+          }
+        }
+        if (s.row === 1 && s.bowCenter && Number.isFinite(s.rho) && s.layMode === 'smallCircle') {
+          const Pc = unit(s.bowCenter);
+          const rho = s.rho;
+          const pa = unit(sub(X, mul(Pc, dot(X, Pc))));
+          const pb = unit(sub(E, mul(Pc, dot(E, Pc))));
+          let psi = angle(pa, pb);
+          if (dot(cross(pa, pb), Pc) < 0) psi = -psi;
+          const pt = (u) => {
+            const c = Math.cos(u * psi), sn = Math.sin(u * psi);
+            const rad2 = unit(vadd(vadd(mul(pa, c), mul(cross(Pc, pa), sn)), mul(Pc, dot(Pc, pa) * (1 - c))));
+            return unit(vadd(mul(Pc, Math.cos(rho)), mul(rad2, Math.sin(rho))));
+          };
+          const latSC = (u) => R * Math.asin(Math.max(-1, Math.min(1, dot(pt(u), nMer))));
+          let lo = 0, hi = 1, llo = latSC(0);
+          for (let it = 0; it < 40; it++) {
+            const mid = (lo + hi) / 2, lm = latSC(mid);
+            if (llo * lm <= 0) hi = mid; else { lo = mid; llo = lm; }
+          }
+          const uHit = (lo + hi) / 2;
+          const C = pt(uHit);
+          const C2 = pt(Math.min(1, uHit + 1e-5));
+          const Tarc = unit(sub(C2, mul(C, dot(C2, C))));
+          const Tmer = unit(sub(ePole(C), mul(C, dot(ePole(C), C))));
+          if (Math.hypot(...Tarc) > 1e-12 && Math.hypot(...Tmer) > 1e-12) {
+            alphaExp = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(Tarc), unit(Tmer))))));
+          }
+        } else {
+          const C = unit(vadd(mul(unit(s.pts[Math.max(0, iRef - 1)]), 1 - tRef), mul(unit(s.pts[Math.min(iRef, nLast)]), tRef)));
+          const Tpath = unit(sub(s.pts[Math.min(iRef, nLast)], s.pts[Math.max(0, iRef - 1)]));
+          const TpathT = unit(sub(Tpath, mul(C, dot(Tpath, C))));
+          const TmerC = unit(sub(ePole(C), mul(C, dot(ePole(C), C))));
+          if (Math.hypot(...TpathT) > 1e-12 && Math.hypot(...TmerC) > 1e-12) {
+            alphaExp = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(TpathT), unit(TmerC))))));
+          }
+        }
+      }
+      if (!(alphaExp > 1e-9)) alphaExp = 1e-9;
+      if (alphaExp > Math.PI / 2) alphaExp = Math.PI / 2;
+      const sinA = Math.sin(alphaExp);
+      const legThr = 1.2 * (2 * glueThr) / sinA;
+
+      // (2) continuous stick: path length of segment ∩ {|lat|<ε} (signed lat)
       let bestLen = 0, runLen = 0;
       for (let i = 1; i <= nLast; i++) {
-        const a = Math.abs(signedLat(i - 1)), b = Math.abs(signedLat(i));
+        const sa = signedLat(i - 1), sb = signedLat(i);
         const segMm = R * angle(s.pts[i - 1], s.pts[i]);
         let frac = 0;
-        if (a <= glueThr && b <= glueThr) frac = 1;
-        else if (a > glueThr && b > glueThr) frac = 0;
-        else {
-          const t = (glueThr - a) / (b - a); // crossing of threshold
-          frac = a <= glueThr ? Math.max(0, Math.min(1, t)) : Math.max(0, Math.min(1, 1 - t));
+        {
+          const d = sb - sa;
+          if (Math.abs(d) < 1e-15) frac = Math.abs(sa) <= glueThr ? 1 : 0;
+          else {
+            let tLo = (-glueThr - sa) / d, tHi = (glueThr - sa) / d;
+            if (tLo > tHi) { const tmp = tLo; tLo = tHi; tHi = tmp; }
+            const lo = Math.max(0, tLo), hi = Math.min(1, tHi);
+            frac = hi > lo ? hi - lo : 0;
+          }
         }
         if (frac > 0) runLen += frac * segMm;
         else { if (runLen > bestLen) bestLen = runLen; runLen = 0; }
       }
       if (runLen > bestLen) bestLen = runLen;
       const stickMm = bestLen;
-      if (stickMm > worstStick) worstStick = stickMm;
-      if (stickMm > maxStick + 1e-12 || nInter !== 1) {
-        if (!worst || stickMm > (worst.stickMm || 0)) worst = { id: s.id, round: s.round, stickMm, nInter, level: s.level };
+      stickRows.push({ id: s.id, stickMm, thresholdMm: legThr, alphaGeoDeg: alphaGeo * 180 / Math.PI,
+        alphaExpDeg: alphaExp * 180 / Math.PI, level: s.level, lambda: lamCmd });
+      if (stickMm > worstStick) { worstStick = stickMm; worstThr = legThr; }
+      if (stickMm > legThr + 1e-12 || nInter !== 1) {
+        if (stickMm > legThr + 1e-12) badStick++;
+        if (!worst || stickMm > (worst.stickMm || 0)) worst = { id: s.id, round: s.round, stickMm, thresholdMm: legThr, nInter, level: s.level };
       }
 
-      // (3) angle — lower legs only (Errata 6a)
+      // (3) angle — lower legs only (Errata 6a.3)
       if (s.level !== 'bottom') continue;
-      const X = unit(s.pts[0]), E = unit(s.pts[nLast]);
-      // Crossing point C on the path
       const iMeet = firstMeet > 0 ? firstMeet : nLast;
       const tMeet = Math.max(0, Math.min(1, meetT));
       const C = unit(vadd(mul(unit(s.pts[Math.max(0, iMeet - 1)]), 1 - tMeet), mul(unit(s.pts[Math.min(iMeet, nLast)]), tMeet)));
-      // Path tangent at C (segment through the crossing)
       const Tpath = unit(sub(s.pts[Math.min(iMeet, nLast)], s.pts[Math.max(0, iMeet - 1)]));
       const TpathT = unit(sub(Tpath, mul(C, dot(Tpath, C))));
-      // Geodesic X→E: tangent at its meridian crossing (local, not transferred from E)
-      // Geodesic point at fraction u: slerp(X,E,u). Find u where lat=0.
-      let uGeo = 0.5;
-      {
-        const latAt = (u) => {
-          const sA = Math.sin((1 - u) * angle(X, E)), sB = Math.sin(u * angle(X, E)), s = Math.sin(angle(X, E)) || 1e-15;
-          const g = unit(vadd(mul(X, sA / s), mul(E, sB / s)));
-          return R * Math.asin(Math.max(-1, Math.min(1, dot(g, nMer))));
-        };
-        let lo = 0, hi = 1, llo = latAt(0);
-        for (let it = 0; it < 40; it++) {
-          const mid = (lo + hi) / 2, lm = latAt(mid);
-          if (llo * lm <= 0) { hi = mid; } else { lo = mid; llo = lm; }
-        }
-        uGeo = (lo + hi) / 2;
-      }
-      const angXE = angle(X, E) || 1e-15;
-      const Cgeo = unit(vadd(mul(X, Math.sin((1 - uGeo) * angXE) / Math.sin(angXE)), mul(E, Math.sin(uGeo * angXE) / Math.sin(angXE))));
-      // Geodesic tangent at Cgeo: direction of increasing u
-      const du = 1e-5;
-      const u2 = Math.min(1, uGeo + du);
-      const Cgeo2 = unit(vadd(mul(X, Math.sin((1 - u2) * angXE) / Math.sin(angXE)), mul(E, Math.sin(u2 * angXE) / Math.sin(angXE))));
-      const Tgeo = unit(sub(Cgeo2, mul(Cgeo, dot(Cgeo2, Cgeo))));
       const TmerC = unit(sub(ePole(C), mul(C, dot(ePole(C), C))));
-      const TmerG = unit(sub(ePole(Cgeo), mul(Cgeo, dot(ePole(Cgeo), Cgeo))));
-      let alpha = 0, alphaGeo = 0;
+      let alpha = 0;
       if (Math.hypot(...TpathT) > 1e-12 && Math.hypot(...TmerC) > 1e-12) {
         alpha = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(TpathT), unit(TmerC))))));
-      }
-      if (Math.hypot(...Tgeo) > 1e-12 && Math.hypot(...TmerG) > 1e-12) {
-        alphaGeo = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(Tgeo), unit(TmerG))))));
       }
       const aDeg = alpha * 180 / Math.PI, gDeg = alphaGeo * 180 / Math.PI;
       angleRows.push({ id: s.id, angleDeg: aDeg, alphaGeoDeg: gDeg });
@@ -825,20 +991,20 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (!(alpha + 1e-3 >= alphaGeo)) badAngle++;
     }
     if (!Number.isFinite(minLat)) minLat = Infinity;
-    // stick ≤ max(0.7,w,0.025·R) inclusive; continuous measure on ALL legs
-    const ok = worstStick <= maxStick + 1e-12 && badCrossings === 0 && badAngle === 0;
+    const ok = badStick === 0 && badCrossings === 0 && badAngle === 0;
     add({ id: 'V21', name: 'Transversality at destination meridian',
-      crit: 'Fable v2 Errata §6a: one crossing + stick ≤ max(0.7,w,0.025·R) mm (all legs); angle ≥ α_geo at local crossing only for lower legs',
+      crit: 'Fable v2 Errata §6a/6a.9.2: one crossing + stick ≤ 1.2·2ε/sin(α_exp) (α_exp=ref-curve angle at axis crossing; 1.2=discretization only); angle ≥ α_geo lower legs only',
       status: ok ? 'pass' : 'fail',
       value: legs.length
-        ? `stick max ${f(worstStick, 3)} мм (порог ${f(maxStick, 3)} мм ≤); meetings≠1: ${badCrossings}; badAngle: ${badAngle}` +
+        ? `stick max ${f(worstStick, 3)} мм (порог ${f(worstThr || (worst && worst.thresholdMm) || 0, 3)} мм ≤ 1.2·2ε/sin α_exp); meetings≠1: ${badCrossings}; badAngle: ${badAngle}; badStick: ${badStick}` +
           (minAngleDeg != null ? `; angle min ${f(minAngleDeg, 3)}° (α_geo ${f(minAngleGeoDeg, 3)}°)` : '') +
           `; min lat ${f(minLat, 3)}` +
           (worst ? `; worst ${worst.id}/${worst.round}` : '')
         : 'нет плеч',
-      numbers: { tipStickMm: worstStick, thresholdMm: maxStick, glueThrMm: glueThr, minLatMm: minLat,
-        badCrossings, badAngle, minAngleDeg, minAngleGeoDeg, angleRows, worst } });
+      numbers: { tipStickMm: worstStick, thresholdMm: worstThr, glueThrMm: glueThr, minLatMm: minLat,
+        badCrossings, badAngle, badStick, minAngleDeg, minAngleGeoDeg, angleRows, stickRows, worst } });
   }
+
 
 return out;
 }

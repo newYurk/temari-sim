@@ -374,81 +374,378 @@ function onSmallCircle(Pc, rho, toward) {
 }
 
 /**
- * Row n≥2: rail = parallel of previous laid arm (Fable v2 §4.3 / formula (8)).
- * Small-circle prev → concentric small circle about the SAME P with
- * ρ_n = ∠(P, E_n) = ρ_{n−1} + w/R; packing normal from this row's analytics.
- * Geodesic prev → geodesic chord (preserves λ=0 / 5-rows-to-equator).
- * Smooth C¹ splice from X_n onto the rail (target ≲0.3 mm): ρ-blend with smoothstep, no off-circle pin.
+ * Row n≥2 rail = parallel curve of the ACTUALLY laid polyline of row n−1, offset w
+ * outward (Errata 6a.7(1)). Concentric-about-P is only the special case when that
+ * polyline is a small-circle arc. Measure signed d_n against THIS rail, then join:
+ *   exterior (d>0): geodesic tangent at T (kink at T ≤1°);
+ *   interior (δ>0): climb/merge to M at ℓ_m=max(w,3δ) forward (kinks ≤20°).
  */
+
+/** Unit tangent at sample i of polyline (toward increasing index). */
+function polyTangent(pts, i) {
+  if (i <= 0) return tangentTo(pts[0], pts[1]);
+  if (i >= pts.length - 1) return tangentTo(pts[pts.length - 2], pts[pts.length - 1]);
+  return unit(add(tangentTo(pts[i - 1], pts[i]), tangentTo(pts[i], pts[i + 1])));
+}
+
+/** Outward unit normal in the tangent plane at p for polyline tangent T. */
+function polyOutwardN(p, T, prevArm) {
+  let N = unit(cross(p, T));
+  if (prevArm?.bowCenter) {
+    const Pc = unit(prevArm.bowCenter);
+    const radial = unit(sub(p, mul(Pc, dot(p, Pc)))); // increasing ∠(P,·)
+    if (dot(N, radial) < 0) N = mul(N, -1);
+  } else if (dot(N, ePole(p)) > 0) {
+    N = mul(N, -1); // equatorward
+  }
+  return N;
+}
+
+/** Parallel offset of spherical polyline by geodesic distance w (mm) outward. */
+function parallelOffsetPoly(R, pts, w, prevArm) {
+  const alpha = (w || 0) / R;
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = unit(pts[i]);
+    const T = polyTangent(pts, i);
+    const N = polyOutwardN(p, T, prevArm);
+    out.push(mul(unit(add(mul(p, Math.cos(alpha)), mul(N, Math.sin(alpha)))), R));
+  }
+  return out;
+}
+
+/**
+ * Extend a spherical polyline past both ends so a nearby X_n / E_n whose along-track
+ * position falls just outside the previous arm still has a true lateral foot on the rail
+ * (Errata 6a.7: X_n sits ~w ahead along the needle, often ~1° before the prior arc start).
+ */
+function extendPolyEnds(R, pts, extMm) {
+  if (!pts || pts.length < 2 || !(extMm > 0)) return pts;
+  const ext = extMm / R; // rad
+  const nExt = Math.max(2, Math.min(16, Math.round(extMm / 0.5)));
+  const T0 = tangentTo(pts[1], pts[0]); // outward at start (backward)
+  const T1 = tangentTo(pts[pts.length - 2], pts[pts.length - 1]); // forward at end
+  const pre = [];
+  for (let i = nExt; i >= 1; i--) {
+    const a = ext * (i / nExt);
+    pre.push(mul(unit(add(mul(unit(pts[0]), Math.cos(a)), mul(T0, Math.sin(a)))), R));
+  }
+  const post = [];
+  for (let i = 1; i <= nExt; i++) {
+    const a = ext * (i / nExt);
+    post.push(mul(unit(add(mul(unit(pts[pts.length - 1]), Math.cos(a)), mul(T1, Math.sin(a)))), R));
+  }
+  return [...pre, ...pts, ...post];
+}
+
+/** True iff prev arm samples lie on a small circle about bowCenter (concentric special case). */
+function isSmallCircleArm(prevArm, tolMm = 0.02) {
+  if (!prevArm?.bowCenter || !Number.isFinite(prevArm.rho) || !prevArm.pts || prevArm.pts.length < 3) return false;
+  const Pc = unit(prevArm.bowCenter);
+  const R = Math.hypot(prevArm.pts[0][0], prevArm.pts[0][1], prevArm.pts[0][2]);
+  for (let i = 0; i < prevArm.pts.length; i += Math.max(1, Math.floor(prevArm.pts.length / 12))) {
+    if (Math.abs(R * (angle(Pc, unit(prevArm.pts[i])) - prevArm.rho)) > tolMm) return false;
+  }
+  return true;
+}
+
+/** Closest point on polyline to unit direction u. */
+function closestOnPoly(R, u, pts) {
+  const U = unit(u);
+  let best = null;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = unit(pts[i]), b = unit(pts[i + 1]);
+    const om = angle(a, b);
+    if (om < 1e-15) continue;
+    let lo = 0, hi = 1;
+    for (let it = 0; it < 36; it++) {
+      const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
+      const p1 = unit(add(mul(a, Math.sin((1 - m1) * om) / Math.sin(om)), mul(b, Math.sin(m1 * om) / Math.sin(om))));
+      const p2 = unit(add(mul(a, Math.sin((1 - m2) * om) / Math.sin(om)), mul(b, Math.sin(m2 * om) / Math.sin(om))));
+      if (angle(U, p1) <= angle(U, p2)) hi = m2; else lo = m1;
+    }
+    const tt = 0.5 * (lo + hi);
+    const q = unit(add(mul(a, Math.sin((1 - tt) * om) / Math.sin(om)), mul(b, Math.sin(tt * om) / Math.sin(om))));
+    const d = R * angle(U, q);
+    const T = unit(sub(b, mul(q, dot(b, q))));
+    if (!best || d < best.distMm) best = { q, i, t: tt, distMm: d, T };
+  }
+  if (!best) {
+    const q = unit(pts[0]);
+    return { q, i: 0, t: 0, distMm: R * angle(U, q), T: polyTangent(pts, 0) };
+  }
+  return best;
+}
+
+/** Signed lateral mm from unit X to polyline: >0 outward, <0 inward. */
+function signedLateralToPoly(R, X, pts, prevArm) {
+  const hit = closestOnPoly(R, X, pts);
+  const N = polyOutwardN(hit.q, hit.T, prevArm);
+  const towardX = unit(sub(unit(X), mul(hit.q, dot(unit(X), hit.q))));
+  const signedMm = hit.distMm * (dot(towardX, N) >= 0 ? 1 : -1);
+  return { ...hit, N, signedMm };
+}
+
+/** Arc length (mm) from start of polyline to sample (i,t). */
+function polyArcMm(R, pts, i, t) {
+  let L = 0;
+  for (let k = 0; k < i; k++) L += R * angle(pts[k], pts[k + 1]);
+  if (i < pts.length - 1 && t > 0) L += t * R * angle(pts[i], pts[i + 1]);
+  return L;
+}
+
+/** Point at arc length sMm along polyline. */
+function pointAtArcMm(R, pts, sMm) {
+  let rem = Math.max(0, sMm);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const seg = R * angle(pts[i], pts[i + 1]);
+    if (rem <= seg + 1e-15 || i === pts.length - 2) {
+      const u = seg > 1e-15 ? Math.min(1, Math.max(0, rem / seg)) : 0;
+      const a = unit(pts[i]), b = unit(pts[i + 1]);
+      const om = angle(a, b);
+      const q = om < 1e-15 ? a
+        : unit(add(mul(a, Math.sin((1 - u) * om) / Math.sin(om)), mul(b, Math.sin(u * om) / Math.sin(om))));
+      return { q, i, t: u };
+    }
+    rem -= seg;
+  }
+  return { q: unit(pts[pts.length - 1]), i: pts.length - 2, t: 1 };
+}
+
+/** Resampled slice of polyline from (i0,t0) toward `to` (nSeg segments). */
+function polySliceToward(R, pts, i0, t0, to, nSeg) {
+  const a0 = unit(pts[i0]), b0 = unit(pts[Math.min(i0 + 1, pts.length - 1)]);
+  const om0 = angle(a0, b0);
+  const start = om0 < 1e-15 ? mul(a0, R)
+    : mul(unit(add(mul(a0, Math.sin((1 - t0) * om0) / Math.sin(om0)), mul(b0, Math.sin(t0 * om0) / Math.sin(om0)))), R);
+  let iEnd = i0;
+  let best = Infinity;
+  for (let i = i0; i < pts.length; i++) {
+    const d = angle(unit(pts[i]), unit(to));
+    if (d < best) { best = d; iEnd = i; }
+  }
+  if (iEnd <= i0) iEnd = Math.min(pts.length - 1, i0 + 1);
+  const chunk = [start];
+  for (let i = i0 + 1; i <= iEnd; i++) chunk.push(pts[i]);
+  // Prefer ending at projection of `to` onto last segment if closer
+  const hitE = closestOnPoly(R, to, pts);
+  if (hitE.i >= i0) {
+    const a = unit(pts[hitE.i]), b = unit(pts[Math.min(hitE.i + 1, pts.length - 1)]);
+    const om = angle(a, b);
+    const qE = om < 1e-15 ? mul(a, R)
+      : mul(unit(add(mul(a, Math.sin((1 - hitE.t) * om) / Math.sin(om)), mul(b, Math.sin(hitE.t * om) / Math.sin(om)))), R);
+    // Rebuild chunk to hitE
+    chunk.length = 0;
+    chunk.push(start);
+    for (let i = i0 + 1; i <= hitE.i; i++) chunk.push(pts[i]);
+    chunk.push(qE);
+  }
+  const n = Math.max(1, nSeg);
+  const lens = [0];
+  for (let i = 1; i < chunk.length; i++) lens.push(lens[i - 1] + R * angle(chunk[i - 1], chunk[i]));
+  const total = lens[lens.length - 1] || 1e-15;
+  const out = [];
+  for (let k = 0; k <= n; k++) {
+    const target = (k / n) * total;
+    let j = 0;
+    while (j < lens.length - 2 && lens[j + 1] < target) j++;
+    const seg = lens[j + 1] - lens[j] || 1e-15;
+    const u = (target - lens[j]) / seg;
+    const a = unit(chunk[j]), b = unit(chunk[Math.min(j + 1, chunk.length - 1)]);
+    const om = angle(a, b);
+    if (om < 1e-15) out.push(mul(a, R));
+    else out.push(mul(unit(add(mul(a, Math.sin((1 - u) * om) / Math.sin(om)), mul(b, Math.sin(u * om) / Math.sin(om)))), R));
+  }
+  return out;
+}
+
 function railLeg(R, from, to, prevArm, w = 0) {
   const n = getLegSamples();
-  if (prevArm?.bowCenter && Number.isFinite(prevArm.rho)) {
-    const Pc = unit(prevArm.bowCenter);
-    let rho = angle(Pc, unit(to));
-    if (!(rho > 1e-12 && rho < Math.PI - 1e-12)) {
-      rho = prevArm.rho + (Number.isFinite(w) ? w / R : 0);
-    }
-    // Splice X → rail (Fable v2 §4.3): geodesic meridian X→Q0 (same ψ about P, κ_g=0),
-    // then concentric rail Q0→E. Do NOT pin pts[0] off-circle onto an on-circle arc — that
-    // made a long chord and a fake sharp corner. The meridian/rail join is a real ~90°
-    // tangent break at Q0; V20 excludes it by path-distance ≤ w from the hole, not by a
-    // fixed sample count. Early-row gap |ρ_X−ρ|·R is ≲ 0.3 mm; later rows may be larger
-    // (reported in spliceMm).
-    const X = unit(from), E = unit(to);
-    const Q0 = onSmallCircle(Pc, rho, from);
-    const splice = R * angle(X, Q0);
-    // Samples on the meridian splice (include X, exclude Q0) + rail (include Q0 and E).
-    const T = splice <= 1e-15 ? 0 : Math.max(2, Math.min(8, Math.round(n * splice / Math.max(splice + R * angle(Q0, E), 1e-9))));
-    const pts = [];
-    for (let i = 0; i < T; i++) {
-      const t = T === 0 ? 0 : i / T;
-      // slerp on the sphere from X to Q0
-      const a = angle(X, Q0);
-      if (a < 1e-15) { pts.push(mul(X, R)); continue; }
-      const s = Math.sin(a);
-      const p = add(mul(X, Math.sin((1 - t) * a) / s), mul(Q0, Math.sin(t * a) / s));
-      pts.push(mul(unit(p), R));
-    }
-    const railPts = smallCircleArc(R, mul(Q0, R), to, Pc, Math.max(1, n - T));
-    for (const q of railPts) pts.push(q);
-    // Normalize to n+1 samples (keep ends; thin the denser side if needed).
-    if (pts.length !== n + 1) {
-      const out = [];
-      for (let i = 0; i <= n; i++) {
-        const u = i / n;
-        const f = u * (pts.length - 1);
-        const j = Math.min(pts.length - 2, Math.floor(f));
-        const frac = f - j;
-        const a = unit(pts[j]), b = unit(pts[j + 1]);
-        const ang = angle(a, b);
-        if (ang < 1e-15) out.push(mul(a, R));
-        else {
-          const s = Math.sin(ang);
-          out.push(mul(unit(add(mul(a, Math.sin((1 - frac) * ang) / s), mul(b, Math.sin(frac * ang) / s))), R));
-        }
-      }
-      pts.length = 0;
-      pts.push(...out);
-    }
-    pts[0] = from.slice ? from.slice() : [...from];
-    pts[n] = to.slice ? to.slice() : [...to];
-    const pa = unit(add(Q0, mul(Pc, -dot(Q0, Pc))));
-    const pb = unit(add(E, mul(Pc, -dot(E, Pc))));
-    const dPsi = Math.abs(signedShortPsi(pa, pb, Pc));
-    const arcLen = splice + R * Math.sin(rho) * dPsi;
-    const lambda = Math.abs(Math.cos(rho) / Math.max(1e-15, Math.sin(rho)));
+  const prevPts = prevArm?.pts;
+  if (!prevPts || prevPts.length < 2) {
     return {
-      pts, length: Math.abs(arcLen) > 1e-12 ? Math.abs(arcLen) : polyLen(pts),
-      shoulderForm: 'bow', bowLateralMm: 0, phi3CapMm: 0, lambda, rho,
-      bowCenter: Pc, phi3Warn: false, layMode: 'rail', spliceMm: splice,
+      pts: slerp(R, from, to, n), length: geodLen(R, from, to),
+      shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
+      bowCenter: null, phi3Warn: false, layMode: 'rail',
     };
   }
+
+  // 6a.7(1): parallel of real previous polyline. Small-circle prev → concentric (special case).
+  // Extend ends so X_n just before the prior arc start still has a lateral foot on the rail.
+  let railPts;
+  let railKind;
+  if (isSmallCircleArm(prevArm)) {
+    const Pc = unit(prevArm.bowCenter);
+    let rho = angle(Pc, unit(to));
+    if (!(rho > 1e-12 && rho < Math.PI - 1e-12)) rho = prevArm.rho + (w || 0) / R;
+    // Sample concentric rail covering prev span, then extend in ψ about P.
+    const pa = unit(sub(unit(prevPts[0]), mul(Pc, dot(unit(prevPts[0]), Pc))));
+    const pb = unit(sub(unit(prevPts[prevPts.length - 1]), mul(Pc, dot(unit(prevPts[prevPts.length - 1]), Pc))));
+    let psi = angle(pa, pb);
+    if (dot(cross(pa, pb), Pc) < 0) psi = -psi;
+    const ext = Math.max(4 * (w || 0), 8) / (R * Math.max(1e-9, Math.sin(rho))); // rad of ψ
+    const nSamp = Math.max(n, prevPts.length);
+    railPts = [];
+    for (let i = 0; i <= nSamp; i++) {
+      const u = i / nSamp;
+      const ang = -ext + u * (psi + 2 * ext);
+      const rad = unit(rotateAbout(pa, Pc, ang));
+      railPts.push(mul(unit(add(mul(Pc, Math.cos(rho)), mul(rad, Math.sin(rho)))), R));
+    }
+    railKind = 'concentric-parallel';
+  } else {
+    railPts = extendPolyEnds(R, parallelOffsetPoly(R, prevPts, w || 0, prevArm), Math.max(5 * (w || 0), 10));
+    railKind = 'poly-parallel';
+  }
+  const X = unit(from), E = unit(to);
+  const lat = signedLateralToPoly(R, X, railPts, prevArm);
+  const dLat = lat.signedMm; // >0 outside, <0 inside
+  const delta = dLat < 0 ? -dLat : 0;
+  const hitE = closestOnPoly(R, E, railPts);
+
+  let Tpt, splice, joinMode;
+  if (Math.abs(dLat) < 1e-6) {
+    Tpt = lat.q; splice = 0; joinMode = 'onRail';
+  } else if (dLat < 0) {
+    // 6a.7(3) climb/merge: M at ℓ_m = max(w, 3δ) forward toward E
+    const Lm = Math.max(w || 0, 3 * delta);
+    const s0 = polyArcMm(R, railPts, lat.i, lat.t);
+    const sE = polyArcMm(R, railPts, hitE.i, hitE.t);
+    const sM = Math.min(s0 + Lm, Math.max(s0 + 1e-9, sE * 0.999));
+    Tpt = pointAtArcMm(R, railPts, sM).q;
+    splice = R * angle(X, Tpt);
+    joinMode = 'climb';
+  } else {
+    // 6a.7(2) exterior tangent: scan rail for geodesic ⊥ rail-tangent
+    const s0 = polyArcMm(R, railPts, lat.i, lat.t);
+    const sE = polyArcMm(R, railPts, hitE.i, hitE.t);
+    const sLo = Math.min(s0, sE), sHi = Math.max(s0, sE);
+    let best = null;
+    for (let k = 0; k <= 64; k++) {
+      const s = sLo + (sHi - sLo) * (k / 64);
+      const P = pointAtArcMm(R, railPts, s);
+      const q = P.q;
+      const Ta = polyTangent(railPts, P.i);
+      const towardX = tangentTo(q, X);
+      const score = Math.abs(dot(towardX, Ta));
+      const cost = R * angle(X, q) + Math.abs(sE - s);
+      if (!best || score < best.score - 1e-7 || (Math.abs(score - best.score) < 1e-7 && cost < best.cost)) {
+        best = { q, score, cost };
+      }
+    }
+    Tpt = best.q;
+    splice = R * angle(X, Tpt);
+    joinMode = 'tangent';
+  }
+
+  const Tcount = splice <= 1e-15 ? 0
+    : Math.max(2, Math.min(24, Math.round(n * splice / Math.max(splice + R * angle(Tpt, E), 1e-9))));
+  const pts = [];
+  for (let i = 0; i < Tcount; i++) {
+    const tt = i / Tcount;
+    const a = angle(X, Tpt);
+    if (a < 1e-15) { pts.push(mul(X, R)); continue; }
+    const s = Math.sin(a);
+    pts.push(mul(unit(add(mul(X, Math.sin((1 - tt) * a) / s), mul(Tpt, Math.sin(tt * a) / s))), R));
+  }
+  const hitT = closestOnPoly(R, Tpt, railPts);
+  const railSlice = polySliceToward(R, railPts, hitT.i, hitT.t, to, Math.max(1, n - Tcount));
+  for (let i = 0; i < railSlice.length; i++) {
+    if (Tcount > 0 && i === 0) continue;
+    pts.push(railSlice[i]);
+  }
+  if (!pts.length) pts.push(...railSlice);
+
+  if (pts.length !== n + 1) {
+    const out = [];
+    const lens = [0];
+    for (let i = 1; i < pts.length; i++) lens.push(lens[i - 1] + R * angle(pts[i - 1], pts[i]));
+    const total = lens[lens.length - 1] || 1e-15;
+    for (let i = 0; i <= n; i++) {
+      const target = (i / n) * total;
+      let j = 0;
+      while (j < lens.length - 2 && lens[j + 1] < target) j++;
+      const seg = lens[j + 1] - lens[j] || 1e-15;
+      const u = (target - lens[j]) / seg;
+      const a = unit(pts[Math.min(j, pts.length - 1)]);
+      const b = unit(pts[Math.min(j + 1, pts.length - 1)]);
+      const om = angle(a, b);
+      if (om < 1e-15) out.push(mul(a, R));
+      else out.push(mul(unit(add(mul(a, Math.sin((1 - u) * om) / Math.sin(om)), mul(b, Math.sin(u * om) / Math.sin(om)))), R));
+    }
+    pts.length = 0;
+    pts.push(...out);
+  }
+  pts[0] = from.slice ? from.slice() : [...from];
+  pts[n] = to.slice ? to.slice() : [...to];
+
+  let turnAtTDeg = 0;
+  {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + R * angle(pts[i - 1], pts[i]));
+    let iT = 1;
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (Math.abs(cum[i] - splice) < Math.abs(cum[iT] - splice)) iT = i;
+    }
+    const nrm = unit(pts[iT]);
+    const proj = (v) => {
+      const p = sub(v, mul(nrm, dot(v, nrm)));
+      const len = Math.hypot(p[0], p[1], p[2]);
+      return len < 1e-15 ? null : mul(p, 1 / len);
+    };
+    const tIn = proj(unit(sub(pts[iT], pts[iT - 1])));
+    const tOut = proj(unit(sub(pts[iT + 1], pts[iT])));
+    if (tIn && tOut) {
+      const c = Math.max(-1, Math.min(1, dot(tIn, tOut)));
+      const sn = Math.max(-1, Math.min(1, dot(cross(tIn, tOut), nrm)));
+      turnAtTDeg = Math.atan2(sn, c) * 180 / Math.PI;
+    }
+  }
+
+  // 6a.9.1: kink angles (not κ_g) at hole and at climb/tangent merge — each ≤20°.
+  // Hole kink ≈ discrete turn at the first interior sample (thread leaving the stitch).
+  // Merge kink = turnAtTDeg already measured at the join onto the rail.
+  let holeTurnDeg = 0;
+  if (pts.length >= 3) {
+    const nrm = unit(pts[1]);
+    const proj = (v) => {
+      const p = sub(v, mul(nrm, dot(v, nrm)));
+      const len = Math.hypot(p[0], p[1], p[2]);
+      return len < 1e-15 ? null : mul(p, 1 / len);
+    };
+    const tIn = proj(unit(sub(pts[1], pts[0])));
+    const tOut = proj(unit(sub(pts[2], pts[1])));
+    if (tIn && tOut) {
+      const c = Math.max(-1, Math.min(1, dot(tIn, tOut)));
+      const sn = Math.max(-1, Math.min(1, dot(cross(tIn, tOut), nrm)));
+      holeTurnDeg = Math.atan2(sn, c) * 180 / Math.PI;
+    }
+  }
+  const mergeTurnDeg = turnAtTDeg;
+
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) len += R * angle(pts[i - 1], pts[i]);
+  const Pc = prevArm.bowCenter ? unit(prevArm.bowCenter) : null;
+  const rho = Pc ? angle(Pc, E) : Math.PI / 2;
+  const lambda = (Pc && Math.sin(rho) > 1e-15) ? Math.abs(Math.cos(rho) / Math.sin(rho)) : 0;
+
   return {
-    pts: slerp(R, from, to, n), length: geodLen(R, from, to),
-    shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
-    bowCenter: null, phi3Warn: false, layMode: 'rail',
+    pts, length: len,
+    shoulderForm: prevArm.shoulderForm === 'bow' ? 'bow' : 'geodesic',
+    bowLateralMm: 0, phi3CapMm: 0, lambda, rho,
+    bowCenter: Pc, phi3Warn: false, layMode: 'rail',
+    spliceMm: splice, lateralMm: dLat, turnAtTDeg,
+    interiorXn: dLat < -1e-6,
+    joinMode,
+    climbMm: joinMode === 'climb' ? splice : 0,
+    deltaMm: delta,
+    deltaFail: delta > (w || 0) / 2,
+    railKind,
+    holeTurnDeg,
+    mergeTurnDeg,
   };
 }
+
 
 function armPackNormal(arm) {
   const nRef = unit(cross(arm.from, arm.to));
@@ -472,8 +769,8 @@ function armPackNormal(arm) {
  *  sidesAt(s) → needleSides at level s. */
 function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
   const h = w / 10;
-  // --- Fable v2 (8): angular distance from small-circle center ---
-  if (prevArm.bowCenter && Number.isFinite(prevArm.rho)) {
+  // --- Fable v2 (8): concentric only when prev arm IS a small circle (6a.7 special case) ---
+  if (isSmallCircleArm(prevArm)) {
     const Pc = unit(prevArm.bowCenter);
     const target = prevArm.rho + w / R;
     const g = (s) => angle(Pc, unit(perpPt(R, s, phiK, sidesAt(s).eOff))) - target;
@@ -490,6 +787,27 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
     }
     const s = (lo + hi) / 2;
     return { s, sPrevCross: null, sLaidCross: s, sigma: 1, method: 'fable8' };
+  }
+  // --- 6a.7(1) / 6a.9: place E at geodesic distance +w outward from the ACTUAL prev polyline ---
+  if (prevArm.pts && prevArm.pts.length >= 2) {
+    const prevPts = prevArm.pts;
+    const g = (s) => {
+      const E = unit(perpPt(R, s, phiK, sidesAt(s).eOff));
+      return signedLateralToPoly(R, E, prevPts, prevArm).signedMm - w;
+    };
+    let lo = sInside, glo = g(lo), hi = null;
+    for (let s = sInside + h; s <= sMax; s += h) {
+      const gs = g(s);
+      if (glo * gs <= 0) { hi = s; break; }
+      lo = s; glo = gs;
+    }
+    if (hi === null) return null;
+    for (let it = 0; it < 60; it++) {
+      const mid = (lo + hi) / 2, gm = g(mid);
+      if (glo * gm <= 0) hi = mid; else { lo = mid; glo = gm; }
+    }
+    const s = (lo + hi) / 2;
+    return { s, sPrevCross: null, sLaidCross: s, sigma: 1, method: 'polyParallel' };
   }
   // --- geodesic / rail without small-circle analytics: packing-plane parallel at distance w ---
   // Orient normal toward the pole so "outward" is equatorward. Do NOT derive sigma from
@@ -692,7 +1010,9 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         shoulderForm: legShape.shoulderForm, bowLateralMm: legShape.bowLateralMm, phi3CapMm: legShape.phi3CapMm,
         lambda: legShape.lambda ?? 0, rho: legShape.rho, bowCenter: legShape.bowCenter || null,
         layMode: legShape.layMode || (spec.row === 1 ? 'row1' : 'rail'),
-        spliceMm: legShape.spliceMm ?? 0 });
+        spliceMm: legShape.spliceMm ?? 0, lateralMm: legShape.lateralMm ?? 0, turnAtTDeg: legShape.turnAtTDeg ?? 0, interiorXn: !!legShape.interiorXn,
+        joinMode: legShape.joinMode || null, climbMm: legShape.climbMm ?? 0, deltaMm: legShape.deltaMm ?? 0, deltaFail: !!legShape.deltaFail,
+        railKind: legShape.railKind || null, holeTurnDeg: legShape.holeTurnDeg ?? 0, mergeTurnDeg: legShape.mergeTurnDeg ?? 0 });
       if (i === 1) RD.firstLegId = leg.id;
       // перекресты и прилегания со ВСЕМИ ранее уложенными плечами (обе нити): правило над/под
       for (const other of legs()) {
@@ -711,6 +1031,10 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           } else if (W.squeezes.some((q) => dist(q.hole, z.min.cp) < 2 * w &&
               ((endsAt(leg, q.hole) && other.set !== q.set) || (endsAt(other, q.hole) && leg.set !== q.set)))) {
             kind = 'squeeze'; rule = 'тесное место: прокол посередине зазора < w до нити соседней точки (#105); нити должны сжаться — не моделируется (U14, V19); позже уложенная сверху';
+          } else if (leg.interiorXn && other.set === spec.set && other.row === spec.row - 1
+              && (leg.climbMm > 0 ? (z.min.i / Math.max(1, legPts.length - 1)) * (leg.length || 1) <= (leg.climbMm + w) : z.min.i <= 4)) {
+            // Errata 6a.7: climb/merge onto previous rail — mark V8 class «climb» next to «squeeze»
+            kind = 'climb'; rule = 'climb/merge (Errata 6a.7): new thread climbs onto previous within ℓ_m of the hole (uwagake wedge start); kinks ≤20°';
           } else { kind = 'contact'; rule = 'прилегание ближе w без перехода — не разрешено правилом'; allowed = false; }
           const sp = toSPhi(R, z.min.cp);
           const c = { id: `c${W.crossings.length}`, a: leg.id, b: other.id, over: passUnder ? other.id : leg.id, under: passUnder ? leg.id : other.id,
@@ -791,6 +1115,54 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         shoulderForm, bowLateralMm, phi3CapMm, mu: muWrap, muWrap, bowLambda: P.bowLambda ?? null, bowSagMm: P.bowSagMm ?? null, bowSide, lambda,
         phi3Warn: false, warn: null,
       };
+      {
+        const rails = W.segs.filter((s) => s.type === 'leg' && s.layMode === 'rail');
+        const interior = rails.filter((s) => s.interiorXn);
+        const byRow = {};
+        for (const s of interior) {
+          const k = `r${s.row}/${s.level}`;
+          byRow[k] = (byRow[k] || 0) + 1;
+        }
+                const climbs = interior.filter((s) => s.joinMode === 'climb');
+        const turns = climbs.map((s) => Math.abs(s.mergeTurnDeg ?? s.turnAtTDeg ?? 0));
+        const holeTurns = rails.map((s) => Math.abs(s.holeTurnDeg ?? 0));
+        const deltas = rails.map((s) => ({
+          id: s.id, row: s.row, level: s.level, d: s.deltaMm ?? Math.max(0, -(s.lateralMm ?? 0)),
+          join: s.joinMode, kind: s.railKind,
+        }));
+        const dVals = deltas.map((x) => x.d);
+        const wHalf = w / 2;
+        const bandOk = dVals.filter((d) => d > 0 && d <= 0.15).length;
+        const bandDiag = dVals.filter((d) => d > 0.15 && d <= wHalf).length;
+        const bandFail = dVals.filter((d) => d > wHalf).length;
+        const byRowDelta = {};
+        for (const x of deltas) {
+          if (!(x.d > 0)) continue;
+          const k = `r${x.row}`;
+          if (!byRowDelta[k]) byRowDelta[k] = { n: 0, max: 0, fail: 0, diag: 0, ok: 0 };
+          byRowDelta[k].n++;
+          byRowDelta[k].max = Math.max(byRowDelta[k].max, x.d);
+          if (x.d > wHalf) byRowDelta[k].fail++;
+          else if (x.d > 0.15) byRowDelta[k].diag++;
+          else byRowDelta[k].ok++;
+        }
+        W.railDiagnostics = {
+          railLegs: rails.length,
+          interiorXnCount: interior.length,
+          interiorXnByRow: byRow,
+          interiorXnIds: interior.map((s) => s.id),
+          climbCount: climbs.length,
+          climbTurnMaxDeg: turns.length ? Math.max(...turns) : 0,
+          climbTurnMedDeg: turns.length ? turns.slice().sort((a, b) => a - b)[turns.length >> 1] : 0,
+          holeTurnMaxDeg: holeTurns.length ? Math.max(...holeTurns) : 0,
+          deltaMmMax: dVals.length ? Math.max(0, ...dVals) : 0,
+          deltaBandOk: bandOk,       // δ ≤ 0.15 — consistent (6a.9.3)
+          deltaBandDiag: bandDiag,   // 0.15 < δ ≤ w/2 — diagnostics
+          deltaBandFail: bandFail,   // δ > w/2 — G3 occupancy bug
+          deltaByRow: byRowDelta,
+          note: 'Errata 6a.7/6a.9: rail=parallel of prev polyline; exterior=tangent; interior=climb; δ≤0.15 ok, ≤w/2 diag, >w/2 G3 bug; kink angles ≤20° (not κ_g)',
+        };
+      }
     }
   }
   return W;

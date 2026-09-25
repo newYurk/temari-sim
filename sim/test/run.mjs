@@ -357,23 +357,26 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   console.log('\n## V21 negatives + V13 growth (Errata 6a)');
   const R0 = () => computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 1 });
 
-  // Short stick exceedance: glue path near tip onto the meridian past the scaled V21 threshold
+  // Stick exceedance ≈0.917 mm at C=240 (Errata 6a.5): must FAIL under per-leg thr ≈0.8 mm.
+  // Glue a mid-crossing band onto the meridian (keeps α_geo); tip-only glue warps α_geo and thr.
   {
-    const A = R0();
+    const A = computeAll(recipe, { C_mm: 240, shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 1 });
     const leg = A.path.segs.find((s) => s.type === 'leg' && s.level === 'bottom');
     const R = A.base.R;
     const phi = A.marking.phis[leg.line];
     const nMer = [-Math.sin(phi), Math.cos(phi), 0];
-    const thr = Math.max(0.7, A.params.w_mm, 0.025 * R);
-    const glueMm = thr + 0.35; // short exceedance above scaled cut
-    // arc-length from tip (sample-fraction under-glues under cosine clustering)
+    const signed = (i) => {
+      const u = leg.pts[i];
+      return R * Math.asin(Math.max(-1, Math.min(1, u[0]*nMer[0]+u[1]*nMer[1]+u[2]*nMer[2])));
+    };
+    let iMeet = -1;
+    for (let i = 1; i < leg.pts.length; i++) if (signed(i - 1) * signed(i) < 0) { iMeet = i; break; }
     const lens = [0];
-    for (let i = 1; i < leg.pts.length; i++) {
-      lens.push(lens[i - 1] + R * angle(leg.pts[i - 1], leg.pts[i]));
-    }
-    const total = lens[lens.length - 1];
-    const i0 = Math.max(1, lens.findIndex((l) => l >= total - glueMm));
-    for (let i = i0; i < leg.pts.length; i++) {
+    for (let i = 1; i < leg.pts.length; i++) lens.push(lens[i - 1] + R * angle(leg.pts[i - 1], leg.pts[i]));
+    const sMeet = lens[iMeet];
+    const half = 0.70; // → stick ≳ 0.92 mm > thr ≈ 0.82
+    for (let i = 0; i < leg.pts.length; i++) {
+      if (Math.abs(lens[i] - sMeet) > half) continue;
       const u = leg.pts[i];
       const d = u[0]*nMer[0] + u[1]*nMer[1] + u[2]*nMer[2];
       const onMer = [u[0]-nMer[0]*d, u[1]-nMer[1]*d, u[2]-nMer[2]*d];
@@ -381,9 +384,43 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
       leg.pts[i] = onMer.map((x) => x / L * R);
     }
     const v = runValidators(A, '2b', null).find((x) => x.id === 'V21');
-    const stick = v.numbers.tipStickMm;
-    console.log(`  V21 short-exceed stick=${fmt(stick, 3)} status=${v.status} thr=${fmt(v.numbers.thresholdMm, 3)}`);
-    check(stick > v.numbers.thresholdMm && v.status === 'fail', 'V21 fails on short stick exceedance (> scaled threshold)');
+    const row = (v.numbers.stickRows || []).find((r) => r.id === leg.id) || {};
+    const stick = row.stickMm ?? v.numbers.tipStickMm;
+    const thr = row.thresholdMm ?? v.numbers.thresholdMm;
+    console.log(`  V21 stick≈0.917@C240 stick=${fmt(stick, 3)} thr=${fmt(thr, 3)} status=${v.status}`);
+    check(stick > 0.9 && stick > thr && v.status === 'fail', 'V21 fails on stick ≈0.917 mm at C=240 (per-leg thr ≈0.8)');
+  }
+
+  // Upper-leg stick ≈1.558 mm (segment∩band): must FAIL (angle gate does not apply; stick does)
+  {
+    const A = computeAll(recipe, { C_mm: 240, shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 1 });
+    const leg = A.path.segs.find((s) => s.type === 'leg' && s.level === 'top');
+    const R = A.base.R;
+    const phi = A.marking.phis[leg.line];
+    const nMer = [-Math.sin(phi), Math.cos(phi), 0];
+    const signed = (i) => {
+      const u = leg.pts[i];
+      return R * Math.asin(Math.max(-1, Math.min(1, u[0]*nMer[0]+u[1]*nMer[1]+u[2]*nMer[2])));
+    };
+    let iMeet = -1;
+    for (let i = 1; i < leg.pts.length; i++) if (signed(i - 1) * signed(i) < 0) { iMeet = i; break; }
+    const lens = [0];
+    for (let i = 1; i < leg.pts.length; i++) lens.push(lens[i - 1] + R * angle(leg.pts[i - 1], leg.pts[i]));
+    const sMeet = lens[Math.max(0, iMeet)];
+    const half = 0.80;
+    for (let i = 0; i < leg.pts.length; i++) {
+      if (Math.abs(lens[i] - sMeet) > half) continue;
+      const u = leg.pts[i];
+      const d = u[0]*nMer[0] + u[1]*nMer[1] + u[2]*nMer[2];
+      const onMer = [u[0]-nMer[0]*d, u[1]-nMer[1]*d, u[2]-nMer[2]*d];
+      const L = Math.hypot(...onMer) || 1;
+      leg.pts[i] = onMer.map((x) => x / L * R);
+    }
+    const v = runValidators(A, '2b', null).find((x) => x.id === 'V21');
+    const row = (v.numbers.stickRows || []).find((r) => r.id === leg.id) || {};
+    const stick = row.stickMm ?? v.numbers.tipStickMm;
+    console.log(`  V21 upper-leg stick=${fmt(stick, 3)} thr=${fmt(row.thresholdMm ?? v.numbers.thresholdMm, 3)} status=${v.status}`);
+    check(stick > 1.0 && v.status === 'fail', 'V21 fails on upper-leg stick ≈1.56 mm (segment∩band counted)');
   }
 
   // Small angle: replace crossing neighborhood with a near-meridian path on ONE bottom leg
@@ -399,8 +436,6 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
     };
     let iMeet = -1;
     for (let i = 1; i < leg.pts.length; i++) if (signed(i - 1) * signed(i) < 0) { iMeet = i; break; }
-    // Build a short chord that crosses with very small angle: stay close to meridian
-    // for ~3 mm on each side, offset only ±0.01 mm in lat so crossing angle ≪ α_geo.
     if (iMeet > 0) {
       const lens = [0];
       for (let i = 1; i < leg.pts.length; i++) lens.push(lens[i - 1] + R * angle(leg.pts[i - 1], leg.pts[i]));
@@ -410,12 +445,10 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
         const u = unit(leg.pts[i]);
         const side = Math.sign(lens[i] - sMeet) || 1;
         const targetLat = side * 0.01; // mm
-        // project to meridian then push targetLat along nMer in tangent plane
         const d = u[0]*nMer[0]+u[1]*nMer[1]+u[2]*nMer[2];
         let on = [u[0]-nMer[0]*d, u[1]-nMer[1]*d, u[2]-nMer[2]*d];
         const L = Math.hypot(...on) || 1;
         on = on.map((x) => x / L);
-        // move in nMer direction by targetLat/R radians (approx)
         const pushed = [on[0] + nMer[0]*(targetLat/R), on[1] + nMer[1]*(targetLat/R), on[2] + nMer[2]*(targetLat/R)];
         const Lp = Math.hypot(...pushed) || 1;
         leg.pts[i] = pushed.map((x) => x / Lp * R);
@@ -433,11 +466,9 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
     const phi = A.marking.phis[leg.line];
     const nMer = [-Math.sin(phi), Math.cos(phi), 0];
     const n = leg.pts.length - 1;
-    // Mirror a mid band across the meridian to create a second crossing
     for (let i = Math.floor(n * 0.25); i <= Math.floor(n * 0.4); i++) {
       const u = leg.pts[i];
       const d = u[0]*nMer[0]+u[1]*nMer[1]+u[2]*nMer[2];
-      // flip to the other side of the meridian
       const flipped = [u[0]-2*nMer[0]*d, u[1]-2*nMer[1]*d, u[2]-2*nMer[2]*d];
       const L = Math.hypot(...flipped);
       leg.pts[i] = flipped.map((x) => x / L * A.base.R);
@@ -447,7 +478,8 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
     check(v.status === 'fail' && v.numbers.badCrossings > 0, 'V21 fails on two meridian crossings');
   }
 
-  // V13 tip-width growth at A2 (Errata 6a.1) — lock Fable numbers; do NOT retune thresholds
+  // V13 tip-width growth at A2 (Errata 6a.1 / 6a.6) — lock Fable numbers; do NOT retune thresholds.
+  // Acceptance = growth magnitude + monotonicity in λ, NOT V13 status (warn at λ=0.2 stays honest).
   {
     const expect = [
       { bowLambda: 0, grow: 0.21 },
@@ -474,6 +506,35 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
       check(Math.abs(grow - e.grow) <= 0.1, `V13 A2 tip-width growth at λ=${e.bowLambda} within ±0.1 w of ${e.grow}`);
     }
     check(grows.every((g, i) => i === 0 || g > grows[i - 1] - 1e-9), 'V13 A2 tip-width growth monotonic in λ');
+  }
+
+  // Errata 6a.4: row-1 has no rail splice; exterior rail joins turn ≤ 1°; L_j ~ formula
+  {
+    const A = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 3 });
+    const r1 = A.path.segs.filter((s) => s.type === 'leg' && s.row === 1);
+    const r2 = A.path.segs.filter((s) => s.type === 'leg' && s.row === 2);
+    check(r1.every((s) => (s.spliceMm ?? 0) < 1e-9), 'row-1 legs have no rail splice (spliceMm < 1e-9)');
+    const ext = r2.filter((s) => !s.interiorXn && (s.lateralMm ?? 0) >= 0);
+    const turns = ext.map((s) => Math.abs(s.turnAtTDeg ?? 99));
+    console.log(`  rail exterior turns°: ${turns.map((t) => fmt(t, 3)).join(', ')}`);
+    check(turns.length && turns.every((t) => t <= 1.0), 'exterior rail join turn at T ≤ 1°');
+    const diag = A.path.railDiagnostics;
+    console.log(`  interiorXn: ${diag?.interiorXnCount}/${diag?.railLegs} byRow=${JSON.stringify(diag?.interiorXnByRow)}`);
+    check(diag && diag.interiorXnCount > 0, 'railDiagnostics reports interior X_n count (pending Fable)');
+    check(r2.some((s) => s.interiorXn) && r2.some((s) => !s.interiorXn), 'row-2 has both interiorXn (holding) and exterior (tangent) legs');
+    // L_j ≈ R·√(2·|d|/R · tan ρ) = √(2·|d|·R·tan ρ)
+    let ljOk = 0, ljN = 0;
+    for (const s of ext) {
+      const d = Math.abs(s.lateralMm ?? 0);
+      if (d < 0.05) continue;
+      const R = A.base.R, rho = s.rho;
+      const expect = Math.sqrt(2 * d * R * Math.tan(rho));
+      const got = s.spliceMm ?? 0;
+      const rel = Math.abs(got - expect) / expect;
+      console.log(`  L_j d=${fmt(d, 3)} expect≈${fmt(expect, 2)} got=${fmt(got, 2)} rel=${fmt(rel, 3)}`);
+      ljN++; if (rel < 0.15) ljOk++;
+    }
+    check(ljN > 0 && ljOk === ljN, 'L_j matches √(2·|d|·R·tan ρ) within 15% for exterior joins');
   }
 
   // §5.2 last-segment θ at 96 samples ≤ 0.1°

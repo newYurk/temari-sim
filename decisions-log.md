@@ -152,10 +152,59 @@ Cause = resume-from-parking transition step + late-row squeeze (V6 message alrea
 **V13 metric vs Errata “pass from λ≥0.2” (boundary, no retune):**
 - Metric compared: **same** — V13 row-1 footprint / A2 tip width `(W − Wp)/w` (row-n+1 top wider as consequence). Matches Errata 6a.1’s tip-width growth.
 - Cut differs: V13’s own pass band still requires widen ≳ 0.5 w (geodesic +0.21 w → **warn**; λ=0.2 → +0.43 w → still **warn**; λ=0.32 → +0.59 w → **pass**). Errata 6a.1 speaks of pass from λ≥0.2 for the growth rates themselves.
-- **Do not retune** V13 thresholds to force λ=0.2 pass. **Ask Fable:** should V13’s warn floor move to ~0.4 w to align with 6a.1’s pass-from-0.2, or does 6a.1’s “pass” mean only the locked growth-rate check (status may remain warn)?
+- **Do not retune** V13 thresholds to force λ=0.2 pass. **Closed by Errata 6a.6:** warn at λ=0.2 stays honest; acceptance = growth magnitude (+0.43 w) and monotonicity in λ, **not** V13 status. Pass expected around λ≳0.25. The 0.5 w floor is marked **[A]**, calibrated only by sample (**U3**).
 
 **V21 stick threshold (Errata 6a + English key):** continuous stick on all legs. Clean geodesic crossing has stick ≈ `2·0.05/sin(α_geo)` (~0.68 mm at C=240, ~0.85 mm at C=300). Bare absolute 0.7 fails geodesic at C=300. Restored documented scale `max(0.7, w, 0.025·R)` from Fable v2 English key / prior acceptance note — not a new invented cut. Errata’s “0.7 mm” remains the reference at default C/w.
 
 ### Row construction (Errata 6a.2)
 **Kept concentric** (formula (8), Δ₂ ≈ 2.236 / 1.544). Tangential alternative (2.296 / 1.576) not adopted — same choice in code, reference, tests, docs.
+
+
+
+## D43 — Errata 6a.4–6a.6 (2026-09-25)
+
+Order: tangent splice → V20 ≤w → V21 per-leg stick → V13 log.
+
+### 6a.4 Rail splice (path.js `railLeg`) — exterior only until Fable answers interior
+Previous meridian→Q0 model was wrong for **exterior** X_n (forced ~90° kink at the rail). Physics when X is outside: geodesic from X **tangent** to the rail at T, then rail. Kink at hole allowed; kink at T never.
+- **Exterior (γ≥ρ):** classical spherical tangent; turn at T ≈ 0° (≤1°). L_j = R·acos(cosγ/cosρ) ≈ √(2·|d|·R·tanρ). Measured λ=0.32: d≈0.088 → L_j≈4.72 mm; turn≈0.003°.
+- **Interior (γ<ρ):** no great-circle tangent exists (always cuts twice). **Do not invent a join** (Codex/Fable steering). Claude asked Fable for the physical path. Until then: keep prior radial meridian foot X→Q0 as a **holding** path only, flag `interiorXn` on the leg, and aggregate `path.railDiagnostics` (count, by row, ids). Measured λ=0.32 untilEquator: **94/160** interior; λ=0.6: **127/240**. Late-row upper-tip gap wedge = **U14**.
+- No splice-length threshold («0.3 mm» was lateral d, not L_j).
+- Diagnostics: `spliceMm`, signed `lateralMm`, `turnAtTDeg`, `interiorXn`; `path.railDiagnostics`. Row-1 has no rail splice (`spliceMm < 1e-9`).
+
+### V20
+Exclude path-distance **≤ w** from the hole only (no `max(w,splice)+0.25` window that hid the old 90° kink outside w).
+
+### 6a.5 V21 stick
+Removed `max(0.7,w,0.025·R)`. Per-leg: `L_stick ≤ 1.2 · 2ε / sin(α_geo(own))`, ε=0.05 mm. Measured thr ≈0.815 mm at C=240, ≈1.028 mm at C=300. Stick length = path measure of segment∩{|lat|<ε} (signed lat) — both endpoints outside can still cross the band. Mutations: stick≈1.39 (Codex 0.917 case) and upper-leg ≈1.2–1.6 fail.
+
+### 6a.6 V13
+Threshold untouched. Acceptance = growth (+0.43 w at λ=0.2) + monotonicity; status may remain warn. Floor 0.5 w is **[A]** / **U3**. Prior “ask Fable about lowering floor” closed.
+
+## D44 — Errata 6a.9 (2026-09-25): V20 free-class, V21 ref α_exp, δ bands
+
+### 6a.9.1 V20 scope
+V20 applies **only to free-class segments**:
+- Row 1: whole arc except ≤w windows at holes
+- Rows n≥2: **exterior tangent splice only** (path-distance ∈ (exclHole, spliceMm])
+- **Rail body and climb excluded** — prior-thread contact holds them
+- Kinks at hole and climb merge: **angles ≤20°** each (from ℓ_m≥3δ → atan(1/3)≈18.4°), **not** discrete κ_g
+
+### 6a.9.2 V21 α_exp
+α_exp = axis-crossing angle of the **reference curve at the crossing itself**:
+- Row 1: analytic arc at own λ
+- Rows n≥2: parallel of accepted row n−1 (path after splice)
+- Threshold still L_stick ≤ 1.2·2ε/sin(α_exp); **1.2 = discretization margin only**
+- Angle ≥ α_geo remains lower legs only (6a.3)
+
+### 6a.9.3 δ after parallel-rail switch
+Rail = parallel of actual row n−1 polyline +w out (concentric = small-circle special case).
+- δ ≤ 0.15 mm → model consistent (climb)
+- 0.15 < δ ≤ w/2 → diagnostics; closing stitches as a separate line
+- δ > w/2 → **G3 occupancy bug** (G3 sees a different curve than the rail), not a model property
+- If large δ is physically honest → flag «flat-model limit» (U14), no geometric tricks
+
+### Measured (this commit, bow λ=0.32)
+- Row 2: δ max ≈ 0.173 mm (6 ok ≤0.15, 2 diag ≤w/2, 0 fail); holeTurn max ≈12°, climbTurn max ≈1.7°
+- Later rows still show δ > w/2 on some legs after parallel switch — **reported, not fitted** (G3 vs rail curve mismatch / flat-model limit). Coordinator may ask Fable.
 
