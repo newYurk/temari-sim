@@ -3,10 +3,10 @@ import { loadRecipe, loadJSON } from '../src/recipe.js';
 import { computeAll } from '../src/layers.js';
 import { runValidators, summary, refKey } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
-import { stageLastOp } from '../src/path.js';
+import { stageLastOp, setLegSamples, getLegSamples } from '../src/path.js';
 import { displayGeometry } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
-import { norm, unit, mul, sub, dot } from '../src/geom.js';
+import { norm, unit, mul, sub, dot, angle, cross } from '../src/geom.js';
 
 const recipe = await loadRecipe();
 const recipePreset = await loadJSON('../data/recipes/kiku-s8.json');
@@ -241,7 +241,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const Vb = runValidators(B, 'A2', null);
   check(Vb.find((v) => v.id === 'V2').status === 'pass', 'V2 passes with bow (polyLen legs)');
   check(summary(runValidators(G, 'A2', ref)).fail === 0, 'geodesic A2: no validator fail');
-  console.log(`  (row-count-to-equator under bow deferred; tipDrop ${fmt(tb.tipDrop_mm, 3)} vs theory 2.236)`);
+  console.log(`  tipDrop ${fmt(tb.tipDrop_mm, 3)} vs theory 2.236 (rows-to-equator asserted in §8c)`);
 }
 
 
@@ -258,7 +258,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   // Fable v2: warn when λ_max > μ; at λ=μ status is pass (not warn). Fail at λ ≥ 1.2μ.
   check(v20.status === 'pass' || v20.status === 'warn', 'V20 pass/warn at bowLambda=μ');
   check(Math.abs(v20.numbers.ratio - 1) < 1e-4, 'V20 λ/μ ≈ 1 at bowLambda=μ');
-  check(v21.status === 'pass', 'V21 pass: transversality (one meeting, stick ≤ max(0.7,w,0.025·R) mm) on small-circle bow');
+  check(v21.status === 'pass', 'V21 pass: transversality (one meeting, angle ≥ α_geo, stick ≤ 0.7 mm) on small-circle bow');
 
   // Negative V20: λ = 1.2 μ → fail (Codex §5.4)
   const over = computeAll(recipe, { shoulderForm: 'bow', muWrap: 0.32, bowLambda: 0.32 * 1.2, rowsMode: 'count', rowsCount: 2 });
@@ -309,20 +309,99 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   check(arrivalAlpha(goodDir) > aGeo + 0.5 * Math.PI / 180, 'pole-side at λ=0.32: α′ > α_geo');
   check(goodDir.path.tipDrop.tipDrop_mm < dGeo - 0.5, 'pole-side at λ=0.32 still improves Δ (no false fail)');
 
-  // n≥2 = rail, not concentric small-circle (Fable v2)
+  // n≥2 = rail = concentric small circle about same P (Fable v2 §4.3 / formula (8))
   const railA = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 3 });
   const row1 = railA.path.segs.filter((s) => s.type === 'leg' && s.row === 1);
   const row2 = railA.path.segs.filter((s) => s.type === 'leg' && s.row === 2);
   console.log(`  layMode row1: ${[...new Set(row1.map((s) => s.layMode))]} row2: ${[...new Set(row2.map((s) => s.layMode))]}`);
   check(row1.length && row1.every((s) => s.layMode === 'smallCircle' || s.shoulderForm === 'bow'), 'row 1 legs are small-circle bow');
-  check(row2.length && row2.every((s) => s.layMode === 'rail'), 'row n≥2 legs are rail (not concentric small circle)');
-  check(row2.every((s) => !s.bowCenter), 'row n≥2 legs have no fresh bowCenter (not concentric about P)');
+  check(row2.length && row2.every((s) => s.layMode === 'rail'), 'row n≥2 legs are rail (concentric about same P)');
+  check(row2.every((s) => !!s.bowCenter), 'row n≥2 rails keep bowCenter (same P as row 1)');
+  check(row2.every((s) => {
+    const r1 = row1.find((r) => r.stitch === s.stitch && r.set === s.set && r.bowCenter);
+    if (!r1) return false;
+    const d = Math.hypot(s.bowCenter[0] - r1.bowCenter[0], s.bowCenter[1] - r1.bowCenter[1], s.bowCenter[2] - r1.bowCenter[2]);
+    return d < 1e-12;
+  }), 'rail bowCenter equals same-stitch row-1 P');
+  check(row2.every((s) => {
+    const r1 = row1.find((r) => r.stitch === s.stitch && r.set === s.set && Number.isFinite(r.rho));
+    return r1 && s.rho > r1.rho + 1e-9;
+  }), 'rail ρ > row-1 ρ (offset by w/R)');
+
+  // Direction negative: must assert Δ > Δ_geo (Codex §5.7)
+  check(dBad > dGeo + 0.5, `equator-side λ=0.16: Δ > Δ_geo (got ${fmt(dBad, 3)} vs ${fmt(dGeo, 3)})`);
 
   // bowLambda is the intent param; legacy bowFrac is empty optional
   const bl = PARAM_SCHEMA.find((p) => p.key === 'bowLambda');
   const bf = PARAM_SCHEMA.find((p) => p.key === 'bowFrac');
   check(bl && (bl.def === '' || bl.def == null), 'bowLambda default is empty (resolved to 0.32 only when form=bow and nothing else set)');
   check(bf && (bf.def === '' || bf.def == null), 'legacy bowFrac default is empty (prefer bowLambda)');
+}
+
+// 8c. Rows to equator, Δ_n trend, analytic θ (§5.2), convergence (§5.3)
+{
+  console.log('\n## Rows to equator / Δ_n / θ / convergence (Fable §5.2–5.6)');
+  const countA = (A) => A.path.rounds.filter((r) => r.set === 'A').length;
+  const bottomsA = (A) => A.path.stitches.filter((st) => st.set === 'A' && st.level === 'bottom' && st.i === 1);
+  const dSseries = (A) => {
+    const b = bottomsA(A);
+    const out = [];
+    for (let i = 1; i < b.length; i++) out.push(b[i].s - b[i - 1].s);
+    return out;
+  };
+
+  const Geq = computeAll(recipe, { shoulderForm: 'geodesic', rowsMode: 'untilEquator' });
+  const B0eq = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0, muWrap: 0.32, rowsMode: 'untilEquator' });
+  const B32 = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'untilEquator' });
+  const B60 = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, rowsMode: 'untilEquator' });
+  const n0 = countA(Geq), n00 = countA(B0eq), n32 = countA(B32), n60 = countA(B60);
+  console.log(`  rows to equator: λ=0 geo ${n0}, bowλ=0 ${n00}, λ=0.32 ${n32}, λ=0.6 ${n60}`);
+  console.log(`  tip next: geo ${fmt(Geq.path.stopped?.A?.sTip ?? NaN, 3)}, λ0.32 ${fmt(B32.path.stopped?.A?.sTip ?? NaN, 3)}, λ0.6 ${fmt(B60.path.stopped?.A?.sTip ?? NaN, 3)}`);
+  check(n0 === 5 && n00 === 5, 'λ=0: 5 rows to equator (geo and bowλ=0)');
+  check(n32 >= 11 && n32 <= 12, `λ=0.32: 11–12 rows (got ${n32})`);
+  check(n60 >= 16 && n60 <= 17, `λ=0.6: 16–17 rows (got ${n60})`);
+  check(n0 < n32 && n32 < n60, 'row count monotonic in λ');
+
+  const d32 = dSseries(B32), d60 = dSseries(B60);
+  console.log(`  Δ_n λ=0.32: ${d32.map((x) => fmt(x, 3)).join(', ')}`);
+  console.log(`  Δ_n λ=0.6: ${d60.slice(0, 8).map((x) => fmt(x, 3)).join(', ')}…`);
+  const dec = (arr) => arr.every((x, i) => i === 0 || x < arr[i - 1] - 1e-9);
+  check(dec(d32), 'Δ_n decreases with row index at λ=0.32');
+  check(dec(d60), 'Δ_n decreases with row index at λ=0.6');
+  // ~20% over ten rows (§3): compare Δ_2 vs Δ_11 if present
+  if (d32.length >= 10) {
+    const drop = (d32[0] - d32[9]) / d32[0];
+    console.log(`  Δ drop over 10 rows λ=0.32: ${(100 * drop).toFixed(1)}%`);
+    check(drop > 0.1 && drop < 0.35, 'Δ drops roughly ~20% over ten rows at λ=0.32');
+  }
+
+  // §5.2: analytic tangent unit(±P×E) vs arcsin(λ·tan(γ/2))
+  const Brow = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 1 });
+  const leg1 = Brow.path.segs.find((s) => s.type === 'leg' && s.row === 1 && s.level === 'bottom');
+  const Pc = unit(leg1.bowCenter), E = unit(leg1.to), X = unit(leg1.from);
+  const T = unit(cross(Pc, E));
+  const chord = unit(sub(X, mul(E, dot(X, E))));
+  const chordT = unit(sub(chord, mul(E, dot(chord, E))));
+  const TT = unit(sub(T, mul(E, dot(T, E))));
+  const th = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(TT, chordT)))));
+  const gamma = angle(X, E);
+  const thForm = Math.asin(0.32 * Math.tan(gamma / 2));
+  console.log(`  θ analytic ${fmt(th * 180 / Math.PI, 6)}° vs formula ${fmt(thForm * 180 / Math.PI, 6)}°`);
+  check(Math.abs(th - thForm) * 180 / Math.PI < 1e-6, '§5.2 θ via P×E matches arcsin(λ·tan γ/2) to 1e-6°');
+
+  // §5.3 convergence at 48/96/192/384
+  const baseN = getLegSamples();
+  const conv = [];
+  for (const n of [48, 96, 192, 384]) {
+    setLegSamples(n);
+    const A = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 2 });
+    conv.push({ n, d: A.path.tipDrop.tipDrop_mm, sag: A.path.tipDrop.bowLateralMm });
+  }
+  setLegSamples(baseN);
+  console.log(`  convergence Δ: ${conv.map((c) => `${c.n}:${fmt(c.d, 6)}`).join(' ')}`);
+  const ref = conv.find((c) => c.n === 96);
+  check(conv.every((c) => Math.abs(c.d - ref.d) / ref.d < 0.005 && Math.abs(c.sag - ref.sag) / ref.sag < 0.005),
+    '§5.3 Δ and δ at 48/96/192/384 within 0.5%');
 }
 
 

@@ -86,8 +86,30 @@ Canonical: `tmp/fable-2026-09-25/leg-shape-spec-v2.md` + `bow_theory.py`.
 2. **Packing formula (8)** for bowed arms: first root of ∠(P,E(s))=ρ+w/R. Fixes Δ tip gap: at λ=0.32, Δ 2.296→**2.236** (was +2.7% via P×E plane; now within 0.5% of table).
 3. **V20**: warn λ_max>μ; fail λ_max≥1.2μ or |λ_row1−λ_cmd|>1e-4.
 4. **V21**: one meridian crossing, angle ≥α_geo, stick ≤ max(0.7,w,0.025·R) mm (Fable 0.7 mm reference at default w; scales with thread so geodesic at w=1 still passes; old bowToMarking sticks tens of mm still fail).
-5. Rows n≥2 = **rail** from previous shoulder (not concentric circles).
+5. Rows n≥2 = **rail** = concentric small circle about same P (parallel of previous laid arm). Misread “not concentric” in 659c0c6 caused the equator row-count bug; corrected in D41.
 6. Direction negative: equator-side at λ≤0.2 → α′<α_geo.
 
 Push gate: suite green + Δ within tolerance (met).
+
+## D41 — n≥2 legs are rail/concentric; geodesic n≥2 was the post-659c0c6 bug (2026-09-25)
+
+**Bug:** After 659c0c6, row-2 tip Δ matched Fable table, but full lay to equator collapsed: at λ=0.32/0.6 only **6** rows (expect 11–12 / 16–17). After row 2, Δ≈4 mm like geodesic — bend lost for n≥3.
+
+**Root cause:** `railLeg` cleared `bowCenter`, so `packThenPierce` fell back to the geodesic packing plane for n≥3. Spec §4.3 / formula (8): n≥2 is a **rail** = parallel of the previous laid leg = **concentric small circle** ρ+(n−1)·w/R about the **same P**.
+
+**Fix:** `railLeg` keeps P, sets ρ=∠(P,E_n), builds on-circle arc (short X-splice); packing uses formula (8) for every bowed/rail row. Search root **only below** s_prev (equator-side mutation no longer grabs a root above the previous stitch).
+
+**Also (Codex §5.4–5.8):** V20 λ_max from discrete κ_g (7); V21 stick=0.7 mm and angle gates bottom tips; V2 checks arc length (6).
+
+### Q-V13 — does bow heal V13? (analysis only, 2026-09-25)
+
+Fable §5.9 / English §1.6: “V13 under bow does not improve — expected; record status, do not cure.”
+
+| layout | V13 |
+| --- | --- |
+| geodesic / bow λ=0 (full to equator) | **warn** (row-2 top widen ≈0.21 w < 0.5 w floor) |
+| bow λ=0.32 (3 rows or to equator) | **pass** (widen ≈0.59 w) |
+| bow λ=0.6 (to equator) | **warn** again |
+
+So bow **can** move V13 from warn→pass at mid λ, but not monotonically and not by design of the top-channel rule (still s_prev+w). The rise in lateral capture comes from steeper arms crossing the top needle line farther out — a geometric side effect, not a V13 “cure.” **Do not retune the model to force V13 warn under bow**; ask Fable whether §5.9 should say “may pass as a side effect at some λ” instead of “does not improve.”
 

@@ -353,58 +353,52 @@ function layLeg(R, from, to, phiMark, shoulderForm, lambdaCmd = 0, bowSide = 'po
 
 
 /**
- * Row n≥2: rail along previous laid arm (Fable v2).
- * Maps previous polyline lateral offsets onto the new chord — NOT a fresh
- * concentric small circle about P. Endpoints pinned to from/to.
+ * Point on the small circle ∠(P,·)=ρ in the radial direction of `toward`.
+ * Used to place the rail start on the concentric circle near X_n (short splice).
  */
-function railLeg(R, from, to, prevArm) {
+function onSmallCircle(Pc, rho, toward) {
+  const k = unit(Pc), t = unit(toward);
+  const radial = unit(sub(t, mul(k, dot(t, k))));
+  return unit(add(mul(k, Math.cos(rho)), mul(radial, Math.sin(rho))));
+}
+
+/**
+ * Row n≥2: rail = parallel of previous laid arm (Fable v2 §4.3 / formula (8)).
+ * Small-circle prev → concentric small circle about the SAME P with
+ * ρ_n = ∠(P, E_n) = ρ_{n−1} + w/R; packing normal from this row's analytics.
+ * Geodesic prev → geodesic chord (preserves λ=0 / 5-rows-to-equator).
+ * Short splice from X_n onto the rail (≲0.3 mm): arc is built on-circle, pts[0] pinned to X.
+ */
+function railLeg(R, from, to, prevArm, w = 0) {
   const n = getLegSamples();
-  const prev = prevArm?.pts;
-  if (!prev || prev.length < 3) {
-    return {
-      pts: slerp(R, from, to, n), length: geodLen(R, from, to),
-      shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
-      bowCenter: null, phi3Warn: false, layMode: 'rail',
-    };
-  }
-  const a0 = unit(prev[0]), b0 = unit(prev[prev.length - 1]);
-  const a1 = unit(from), b1 = unit(to);
-  let n0 = cross(a0, b0); const n0n = Math.hypot(n0[0], n0[1], n0[2]);
-  let n1 = cross(a1, b1); const n1n = Math.hypot(n1[0], n1[1], n1[2]);
-  if (n0n < 1e-15 || n1n < 1e-15) {
-    return {
-      pts: slerp(R, from, to, n), length: geodLen(R, from, to),
-      shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
-      bowCenter: null, phi3Warn: false, layMode: 'rail',
-    };
-  }
-  n0 = mul(n0, 1 / n0n); n1 = mul(n1, 1 / n1n);
-  const ang0 = Math.acos(Math.max(-1, Math.min(1, dot(a0, b0))));
-  const ang1 = Math.acos(Math.max(-1, Math.min(1, dot(a1, b1))));
-  const pts = [];
-  for (let i = 0; i <= n; i++) {
-    const tFrac = i / n;
-    const idx = tFrac * (prev.length - 1);
-    const j0 = Math.floor(idx), j1 = Math.min(prev.length - 1, j0 + 1);
-    const f = idx - j0;
-    const p = unit(add(mul(unit(prev[j0]), 1 - f), mul(unit(prev[j1]), f)));
-    const lat = Math.asin(Math.max(-1, Math.min(1, dot(p, n0))));
-    const onGeo = unit(sub(p, mul(n0, dot(p, n0))));
-    const ang = Math.atan2(dot(cross(a0, onGeo), n0), Math.max(-1, Math.min(1, dot(a0, onGeo))));
-    const tt = ang0 > 1e-15 ? Math.max(0, Math.min(1, ang / ang0)) : tFrac;
-    let geo;
-    if (ang1 < 1e-15) geo = a1;
-    else {
-      const sA = Math.sin(ang1);
-      geo = unit(add(mul(a1, Math.sin((1 - tt) * ang1) / sA), mul(b1, Math.sin(tt * ang1) / sA)));
+  if (prevArm?.bowCenter && Number.isFinite(prevArm.rho)) {
+    const Pc = unit(prevArm.bowCenter);
+    // E_n lies on the concentric circle by construction of packThenPierce (8).
+    let rho = angle(Pc, unit(to));
+    if (!(rho > 1e-12 && rho < Math.PI - 1e-12)) {
+      rho = prevArm.rho + (Number.isFinite(w) ? w / R : 0);
     }
-    const pNew = unit(add(mul(geo, Math.cos(lat)), mul(n1, Math.sin(lat))));
-    pts.push(mul(pNew, R));
+    // Build the arc entirely on the concentric circle (Q0 near X → E), then pin X.
+    const Q0 = onSmallCircle(Pc, rho, from);
+    const pts = smallCircleArc(R, mul(Q0, R), to, Pc, n);
+    pts[0] = from.slice ? from.slice() : [...from];
+    // Arc length (6) on the true rail (Q0→E); splice is ≪ segment length.
+    const pa = unit(add(Q0, mul(Pc, -dot(Q0, Pc))));
+    const pb = unit(add(unit(to), mul(Pc, -dot(unit(to), Pc))));
+    let dPsi = angle(pa, pb);
+    if (dot(cross(pa, pb), Pc) < 0) dPsi = 2 * Math.PI - dPsi;
+    const splice = R * angle(unit(from), Q0);
+    const arcLen = R * Math.sin(rho) * dPsi + splice;
+    const lambda = Math.abs(Math.cos(rho) / Math.max(1e-15, Math.sin(rho)));
+    return {
+      pts, length: Math.abs(arcLen) > 1e-12 ? Math.abs(arcLen) : polyLen(pts),
+      shoulderForm: 'bow', bowLateralMm: 0, phi3CapMm: 0, lambda, rho,
+      bowCenter: Pc, phi3Warn: false, layMode: 'rail', spliceMm: splice,
+    };
   }
-  pts[0] = from.slice ? from.slice() : [...from];
-  pts[n] = to.slice ? to.slice() : [...to];
+  // Geodesic previous (or missing analytics): geodesic between from/to.
   return {
-    pts, length: polyLen(pts),
+    pts: slerp(R, from, to, n), length: geodLen(R, from, to),
     shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
     bowCenter: null, phi3Warn: false, layMode: 'rail',
   };
@@ -430,8 +424,9 @@ function armPackNormal(arm) {
 }
 
 /** Bottom level of row n≥2: lay flush → pierce at intersection.
- *  Fable v2 formula (8) for small-circle prev arm: first root of
- *    ∠(P, E(s)) = ρ + w/R,  E(s) = perpPt on destination meridian with lateral eOff(s).
+ *  Fable v2 formula (8) for small-circle / concentric-rail prev arm: first root of
+ *    ∠(P, E(s)) = ρ + w/R for s > s_prev only (never above the previous stitch).
+ *  E(s) = perpPt on destination meridian with lateral eOff(s).
  *  (Do NOT use P×E packing plane — that is a different construction, ~2–3% off on Δ.)
  *  Geodesic prev arm: GC-plane parallel at distance w (from×to normal).
  *  Derived tip Δ only — no free Δ tip input.
@@ -457,10 +452,13 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
     const s = (lo + hi) / 2;
     return { s, sPrevCross: null, sLaidCross: s, sigma: 1, method: 'fable8' };
   }
-  // --- geodesic / rail: packing-plane parallel at distance w ---
-  const nRef = unit(cross(prevArm.from, prevArm.to));
-  const n = armPackNormal(prevArm);
-  const sigma = -Math.sign(dot(nRef, unit(point(R, sInside, phiK))));
+  // --- geodesic / rail without small-circle analytics: packing-plane parallel at distance w ---
+  // Orient normal toward the pole so "outward" is equatorward. Do NOT derive sigma from
+  // point(R,sInside) — when sInside = s_prev that point can lie on the equator side of the
+  // arm plane and flip the sign (misses the root below the previous stitch).
+  let n = armPackNormal(prevArm);
+  if (dot(n, [0, 0, 1]) < 0) n = n.map((v) => -v);
+  const sigma = -1;
   const target = sigma * Math.sin(w / R);
   const g = (s) => dot(n, unit(perpPt(R, s, phiK, sidesAt(s).eOff))) - target;
   let lo = sInside, glo = g(lo), hi = null;
@@ -527,7 +525,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     const prevSt = W.stitches.find((st) => st.round === prevRound.id && st.line === k && st.level === 'bottom');
     const prevArm = W.segs.find((x) => x.id === prevSt.legId);
     const sidesAt = (t) => needleSides({ R, s: t, phi: phiOf(k), m, w, N, laid: laid() });
-    const pp = packThenPierce(R, prevArm, phiOf(k), (layout.sTop + prevSt.s) / 2, w, 2 * Q - 1, sidesAt);
+    const pp = packThenPierce(R, prevArm, phiOf(k), prevSt.s, w, 2 * Q - 1, sidesAt);
     if (!pp) return null;
     // канал нового стежка не может налезать на канал предыдущего на этой линии (игла не прокалывает нить)
     const sChan = Math.max(...W.stitches.filter((st) => st.line === k && st.level === 'bottom').map((st) => st.s)) + w;
@@ -643,13 +641,13 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           ? W.segs.find((x) => x.round === prevRound.id && x.type === 'leg' && x.stitch === i)
           : null;
         legShape = prevLeg
-          ? railLeg(R, cur, E, prevLeg)
+          ? railLeg(R, cur, E, prevLeg, w)
           : layLeg(R, cur, E, phiOf(k), 'geodesic', 0, 'pole');
       }
       const legPts = legShape.pts;
       const layBasis = (spec.row === 1 && shoulderForm === 'bow')
         ? (conv.shoulderForm?.basis || conv.lay.basis)
-        : (spec.row >= 2 ? 'Fable v2 rail along previous laid arm (not concentric small circle)' : conv.lay.basis);
+        : (spec.row >= 2 ? 'Fable v2 rail: concentric small circle ρ+(n−1)·w/R about same P (parallel of previous laid arm)' : conv.lay.basis);
       const leg = addSeg({ type: 'leg', from: cur, to: E, pts: legPts, length: legShape.length, stitch: i, line: k, level,
         source: layBasis, tag: conv.lay.tag, crossings: [],
         shoulderForm: legShape.shoulderForm, bowLateralMm: legShape.bowLateralMm, phi3CapMm: legShape.phi3CapMm,

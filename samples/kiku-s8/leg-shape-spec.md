@@ -7,13 +7,13 @@ Author: Claude cloud session (temari-sim-0f), 2026-09-25. Basis: model/spec.md �
 
 > **Fable revision 2 corrections applied; full v2 file applied.**
 > Key v2 changes: V21 = transversality (one meridian meeting, angle ≥ α_geo, stick < max(0.7 mm, 0.025·R, w));
-> rows n≥2 = rail along previous arm (not concentric small circles); bowFrac default 0.5 (λ=μ not default);
-> V20 warn >0.9μ / fail >1.1μ; do not claim the model “reconciles both sources” — rows ≈ 20/Δ is arithmetic;
+> rows n≥2 = rail = concentric small circle ρ+(n−1)·w/R about same P; intent = bowLambda (λ) or δ via (5);
+> V20 warn λ_max>μ / fail ≥1.2μ (discrete κ_g); V21 stick ≤ 0.7 mm + angle ≥ α_geo; do not claim the model “reconciles both sources”;
 > GT14 photos also compatible with geodesic; bow is Olympus intent; sample decides.
 
 ## 0. One-line summary
 
-Row-1 shoulder = arc of a **small circle** with constant geodesic curvature κ_g = λ/R, where 0 ≤ λ ≤ μ (friction cone Φ3), **convex away from the pole** (curvature center on the pole side). Row 1 = small-circle arc; rows n ≥ 2 = rail along the previous laid arm (packThenPierce spirit — offset from previous polyline, not concentric circles about P). No envelopes, clamps, or target Δ: tip drop, row count, and bow sagitta are consequences of a single number λ.
+Row-1 shoulder = arc of a **small circle** with constant geodesic curvature κ_g = λ/R, where 0 ≤ λ ≤ μ (friction cone Φ3), **convex away from the pole** (curvature center on the pole side). Row 1 = small-circle arc; rows n ≥ 2 = rail = concentric small circle about the same P with ρ+(n−1)·w/R (formula (8)). No envelopes, clamps, or target Δ: tip drop, row count, and bow sagitta are consequences of a single number λ.
 
 ## 1. Physics
 
@@ -53,7 +53,7 @@ Default sim params: C = 240, w = 0.714, m = 1.0, N = 8, s_T = 5, s_B = 40. R = 3
 
 | λ = κ_g·R | ρ, ° | θ, ° | α′, ° | tip Δ, mm | sagitta δ, mm | rows to equator |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 (geodesic) | 90 | 0 | 7.63 | 4.97 | 0 | 4 |
+| 0 (geodesic) | 90 | 0 | 7.63 | 4.97 | 0 | 5 |
 | 0.10 | 84.3 | 3.05 | 10.7 | 3.56 | 0.51 | 6 |
 | 0.20 | 78.7 | 6.10 | 13.7 | 2.80 | 1.02 | 8 |
 | **0.32** (cotton μ, lower estimate) | 72.3 | 9.80 | 17.4 | **2.24** | 1.63 | **11** |
@@ -71,8 +71,8 @@ Reading the table:
 
 1. Parameters: `shoulderForm: geodesic | bow`; `bowLambda` = λ (or δ via (5)); legacy bowFrac·μ ∈ [0, 1] as master intent (“how round the petal”), default 0.5 for bow (λ=μ is not the default; Fable v2); take μ as **μ thread–wrap** (P2), keep separate from μ thread–thread (P1) in schema and preset. No Δ_tip input.
 2. `layLeg` for `bow`: small-circle arc per (1) with λ = bowFrac·μ, center on the pole side; samples uniform in angle about P; endpoints X,E fixed; all points on radius R. If λ < 1e-9 → geodesic.
-3. `packThenPierce`: same idea, but packing normal is not “last 5% of samples” — it is the arc tangent plane at E; for a small circle that is known analytically (direction P×E). Row n ≥ 2 follows a rail offset from the previous laid polyline (not a new concentric small circle about P); packThenPierce sets the level.
-4. Validators: **V20 “friction cone”** warn if λ_max > 0.9 μ (incl. full cone); fail only if λ_max > 1.1 μ (Fable v2); **V21 “transversality”** (Fable v2): exactly one intersection with the destination meridian; crossing angle ≥ α_geo; stick-to-axis run (lat < 0.05 mm) < max(0.7 mm, 0.025·R, w). (Literal min lat > w/2 is impossible — leg must meet the meridian.) Both need negative tests.
+3. `packThenPierce` formula (8): first root of ∠(P,E(s))=ρ+w/R for s > s_prev. Row n ≥ 2 is a concentric rail about the same P; packing normal from each row’s analytics.
+4. Validators: **V20** λ_max = max|κ_g|·R from discrete (7); warn if > μ; fail if ≥ 1.2 μ or |λ_row1−λ_cmd|>1e-4. **V21**: one meridian meeting; bottom tips: crossing angle ≥ α_geo; stick ≤ 0.7 mm. Both need negative tests.
 5. Delete: `tipEnv`, `TIP_ENV_NORM`, clamp `Math.min(tipEnv(t)·cap, lat)`, the `0.95` sample slice in `armPackNormal`, “craft band 1.5–2.5” and asserts on it.
 6. Docs: mark D33 cancelled by a new decision; in tip-drop-diagnosis.md remove “Φ3 not exceeded”, add §9 with formulas (2)–(5) and table §3; list V19/V20/V21 in README.
 

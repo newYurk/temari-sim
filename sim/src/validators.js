@@ -1,12 +1,49 @@
 // Validators — pure functions over the pipeline result (or its prefix up to operation k).
 // Each: id, name (English canonical; UI translates via i18n), criterion from criteria.md / basis,
 // status pass|fail|warn|info|n/a, numbers. Work may span several rounds and threads (A1, B1, A2 …).
-import { dist, norm, toSPhi, dot, unit, sub, mul, ePole, eEast, haversineLen, point, cross, segSegDist } from './geom.js';
+import { dist, norm, toSPhi, dot, unit, sub, mul, ePole, eEast, haversineLen, point, cross, segSegDist, angle, add as vadd, clamp } from './geom.js';
 import { prefix } from './layers.js';
 import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
 import { tubeMesh } from './tube.js';
 
 const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : String(x));
+
+/** Discrete geodesic curvature κ_g (Fable (7)): tangent-plane turn / ds. Returns max |κ_g|.
+ *  skipEnds: drop this many interior samples at each end (rail short-splice neighborhood). */
+function maxAbsGeodesicKg(pts, R, skipEnds = 0) {
+  if (!pts || pts.length < 3 || !(R > 0)) return 0;
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + R * angle(pts[i - 1], pts[i]));
+  let maxAbs = 0;
+  const iLo = 1 + skipEnds, iHi = pts.length - 2 - skipEnds;
+  for (let i = iLo; i <= iHi; i++) {
+    const n = unit(pts[i]);
+    const proj = (t) => {
+      const p = sub(t, mul(n, dot(t, n)));
+      const len = Math.hypot(p[0], p[1], p[2]);
+      return len < 1e-15 ? null : mul(p, 1 / len);
+    };
+    const tIn = proj(unit(sub(pts[i], pts[i - 1])));
+    const tOut = proj(unit(sub(pts[i + 1], pts[i])));
+    if (!tIn || !tOut) continue;
+    const c = clamp(dot(tIn, tOut), -1, 1);
+    const sn = clamp(dot(cross(tIn, tOut), n), -1, 1);
+    const turn = Math.atan2(sn, c);
+    const ds = (cum[i + 1] - cum[i - 1]) / 2;
+    if (ds > 1e-12) maxAbs = Math.max(maxAbs, Math.abs(turn / ds));
+  }
+  return maxAbs;
+}
+
+/** Analytical small-circle arc length (6): L_arc = R·sinρ·Δψ. */
+function smallCircleArcLen(R, from, to, Pc, rho) {
+  const k = unit(Pc);
+  const pa = unit(vadd(unit(from), mul(k, -dot(unit(from), k))));
+  const pb = unit(vadd(unit(to), mul(k, -dot(unit(to), k))));
+  let dPsi = angle(pa, pb);
+  if (dot(cross(pa, pb), k) < 0) dPsi = 2 * Math.PI - dPsi;
+  return { Larc: Math.abs(R * Math.sin(rho) * dPsi), dPsi: Math.abs(dPsi) };
+}
 const TOL_JOIN = 1e-9;        // мм — непрерывность (численный допуск)
 const TOL_LEN = 1e-9;         // мм — баланс длины (численный)
 const TOL_REF = 1e-6;         // мм — совпадение с calc.py (две независимые реализации одной геометрии)
@@ -76,9 +113,9 @@ export function runValidators(A, stage = '2b', ref = null) {
       status: ok ? 'pass' : 'fail',
       value: `нитей ${threadIds.length} (${threadIds.join(', ')}); сегментов ${segs.length}; макс. разрыв ${f(maxGap, 12)} мм; скачок u ${f(uGap, 12)} мм; продолжений после парковки ${resumes} (разрыв ${f(resumeGap, 12)} мм)` });
   }
-  // V2 — баланс материала по каждой нити: u_end − u_start = Σ длин; независимая проверка длин плеч гаверсинусом
+  // V2 — length balance + independent length checks: haversine (geodesic) / formula (6) (small-circle)
   {
-    let ok = true, hvMax = 0;
+    let ok = true, hvMax = 0, arcMax = 0, polyMax = 0;
     const per = {};
     for (const t of threadIds) {
       const ts = segs.filter((s) => s.thread === t);
@@ -91,20 +128,36 @@ export function runValidators(A, stage = '2b', ref = null) {
       for (const s of ts) rounds[s.round] = (rounds[s.round] || 0) + s.length;
       per[t] = { sum, du, by, rounds };
     }
-    let nGeo = 0, nBow = 0;
+    let nGeo = 0, nArc = 0;
     for (const s of segs.filter((s) => s.type === 'leg')) {
-      // Haversine checks great-circle length; bowed legs use polyLen (Φ3 tip bow) — skip those.
-      if ((s.bowLateralMm || 0) > 1e-6 || s.shoulderForm === 'bow' || s.shoulderForm === 'bowToMarking' || s.layMode === 'rail') { nBow++; continue; }
-      nGeo++;
-      const a = toSPhi(R, s.from), b = toSPhi(R, s.to);
-      hvMax = Math.max(hvMax, Math.abs(haversineLen(R, a.s, a.phi, b.s, b.phi) - s.length));
+      if (s.bowCenter && Number.isFinite(s.rho)) {
+        nArc++;
+        const Pc = unit(s.bowCenter);
+        // Project X onto the concentric circle (rail splice); E is already on it for (8).
+        const rad = unit(sub(unit(s.from), mul(Pc, dot(unit(s.from), Pc))));
+        const Q0 = unit(vadd(mul(Pc, Math.cos(s.rho)), mul(rad, Math.sin(s.rho))));
+        const { Larc, dPsi } = smallCircleArcLen(R, mul(Q0, R), s.to, Pc, s.rho);
+        const splice = R * angle(unit(s.from), Q0);
+        const Lexpect = Larc + splice;
+        arcMax = Math.max(arcMax, Math.abs(Lexpect - s.length));
+        const nSamp = Math.max(1, (s.pts?.length || 1) - 1);
+        let sph = 0;
+        if (s.pts) for (let i = 1; i < s.pts.length; i++) sph += R * angle(s.pts[i - 1], s.pts[i]);
+        const tolPoly = Math.max(1e-6, Math.abs(Larc) * (dPsi / nSamp) ** 2 / 12 + splice);
+        polyMax = Math.max(polyMax, Math.abs(sph - Lexpect) - tolPoly);
+      } else {
+        nGeo++;
+        const a = toSPhi(R, s.from), b = toSPhi(R, s.to);
+        hvMax = Math.max(hvMax, Math.abs(haversineLen(R, a.s, a.phi, b.s, b.phi) - s.length));
+      }
     }
-    ok = ok && hvMax < 1e-9;
-    add({ id: 'V2', name: 'Length balance per thread: u = Σ segments', crit: 'K13; model/spec.md §5; одна нить — один баланс (#112)',
+    ok = ok && hvMax < 1e-9 && arcMax < 1e-6 && polyMax < 1e-6;
+    add({ id: 'V2', name: 'Length balance per thread: u = Σ segments', crit: 'K13; model/spec.md §5; Fable v2 §5.8 formula (6) for small-circle arcs',
       status: ok ? 'pass' : 'fail',
       value: threadIds.map((t) => { const p = per[t]; return `нить ${t}: Σ = ${f(p.sum)} мм = u ${f(p.du)} (${Object.entries(p.rounds).map(([r, L]) => `${r} ${f(L)}`).join(', ')}; старт ${f(p.by['hidden-start'] || 0)}, плечи ${f(p.by.leg || 0)}, захваты ${f(p.by.pickup || 0)})`; }).join('; ') +
-        `; гаверсинус vs вектор (geodesic legs ${nGeo}): ${f(hvMax, 12)} мм` + (nBow ? `; bowed legs ${nBow} use polyLen` : ''),
-      numbers: { per, hvMax, nGeo, nBow } });
+        `; гаверсинус (geodesic ${nGeo}): ${f(hvMax, 12)} мм` +
+        (nArc ? `; arc (6) vs seg.length (n=${nArc}): ${f(arcMax, 12)} мм; poly vs (6) excess ${f(Math.max(0, polyMax), 9)}` : ''),
+      numbers: { per, hvMax, arcMax, polyMax, nGeo, nArc } });
   }
   // V3 — согласие обхода A1 с calc.py (независимая реализация, numpy)
   {
@@ -588,46 +641,47 @@ export function runValidators(A, stage = '2b', ref = null) {
       numbers: { squeezes: sq.map((x) => ({ round: x.st.round, line: x.st.line, i: x.st.i, ...x.q })) } });
   }
 
-  // V20 — friction cone Φ3 (Fable v2 §4): warn when λ_max > μ; fail when λ_max > 1.2 μ
-  // OR row-1 commanded λ disagrees with laid λ by > 1e-4 (code check, not physics).
+  // V20 — friction cone Φ3 (Fable v2 §4 / §5.4): λ_max = max |κ_g|·R from discrete (7), not stored seg.lambda.
+  // warn when λ_max > μ; fail when λ_max ≥ 1.2 μ OR row-1 discrete λ disagrees with commanded λ by > 1e-4.
   {
     const muW = A.params.muWrap ?? A.params.mu ?? 0;
-    const legs = segs.filter((s) => s.type === 'leg');
+    const legs = segs.filter((s) => s.type === 'leg' && s.pts && s.pts.length >= 3);
     let lambdaMax = 0;
     let worst = null;
     for (const s of legs) {
-      const lam = Math.abs(s.lambda ?? 0);
+      // Rail has a ≤0.3 mm X-splice onto the concentric arc — exclude 2 end samples.
+      const skip = s.layMode === 'rail' ? 2 : 0;
+      const lam = maxAbsGeodesicKg(s.pts, R, skip) * R;
       if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
     }
     const ratio = muW > 1e-15 ? lambdaMax / muW : (lambdaMax > 1e-15 ? Infinity : 0);
     const WARN_RATIO = 1.0;   // warn λ_max > μ
-    const FAIL_RATIO = 1.2;   // fail λ_max > 1.2 μ
-    // Commanded λ vs row-1 laid λ (code integrity)
-    const row1 = legs.filter((s) => s.row === 1 && s.layMode === 'smallCircle');
+    const FAIL_RATIO = 1.2;   // fail λ_max ≥ 1.2 μ
+    const row1 = legs.filter((s) => s.row === 1 && (s.layMode === 'smallCircle' || s.shoulderForm === 'bow'));
     let cmdMismatch = false;
     let cmdLambda = null;
     let row1Lambda = null;
     if (row1.length && A.params) {
-      // Prefer tipDrop.lambda (laid) vs bowLambda / resolved command
-      row1Lambda = Math.abs(row1[0].lambda ?? 0);
+      row1Lambda = maxAbsGeodesicKg(row1[0].pts, R) * R;
       if (A.params.bowSagMm !== '' && A.params.bowSagMm != null && Number.isFinite(+A.params.bowSagMm)) {
-        cmdLambda = row1Lambda; // sag-derived: trust laid equals command after invert
+        cmdLambda = row1Lambda; // sag-derived: trust invert
       } else if (A.params.bowLambda !== '' && A.params.bowLambda != null && Number.isFinite(+A.params.bowLambda)
                  && (A.params.shoulderForm === 'bow' || A.path?.shoulderForm === 'bow')) {
         cmdLambda = Math.max(0, +A.params.bowLambda);
       } else if (A.params.bowFrac !== '' && A.params.bowFrac != null && Number.isFinite(+A.params.bowFrac)) {
         cmdLambda = Math.max(0, +A.params.bowFrac * Math.max(0, muW));
       }
+      // Discrete κ_g at 96 samples has ~1e-5 relative error; allow 1e-4 absolute (Fable §5.4)
       if (cmdLambda != null && Math.abs(row1Lambda - cmdLambda) > 1e-4) cmdMismatch = true;
     }
     let status = 'pass';
-    if (ratio > FAIL_RATIO - 1e-12 || cmdMismatch) status = 'fail'; // ≥ 1.2μ (Codex §5.4)
+    if (ratio > FAIL_RATIO - 1e-12 || cmdMismatch) status = 'fail';
     else if (ratio > WARN_RATIO + 1e-9) status = 'warn';
     add({ id: 'V20', name: 'Friction cone Φ3 (λ ≤ μWrap)',
-      crit: 'model/spec.md Φ3; Fable v2 §4: warn λ_max>μ, fail λ_max>1.2μ or |λ_row1−λ_cmd|>1e-4',
+      crit: 'model/spec.md Φ3; Fable v2 §4/§5.4: λ_max from discrete κ_g (7); warn >μ, fail ≥1.2μ or |λ_row1−λ_cmd|>1e-4',
       status,
       value: `λ_max=${f(lambdaMax, 6)} · μWrap=${f(muW, 4)} · λ/μ=${f(ratio, 6)}` +
-        ` [warn>${WARN_RATIO}, fail>${FAIL_RATIO}]` +
+        ` [warn>${WARN_RATIO}, fail≥${FAIL_RATIO}; discrete κ_g]` +
         (cmdMismatch ? `; CMD MISMATCH row1 λ=${f(row1Lambda, 6)} vs cmd ${f(cmdLambda, 6)}` : '') +
         (worst ? ` (worst ${worst.id}/${worst.round})` : '') +
         (legs.length ? `; shoulders ${legs.length}` : ''),
@@ -643,10 +697,8 @@ export function runValidators(A, stage = '2b', ref = null) {
   {
     const legs = segs.filter((s) => s.type === 'leg' && s.pts && s.pts.length >= 3);
     const glueThr = 0.05; // mm — glued to marking axis
-    // Fable v2 §4: reference stick ≤ 0.7 mm at default C/w. Geodesic tip-approach
-    // sampling can sit |lat|<0.05 for ~0.025·R or ~w mm without being "glued"
-    // (old bowToMarking sticks are tens of mm — still fail clearly).
-    const maxStick = Math.max(0.7, w, 0.025 * R);
+    // Fable v2 §4 / Codex §5.5: stick threshold = 0.7 mm.
+    const maxStick = 0.7;
     let worstStick = 0;
     let worst = null;
     let badCrossings = 0;
@@ -656,12 +708,11 @@ export function runValidators(A, stage = '2b', ref = null) {
       const phi = A.marking.phis[((s.line % N) + N) % N];
       const nMer = [-Math.sin(phi), Math.cos(phi), 0];
       const nLast = s.pts.length - 1;
-      const step = s.length / Math.max(1, nLast);
       const signedLat = (i) => {
         const u = unit(s.pts[i]);
         return R * Math.asin(Math.max(-1, Math.min(1, dot(u, nMer))));
       };
-      // (1) intersections = sign changes of signed latitude (meeting the meridian plane)
+      // (1) intersections = sign changes of signed latitude (all legs)
       let nInter = 0;
       let firstMeet = -1;
       for (let i = 1; i <= nLast; i++) {
@@ -673,34 +724,40 @@ export function runValidators(A, stage = '2b', ref = null) {
         const lat = Math.abs(b);
         if (lat < minLat) minLat = lat;
       }
-      // Endpoint E lies on the destination meridian by construction — count as meeting if none interior
       if (nInter === 0 && Math.abs(signedLat(nLast)) < 1e-6) { nInter = 1; firstMeet = nLast; }
       if (nInter !== 1) badCrossings++;
 
-      // (3) tip glue-stick run (lat < glueThr) in tip half only (frac > 0.5)
-      let run = 0, bestRun = 0;
+      // Stick + angle gate the tip (bottom legs). Top legs go poleward; α_geo-at-E is the wrong comparator.
+      if (s.level !== 'bottom') continue;
+
+      // (3) tip glue-stick: sum of segment lengths inside a |lat|<glueThr run (not N_samples·mean_step,
+      // which overstates 1–2 sample geodesic tip approaches as ~1 mm).
+      let runLen = 0, bestLen = 0, inRun = false;
       for (let i = 1; i < nLast; i++) {
         const lat = Math.abs(signedLat(i));
         const frac = i / nLast;
-        if (frac > 0.5 && lat < glueThr) run++;
-        else { if (run > bestRun) bestRun = run; run = 0; }
+        const segMm = R * angle(s.pts[i - 1], s.pts[i]);
+        if (frac > 0.5 && lat < glueThr) {
+          if (inRun) runLen += segMm;
+          inRun = true;
+        } else {
+          if (runLen > bestLen) bestLen = runLen;
+          runLen = 0; inRun = false;
+        }
       }
-      if (run > bestRun) bestRun = run;
-      const stickMm = bestRun * step;
+      if (runLen > bestLen) bestLen = runLen;
+      const stickMm = bestLen;
       if (stickMm > worstStick) { worstStick = stickMm; worst = { id: s.id, round: s.round, stickMm, nInter }; }
 
-      // (2) crossing angle at first meeting ≥ α_geo
-      // α_geo: angle between geodesic-from→to tangent at E and the meridian tangent (ePole)
+      // (2) crossing angle at first meeting ≥ α_geo (geodesic chord vs meridian at E)
       const E = unit(s.pts[nLast]);
       const X = unit(s.pts[0]);
-      const Tgeo = unit(sub(X, mul(E, dot(X, E)))); // GC direction at E toward X
-      const Tmer = ePole(E); // meridian tangent
-      const cosGeo = Math.abs(dot(Tgeo, Tmer));
-      const alphaGeo = Math.acos(Math.max(-1, Math.min(1, cosGeo)));
+      const Tgeo = unit(sub(X, mul(E, dot(X, E))));
+      const Tmer = ePole(E);
+      const alphaGeo = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(Tgeo, Tmer)))));
       const iMeet = firstMeet > 0 ? firstMeet : nLast;
       const i0 = Math.max(1, iMeet);
       const Tpath = unit(sub(s.pts[i0], s.pts[i0 - 1]));
-      // project path chord into tangent plane at E for a stable angle
       const at = unit(s.pts[Math.min(i0, nLast)]);
       const TpathT = unit(sub(Tpath, mul(at, dot(Tpath, at))));
       const TmerT = unit(sub(Tmer, mul(at, dot(Tmer, at))));
@@ -708,18 +765,15 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (Math.hypot(...TpathT) > 1e-12 && Math.hypot(...TmerT) > 1e-12) {
         alpha = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(TpathT), unit(TmerT))))));
       }
-      // Stick-along-meridian ⇒ alpha ≈ 0; proper transverse arrival ⇒ alpha ≥ alphaGeo − tol
-      if (!(alpha + 1e-3 >= alphaGeo) && stickMm >= maxStick * 0.5) badAngle++;
-      // If clearly glued, angle check is secondary; stick length already fails.
-      void badAngle;
+      if (!(alpha + 1e-3 >= alphaGeo)) badAngle++;
     }
     if (!Number.isFinite(minLat)) minLat = Infinity;
-    const ok = worstStick < maxStick - 1e-12 && badCrossings === 0;
+    const ok = worstStick < maxStick - 1e-12 && badCrossings === 0 && badAngle === 0;
     add({ id: 'V21', name: 'Transversality at destination meridian',
-      crit: 'samples/kiku-s8/leg-shape-spec.md Fable v2 §4: one intersection, cross angle ≥ α_geo, stick ≤ max(0.7,w,0.025·R) mm (|lat|<0.05 mm; Fable 0.7 ref at default C/w)',
+      crit: 'Fable v2 §4/§5.5: one intersection (all legs); bottom tips: cross angle ≥ α_geo, stick ≤ 0.7 mm',
       status: ok ? 'pass' : 'fail',
       value: legs.length
-        ? `stick max ${f(worstStick, 3)} мм (порог ${f(maxStick, 3)} мм; glue thr 0,05); meridian meetings≠1: ${badCrossings}; min lat ${f(minLat, 3)}` +
+        ? `stick max ${f(worstStick, 3)} мм (порог ${f(maxStick, 3)} мм); meetings≠1: ${badCrossings}; badAngle: ${badAngle}; min lat ${f(minLat, 3)}` +
           (worst ? `; worst ${worst.id}/${worst.round}` : '')
         : 'нет плеч',
       numbers: { tipStickMm: worstStick, thresholdMm: maxStick, glueThrMm: glueThr, minLatMm: minLat,
