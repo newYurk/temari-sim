@@ -10,7 +10,7 @@
 | Мари | окружность 230–250 мм (расчёт: 240 мм, R = 38,2 мм) | TK-GT14 «23–25 cm» (a) |
 | Разметка | S8 (8 меридианов), металлик/золото | TK-GT14 (a) |
 | Нить | Perle #5, два цвета A и B (+ третий для финиша — вне объёма) | TK-GT14 (a) |
-| Расход (модель) | ≈ 3,7 м на цвет (оба полюса, 4 ряда), см. §5 calc_output | calc.py (b); практикой не проверено |
+| Расход (модель) | ≈ 3,7 м на цвет (оба полюса; stage-1 calc: 4 ряда) — см. §5 calc_output. Симулятор при untilEquator шьёт **5** рядов/набор (см. примечание ниже) | calc.py (b) / sim path (b); практикой не проверено |
 | Булавки | NP; 8 нижних на 1/3 дуги от экватора к полюсу (s = 40 мм от NP) | TK-GT14, TK-KIKU (a) |
 | Игла | длинная игла для темари | SAN-KIT001, TK (a) |
 
@@ -35,10 +35,10 @@
 ## Ряды 2…N (чередуя A, B, A, B…)
 
 12. Продолжить A **той же нитью, без скрытого перехода**: нить переносится поверх стартового участка. (a) TK-UWA; prior #94
-13. **Нижний стежок**: уложить нить вплотную к предыдущему ряду вдоль его хода и колоть там, где уложенная нить пересекла линию (≈ на 6 мм ниже прежнего кончика в модели; источники: «extra 1–2 mm» GT14, «~2 mm, not a constant» TK-UWA, «自然に交わる所» OLY-TM7-V). (a) правило; (b) число 6 мм — геометрия модели
+13. **Нижний стежок**: уложить нить вплотную к предыдущему ряду вдоль его хода и колоть там, где уложенная нить пересекла линию. (a) правило TK-STRETCH / OLY-TM7-V / TK-UWA; craft numbers «extra 1–2 mm» (GT14) / «~2 mm, not a constant» (TK-UWA) stay unmerged (A22, D26). (b) **Computed tip drop** under packThenPierce + geodesic arms: **Δ ≈ 4,97 мм** at C=240, w=0,714 (`path.tipDrop`, D26/D32) — not a craft input. Stage-1 formula plan w/sin α ≈ 6,3 мм is an approximation (V12 info); do not treat 6 мм as the sim result.
 14. **Верхний стежок**: нить проходит **поверх** всех прежних рядов своего набора; игла входит примерно на 1 толщину нити ниже и шире предыдущего верхнего стежка и проходит под всеми прежними нитями у этой точки. (a) TK-GT14, TK-UWA, OLY-TM7-V «赤ピン付近で一段目の糸も一緒にかがる»
 15. У верха укладывать плотно, без зазоров; у низа — не теснить. (a) OLY-TM7-V ~3:36–3:54
-16. Чередовать ряды A и B до тех пор, пока кончики не дойдут до экватора (модель: 4 ряда на набор, кончик ряда 4 на s = 58,1 мм из 60). (a) TK-GT14 «Work to the equator»; (b) число рядов
+16. Чередовать ряды A и B до тех пор, пока кончики не дойдут до экватора. (a) TK-GT14 «Work to the equator» (intent; row count not prescribed). (b) **Two model numbers — do not conflate:** stage-1 `calc.py` / `rowPlan` formula (`geom`, w/sin α) → **4** rows, tip of row 4 at s ≈ 58,1 мм; simulator path with packThenPierce (`rowsMode=untilEquator`) actually sews **5** rows/set (A1…A5, tip ≈ 59,2 мм) and stops before row 6 would pass the equator. Default `rowsCount=5` is intent (SUESS practice-ball claim in params — see owner question on SUESS-2014), used only when `rowsMode=count`.
 17. Закончить каждую нить: вывести рядом, войти в то же отверстие, пройти под обмоткой, срезать под лёгким натяжением. (a) TK-ANCHOR, OLY-BASIC
 
 ## Южный полюс
@@ -53,3 +53,13 @@
 
 См. `criteria.md`: 8 симметричных лепестков, кончики на одной параллели, ряды параллельны, без зазоров у верха,
 разметка не сдвинута, шар не деформирован, концы скрыты.
+
+## Note: stage-1 plan vs simulator path
+
+| Quantity | Stage-1 `calc.py` / formula `rowPlan` | Simulator path (`packThenPierce`, defaults) |
+| --- | --- | --- |
+| Rows per set to equator | **4** (approx. Δ ≈ w/sin α) | **5** sewn; row 6 would exceed equator |
+| Tip drop row1→row2 | plan step ≈ **6,3 мм** | **`tipDrop` ≈ 4,97 мм** (D26) |
+| Craft sources (GT14 / TK-UWA) | «1–2 mm» / «~2 mm» — **intent observations, not merged** into either number (A22, D31) | same |
+
+Docs follow the simulator + sources. Stage-1 calc_output remains the closed-form reference for V3; it is not silently rewritten to match path row counts.

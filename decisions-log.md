@@ -43,3 +43,21 @@
 | D37 | **ELBOW_OK_DEG (3°) informational only; drop <3°/11-row acceptance; squeeze in calc_reference (V3=pass).** Discrete-turn band depends on sample step; geodesic κ_g already ~0.67–0.88°. Diagnostics: former warn band [3°, 10°) → **info** (fail still ≥10°). bowToMarking currently locally violates Φ3 (κ_g ≫ μ/R) and sticks to the marking axis (bottom ~9–12 mm; top pulls back after meridian cross); same S-bend in last ~5% (armPackNormal) drives tipDrop≈2.5 — elbows and tipDrop only fix together. LEG_SAMPLES=96 not grid-converged (48/96/192/384 → tipDrop 3.42/2.50/2.25/2.19, rows 6/8/9/10). Row-count acceptance dropped: rows from tipDrop / K12 only; do not fit rows (next-stage.md §5). Supersedes D36 S16 contract that expected Δ vs calc.py: neighbour-gap squeeze now lives in `sim/tools/calc_reference.py` (calc.py stage-1 closed form unchanged), so V3=pass again as JS↔Python cross-check. | owner form answer + independent Claude/Codex/Fable verify | keep <3° or 11-row goals; keep S16 tautology-only (xOff=old+comp) contract | *(this commit)* |
 | D38 | **Diagnostics-only tools for κ_g / stick-to-axis / LEG_SAMPLES convergence; layLeg unchanged.** `sim/tools/diag_leg_kg.mjs` plots κ_g on worst A8/B8/upper-B3 legs vs Φ3 μ/R and measures lower-A2 stick length; `sim/tools/leg_samples_convergence.mjs` sweeps samples via `setLegSamples` (default 96). `sim/out/` gitignored — regenerate plots with the tools. Form fix deferred to Fable physics spec; no change to bowToMarking / tipDrop / path construction. | owner: diagnostics until Fable spec; D37 symptoms | edit layLeg before spec | *(this commit)* |
 | D39 | **κ_g in diag tools is geodesic curvature** (tangent-plane turn / ds), not total curvature. D38 numbers included sphere normal curvature 1/R ≈ 0.02618 mm⁻¹ (C=240) — geodesic legs reported ~0.026180 ≈ 3.1× μ/R instead of ~0. Shared helper `sim/tools/geodesic_curvature.mjs`; both `diag_leg_kg.mjs` and `leg_samples_convergence.mjs` use it. Built-in control: geodesic form + synthetic great circle peak \|κ_g\| ≪ μ/R (FAIL if still ~1/R). Remeasured peaks vs μ/R (expect lower by ~1/R; Φ3 excess on S-bend remains). **layLeg untouched.** | Codex finding on D38; Φ3 needs κ_g; owner fix-before-(в) | keep total-curvature “κ_g”; edit layLeg | *(this commit)* |
+
+## Owner questions (open)
+
+### Q-SUESS-2014 — catalog id vs code id (2026-09-25)
+
+**Code / recipe** (`sim/src/params.js`, `sim/data/recipe.kiku-s8.json`) cite **`SUESS-2014`** as basis for:
+- practice ball **5 rows** per set (`rowsCount` default),
+- **blocks** order (k rows A then k rows B),
+- YouTube `ceyC3uYHPxQ` (TemariChallenge «kiku herringbone» stitch along).
+
+**Catalog** already has **`SUESS-KIKU-V`** for the same URL (`sources/excerpts/SUESS-KIKU-V.md`, `sources/sources.json`), and **`SUESS-GLOSS`** for the glossary PDF. There is **no** `SUESS-2014` entry in `sources/build_sources.py`.
+
+**Question for owner (do not invent bibliography):**
+1. Is `SUESS-2014` meant to be the same object as `SUESS-KIKU-V` (alias / rename code refs)?
+2. Or a distinct catalog id (e.g. dated 2014 challenge page) that still needs verified metadata before adding via `sources/build_sources.py`?
+3. Which verified fields (title, exact date, “5 rows” timestamp) should the catalog record if we add it?
+
+Until answered: docs note the gap; **no fabricated** `SUESS-2014` row in `build_sources.py` / `sources.md`.

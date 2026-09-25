@@ -40,6 +40,8 @@
 
 ## 6. Противоречие «геометрия ↔ фото/практика»
 
+> **Align with simulator (2026-09-25):** the table above is the **stage-1 formula plan** (`calc.py` / `rowPlan`, Δ ≈ w/sin α). The browser/path generator under `packThenPierce` + geodesic arms sews **5** rows/set before the equator at C=240, w=0,714, and reports tip drop **Δ ≈ 4,97 мм** (not the 6,3 мм plan step). Keep both numbers; do not “fix” the formula to 5 rows (next-stage / D37: rows follow tip drop, not the reverse).
+
 Модель `geom` даёт 4 ряда на набор, а на фото GT14o (низкое разрешение) полоса лепестка выглядит как ~8–11 нитей.
 Возможные объяснения (все — гипотезы, (b)):
 1. реальные плечи **не геодезические** — трение удерживает их изогнутыми (§7), и ряды ложатся гуще у кончика;
