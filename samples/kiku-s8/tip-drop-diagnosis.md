@@ -170,9 +170,9 @@ Implementation matches G12; Δ_tip ≈ \(w/\sin\alpha\); scales sanely with C an
 | Mode | μ | Φ3 cap mm | bow lateral mm | **Δ_tip mm** | Notes |
 |---|---|---|---|---|---|
 | geodesic | 0.32 | 1.46 | 0 | **4.968** | matches §2 |
-| bowToMarking | 0.32 | 1.46 | 1.42 | **2.170** | in ~1.5–2.5 craft band; Φ3 not exceeded |
-| bowToMarking | 0.40 | 1.82 | 1.67 | **1.926** | in band |
-| bowToMarking | 0.52 | 2.37 | 1.96 | **1.759** | in band; V8 may fail (tighter contacts) |
+| bowToMarking (D33, superseded) | 0.32 | 1.46 | 1.42 | **2.170** | historical clamp artifact; superseded by D40 small-circle |
+| bowToMarking (D33) | 0.40 | 1.82 | 1.67 | **1.926** | historical; superseded |
+| bowToMarking (D33) | 0.52 | 2.37 | 1.96 | **1.759** | historical; superseded |
 
 At default μ=0.32, **~2 mm is reachable within Φ3** — no need to force Δ=2 past μ. UI shows derived Δ in caption / lengths; schema has no `tipDrop_mm` input.
 
@@ -181,3 +181,35 @@ At default μ=0.32, **~2 mm is reachable within Φ3** — no need to force Δ=2 
 - Recipe `conventions.shoulderForm` documents the control; `conventions.lay` remains the geodesic idealization note.
 - Changing w / C / μ / shoulderForm recomputes downstream (including Δ).
 
+---
+
+## 9. Small-circle shoulder (D40, Fable 2026-09-25) — formulas and expected table
+
+D33 `bowToMarking` (tipEnv envelope toward marking + last-5% pack normal) is **cancelled**. Honest physics: row-1 shoulder is a **small-circle arc** of constant geodesic curvature κ_g = λ/R with 0 ≤ λ ≤ μ (Φ3), curvature center on the **pole side** of plane OXE (bulge away from pole / toward equator). Full spec: [`leg-shape-spec.md`](leg-shape-spec.md). Theory script: `sim/tools/bow_theory.py`.
+
+### Formulas (sphere)
+
+(2) Angle between arc and chord at each end: **sin θ = λ · tan(γ/2)**.
+
+(3) Arrival at meridian: **α′ = α_geo + θ**.
+
+(4) Tip drop (packThenPierce estimate): **Δ ≈ w / sin α′**.
+
+(5) Sagitta over chord: **δ = R·(ρ − arccos(cos ρ / cos(γ/2)))** with ρ = arccot λ; planar ≈ L²λ/(8R).
+
+### Expected numbers (C=240, w=0.714, m=1, N=8, s_T=5, s_B=40)
+
+From independent `bow_theory.py` (calibrates λ=0 → Δ≈4.972 vs sim 4.968):
+
+| λ = κ_g·R | ρ, ° | θ, ° | α′, ° | tip Δ, mm | sagitta δ, mm | rows to equator |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 (geodesic) | 90 | 0 | 7.63 | 4.97 | 0 | 4 |
+| 0.10 | 84.3 | 3.05 | 10.7 | 3.56 | 0.51 | 6 |
+| 0.20 | 78.7 | 6.10 | 13.7 | 2.80 | 1.02 | 8 |
+| **0.32** | 72.3 | 9.80 | 17.4 | **2.24** | 1.63 | **11** |
+| 0.40 | 68.2 | 12.3 | 19.9 | 1.98 | 2.05 | 12 |
+| 0.45 | 65.8 | 13.8 | 21.5 | 1.85 | 2.31 | 13 |
+| 0.52 | 62.5 | 16.1 | 23.7 | 1.70 | 2.68 | 14 |
+| **0.60** | 59.0 | 18.6 | 26.2 | **1.55** | 3.12 | 16 |
+
+At μ=0.32, λ=μ (bowFrac=1): expect Δ≈2.24 mm and ~11 rows — reconciles TK-UWA ~2 mm with GT14 row impression without the D33 clamp. Tip Δ and row count are **consequences** of λ; no free tipDrop input; craft band 1.5–2.5 mm may be *reported* in diagnostics but must not fail the suite.
