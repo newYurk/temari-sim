@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 
 # Local raw / third-party media (links + excerpts stay in repo)
+sources/img/
 sources/video/
 sources/raw/
 sources/photos/
