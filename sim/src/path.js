@@ -122,8 +122,14 @@ export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwaga
     o.forceUwagake = false;
     if (uwagakeSet && uwagakeRow >= 2) {
       const seg = laidById.get(o.seg);
-      // 6a.11(2)(B): upper uwagake cluster includes ALL prior rows of this set, regardless of gaps
-      if (seg && seg.type === 'leg' && seg.set === uwagakeSet && seg.row < uwagakeRow) o.forceUwagake = true;
+      // 6a.11(2)(B): upper uwagake cluster includes ALL prior rows of this set, regardless of gaps.
+      // Also same-row bottoms already laid (bottom before top in the round): their crossings sit
+      // just outside the point sector but are the rail the next lower leg climbs onto — omitting
+      // them left X inside the prev tube (δ>w/2 on B13/s404, A12/s356; candidate B).
+      if (seg && seg.type === 'leg' && seg.set === uwagakeSet
+          && (seg.row < uwagakeRow || (seg.row === uwagakeRow && seg.level === 'bottom'))) {
+        o.forceUwagake = true;
+      }
     }
   }
   const rest = occ.slice();
@@ -159,9 +165,14 @@ export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwaga
       if (!beyond) continue;
       if (!best || g < best.gap) best = { gap: g, seg: o.seg, kind: o.kind, y: o.y };
     }
+    // G3 / 6a.11(2): hole outside cluster. gap≥w → edge±w/2 (flush).
+    // 0<gap<w → mid-gap (needle between threads, #105 / S16).
+    // gap≤0 (noRoom): MUST stay at edge±w/2 — mid-overlap put X inside own cluster → δ>w/2
+    // (B13/s408, A12/s356). Compression not modelled; record squeeze for V19 (6a.18).
     if (!best || best.gap >= w) return { off: edge + sgn * w / 2, squeeze: null };
-    const squeeze = { ...best, comp: (w - best.gap) / 2, noRoom: best.gap <= 0 };
-    return { off: edge + sgn * best.gap / 2, squeeze };
+    const squeeze = { ...best, comp: (w - Math.max(0, best.gap)) / 2, noRoom: best.gap <= 0 };
+    const off = best.gap <= 0 ? edge + sgn * w / 2 : edge + sgn * best.gap / 2;
+    return { off, squeeze };
   };
   const R_ = side(1), L_ = side(-1);
   const squeeze = [R_.squeeze && { side: 'E', ...R_.squeeze }, L_.squeeze && { side: 'X', ...L_.squeeze }].filter(Boolean);
@@ -254,7 +265,7 @@ function legZones(A, B, w) {
     }
     // Chord-plane test misses bow×bow touches (curved arms can meet while staying
     // on one side of the chord plane). Axis coincidence ⇒ treat as crossing.
-    z.crossing = cross0 || (z.min && z.min.d < Math.min(1e-3 * ((w || W0_MM) / W0_MM), w * 0.05));
+    z.crossing = cross0 || (z.min && z.min.d < 0.05 * (w || W0_MM)); // coincidence as fraction of w (scale-invariant; 1e-3 mm cliff invented false contacts)
     z.lenMm = A.length * (a1 - a0) / (A.pts.length - 1);
   }
   return zones;
@@ -634,30 +645,40 @@ function railLeg(R, from, to, prevArm, w = 0) {
     };
   }
 
-  // 6a.15 tube rule: taut thread around a tube of radius w about the laid axis of row n−1.
-  // (1) free geodesic X→E; (2) gap to laid axis along it; (3) min ≥ w → free leg, no rail;
-  // (4) else rail only where gap < w (tangent entry / climb / tangent exit).
-  // Bow: rail almost full length (6a.15) — free-exit only for geodesic-form prev (λ=0 class).
+  // 6a.17(2) / 6a.15: free geodesic X→E is ONLY the contact boolean.
+  // Contact iff min gap to laid axis of row n−1 < w·(1−ε), ε=0.01; else free leg.
+  // Path when contact: geometric T₁ (tangent/climb from X) → rail → T₂ → E (one contiguous segment).
+  // No hysteresis / min-gap break; dual incursions ⇒ non-convex rail anomaly.
+  // Bow / small-circle prev: rail almost full length (6a.15) — skip free-exit; always geometric rail.
   if (prevArm.shoulderForm === 'geodesic' && !prevArm.bowCenter) {
     const X0 = unit(from), E0 = unit(to);
     const omFree = angle(X0, E0) || 1e-15;
     const nGap = Math.max(48, n);
+    const epsTube = 0.01;
+    const wContact = Math.max(w || 0, 1e-15) * (1 - epsTube);
     let minGap = Infinity;
+    let inTube = null, transitions = 0, segments = 0, segStart = -1;
     for (let i = 0; i <= nGap; i++) {
       const t = i / nGap;
       const g = unit(add(
         mul(X0, Math.sin((1 - t) * omFree) / Math.sin(omFree)),
         mul(E0, Math.sin(t * omFree) / Math.sin(omFree)),
       ));
-      // Codex 6a.15: point-to-segment gap to laid axis (not vertex-only closest).
       const d = pointPolyDistMm(R, g, prevPts);
       if (d < minGap) minGap = d;
+      const inside = d < wContact;
+      if (inTube === null) { inTube = inside; if (inside) { segments = 1; segStart = i; } }
+      else if (inside !== inTube) {
+        transitions++;
+        inTube = inside;
+        if (inside) { segments++; segStart = i; }
+      }
     }
-    if (minGap / Math.max(w || 1e-15, 1e-15) >= 1 - 1e-12) {
-      // Free leg — no rail (kills forced 88° splices when no external tangent exists).
+    const dualIncursion = segments > 1; // non-convex rail anomaly (6a.17); one geometric rail still built
+    if (minGap >= wContact) {
+      // Free leg — no rail.
       const pts = slerp(R, from, to, n);
       const latHit = signedLateralToPoly(R, X0, prevPts, prevArm);
-      // Gap to axis ≥ w ⇒ outside tube; report lateral relative to tube surface (axis−w).
       const dLat = Math.max(0, latHit.distMm - (w || 0)) * (latHit.signedMm >= 0 ? 1 : -1);
       let holeTurnDeg = 0;
       if (pts.length >= 3) {
@@ -686,11 +707,12 @@ function railLeg(R, from, to, prevArm, w = 0) {
         spliceMm: 0, lateralMm: dLat, turnAtTDeg: 0, interiorXn: false,
         joinMode: 'free', climbMm: 0, deltaMm: 0, deltaFail: false,
         railKind: 'free', holeTurnDeg, mergeTurnDeg: 0,
+        tubeTransitions: transitions, tubeSegments: segments, minGapMm: minGap, dualIncursion,
       };
     }
-  } // end geodesic-only free-exit
+  } // end geodesic-form free-exit (6a.17 ε=0.01)
 
-  // Contact with tube: rail where gap < w (existing climb / tangent / onRail).
+  // Contact: one contiguous geometric rail (tangent/climb entry → rail → tangent exit / 6a.7 splice).
   // 6a.11(1)/(2)(C): parallel of laid curve. When packing used the GC plane (geodesic-form prev),
   // build the same GC-plane parallel here so E lands on the rail (no tip-snap knees).
   // Bow / small-circle: poly-parallel of laid polyline. Extend ends by GC tangent.
@@ -779,12 +801,13 @@ function railLeg(R, from, to, prevArm, w = 0) {
     // Search near the lateral foot at L_j ≈ √(2·d·w). Wide [s0,sE] scans found far false
     // tangents (splice ≈50 mm ≈ whole leg → near-end knees that GROW with sample count —
     // B.8 / same class as absolute 0.02 mm). Cap splice window; never use the foot as T.
-    const Lj = Math.sqrt(Math.max(0, 2 * dLat * Math.max(w || 0, 1e-6)));
-    const span = Math.max(5 * Lj, 4 * (w || 0), mmAtW(4, w || W0_MM));
+    const Lj = Math.sqrt(Math.max(0, 2 * Math.abs(dLat) * Math.max(w || 0, 1e-6)));
+    // Wide enough to find a true ≤1° tangent (narrow window forced climb with >20° kinks).
+    const span = Math.max(8 * Lj, 12 * (w || 0), mmAtW(12, w || W0_MM));
     const towardE = sE >= s0 ? 1 : -1;
-    const sLo = Math.max(0, s0 - 0.15 * span);
+    const sLo = Math.max(0, s0 - 0.5 * span);
     const sHi = Math.max(sLo + 1e-9, s0 + towardE * span);
-    const spliceCap = Math.max(span, 6 * (w || 0)); // reject far false T (Codex geo0 ~50 mm)
+    const spliceCap = Math.max(span, 20 * (w || 0));
     const tangRes = (s) => {
       const P = pointAtArcMm(R, railPts, s);
       const q = unit(P.q);
@@ -835,7 +858,62 @@ function railLeg(R, from, to, prevArm, w = 0) {
     }
     Tpt = tangRes(best.s).q;
     splice = R * angle(X, Tpt);
-    joinMode = 'tangent';
+    // 6a.17 / block-B: exterior tangent ≤1°. If search landed >1° from parallel, use climb/merge instead.
+    {
+      const hitJ = closestOnPoly(R, Tpt, railPts);
+      const Trail = polyTangent(railPts, hitJ.i);
+      const Tarrive = mul(tangentTo(unit(Tpt), unit(X)), -1);
+      const nrm = unit(Tpt);
+      const proj = (v) => {
+        const p = sub(v, mul(nrm, dot(v, nrm)));
+        const len = Math.hypot(p[0], p[1], p[2]);
+        return len < 1e-15 ? null : mul(p, 1 / len);
+      };
+      const tIn = proj(Tarrive), tOut = proj(Trail);
+      let angDeg = 0;
+      if (tIn && tOut) {
+        const c = Math.max(-1, Math.min(1, dot(tIn, tOut)));
+        angDeg = Math.acos(c) * 180 / Math.PI;
+      }
+      if (angDeg > 1 + 1e-6) {
+        // Fall back to climb/merge (≤20°). Grow ℓ_m until merge angle ≤20° (6a.7 / block-B).
+        const deltaHere = Math.max(0, -dLat);
+        let Lm = Math.max(w || 0, 3 * deltaHere, mmAtW(2, w || W0_MM));
+        const sFoot = polyArcMm(R, railPts, lat.i, lat.t);
+        const sE2 = polyArcMm(R, railPts, hitE.i, hitE.t);
+        const dir = sE2 >= sFoot ? 1 : -1;
+        const angAt = (sM) => {
+          const q = unit(pointAtArcMm(R, railPts, sM).q);
+          const hitJ2 = closestOnPoly(R, q, railPts);
+          const Trail2 = polyTangent(railPts, hitJ2.i);
+          const Tarr = mul(tangentTo(q, unit(X)), -1);
+          const n2 = q;
+          const pr = (v) => {
+            const p = sub(v, mul(n2, dot(v, n2)));
+            const len = Math.hypot(p[0], p[1], p[2]);
+            return len < 1e-15 ? null : mul(p, 1 / len);
+          };
+          const a = pr(Tarr), b = pr(Trail2);
+          if (!a || !b) return 180;
+          return Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(a, b))))) * 180 / Math.PI;
+        };
+        let sM = Math.max(0, sFoot + dir * Lm);
+        let aM = angAt(sM);
+        for (let k = 0; k < 10 && aM > 20 + 1e-6; k++) {
+          Lm *= 1.6;
+          sM = Math.max(0, sFoot + dir * Lm);
+          // stay before E
+          if (dir > 0 && sM > sE2) { sM = sE2; aM = angAt(sM); break; }
+          if (dir < 0 && sM < Math.min(sFoot, sE2)) { sM = Math.min(sFoot, sE2); aM = angAt(sM); break; }
+          aM = angAt(sM);
+        }
+        Tpt = unit(pointAtArcMm(R, railPts, sM).q);
+        splice = R * angle(X, Tpt);
+        joinMode = 'climb';
+      } else {
+        joinMode = 'tangent';
+      }
+    }
   }
 
   const Tcount = splice <= 1e-15 ? 0
@@ -896,6 +974,33 @@ function railLeg(R, from, to, prevArm, w = 0) {
     }
   }
 
+  let turnAtTDeg = 0;
+  // Merge kink on the constructed path BEFORE uniform resample (resample invents false turns).
+  {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + R * angle(pts[i - 1], pts[i]));
+    const target = Math.max(0, splice);
+    let iT = 1;
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (Math.abs(cum[i] - target) < Math.abs(cum[iT] - target)) iT = i;
+    }
+    if (iT > 0 && iT < pts.length - 1) {
+      const nrm = unit(pts[iT]);
+      const proj = (v) => {
+        const p = sub(v, mul(nrm, dot(v, nrm)));
+        const len = Math.hypot(p[0], p[1], p[2]);
+        return len < 1e-15 ? null : mul(p, 1 / len);
+      };
+      const tIn = proj(unit(sub(pts[iT], pts[iT - 1])));
+      const tOut = proj(unit(sub(pts[iT + 1], pts[iT])));
+      if (tIn && tOut) {
+        const c = Math.max(-1, Math.min(1, dot(tIn, tOut)));
+        const sn = Math.max(-1, Math.min(1, dot(cross(tIn, tOut), nrm)));
+        turnAtTDeg = Math.atan2(sn, c) * 180 / Math.PI;
+      }
+    }
+  }
+
   if (pts.length !== n + 1) {
     const out = [];
     const lens = [0];
@@ -920,28 +1025,7 @@ function railLeg(R, from, to, prevArm, w = 0) {
   pts[n] = to.slice ? to.slice() : [...to];
 
 
-  let turnAtTDeg = 0;
-  {
-    const cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + R * angle(pts[i - 1], pts[i]));
-    let iT = 1;
-    for (let i = 1; i < pts.length - 1; i++) {
-      if (Math.abs(cum[i] - splice) < Math.abs(cum[iT] - splice)) iT = i;
-    }
-    const nrm = unit(pts[iT]);
-    const proj = (v) => {
-      const p = sub(v, mul(nrm, dot(v, nrm)));
-      const len = Math.hypot(p[0], p[1], p[2]);
-      return len < 1e-15 ? null : mul(p, 1 / len);
-    };
-    const tIn = proj(unit(sub(pts[iT], pts[iT - 1])));
-    const tOut = proj(unit(sub(pts[iT + 1], pts[iT])));
-    if (tIn && tOut) {
-      const c = Math.max(-1, Math.min(1, dot(tIn, tOut)));
-      const sn = Math.max(-1, Math.min(1, dot(cross(tIn, tOut), nrm)));
-      turnAtTDeg = Math.atan2(sn, c) * 180 / Math.PI;
-    }
-  }
+
 
   // 6a.9.1: kink angles (not κ_g) at hole and at climb/tangent merge — each ≤20°.
   // Hole kink ≈ discrete turn at the first interior sample (thread leaving the stitch).
@@ -976,7 +1060,7 @@ function railLeg(R, from, to, prevArm, w = 0) {
     bowLateralMm: 0, phi3CapMm: 0, lambda, rho,
     bowCenter: Pc, phi3Warn: false, layMode: 'rail',
     spliceMm: splice, lateralMm: dLat, turnAtTDeg,
-    interiorXn: dLat < -1e-6 * ((w || W0_MM) / W0_MM),
+    interiorXn: dLat < -1e-6 * (w || W0_MM), // dimensionless: inside by >1e-6·w (not absolute 1e-6 mm)
     joinMode,
     climbMm: joinMode === 'climb' ? splice : 0,
     deltaMm: delta,
@@ -1048,19 +1132,31 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
       return signedLateralToPoly(R, E, railPts, prevArm);
     };
     const g = (s) => gHit(s).signedMm;
-    let lo = sInside, glo = g(lo), hi = null;
-    for (let s = sInside + h; s <= sMax; s += h) {
-      const gs = g(s);
-      if (glo * gs <= 0) { hi = s; break; }
-      lo = s; glo = gs;
+    // First transversal root with s > sInside. Skip spurious early roots (dense-grid chatter)
+    // that would shrink Δ below ~0.7·expected (6a.12 / 6a.17 packing stability on 96/192/384).
+    const minDs = Math.max(0.7 * (w || 0), mmAtW(1.0, w || W0_MM)); // ≥ ~0.7w
+    let lo = sInside, glo = g(lo), hi = null, s = null, hit = null;
+    let scan = sInside + h;
+    while (scan <= sMax) {
+      lo = scan - h; glo = g(lo); hi = null;
+      for (let s1 = scan; s1 <= sMax; s1 += h) {
+        const gs = g(s1);
+        if (glo * gs <= 0 && Math.abs(glo) + Math.abs(gs) > 1e-12) { hi = s1; break; }
+        lo = s1; glo = gs;
+      }
+      if (hi === null) break;
+      let a = lo, fa = glo, b = hi;
+      for (let it = 0; it < 60; it++) {
+        const mid = (a + b) / 2, gm = g(mid);
+        if (fa * gm <= 0) b = mid; else { a = mid; fa = gm; }
+      }
+      const sCand = (a + b) / 2;
+      const hitCand = gHit(sCand);
+      // Require real crossing of the rail (not grazed tip) and Δ large enough.
+      if ((sCand - sInside) >= minDs - 1e-9) { s = sCand; hit = hitCand; break; }
+      scan = hi + h; // try next sign change
     }
-    if (hi === null) return null; // no root — caller hard-fails (no silent sChan fallback)
-    for (let it = 0; it < 60; it++) {
-      const mid = (lo + hi) / 2, gm = g(mid);
-      if (glo * gm <= 0) hi = mid; else { lo = mid; glo = gm; }
-    }
-    const s = (lo + hi) / 2;
-    const hit = gHit(s);
+    if (s == null || hit == null) return null; // no root — caller hard-fails (no silent sChan fallback)
     // Forbid false root on the unrextended polyline tip (foot at last core vertex).
     if (hit.i >= coreEnd - 1 && hit.i <= coreEnd && hit.t > 0.98 && hit.distMm < w * 0.25) {
       // Prefer a root on the GC extension past the tip, if any
@@ -1321,7 +1417,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
               && (leg.climbMm > 0 ? (z.min.i / Math.max(1, legPts.length - 1)) * (leg.length || 1) <= (leg.climbMm + w) : z.min.i <= 4)) {
             // Errata 6a.7: climb/merge onto previous rail — mark V8 class «climb» next to «squeeze»
             kind = 'climb'; rule = 'climb/merge (Errata 6a.7): new thread climbs onto previous within ℓ_m of the hole (uwagake wedge start); kinks ≤20°';
-          } else if (leg.layMode === 'rail' && other.set === spec.set && other.row === spec.row - 1 && z.min.d >= w - 1e-3 * ((w || W0_MM) / W0_MM)) {
+          } else if (leg.layMode === 'rail' && other.set === spec.set && other.row === spec.row - 1 && z.min.d >= w * (1 - 1e-3)) {
             kind = 'rail-parallel'; rule = 'rail parallel of prev row at distance w (Errata 6a.11 packing); flush contact expected';
             allowed = true;
           } else { kind = 'contact'; rule = 'contact closer than w without crossing — not allowed by rule'; allowed = false; }

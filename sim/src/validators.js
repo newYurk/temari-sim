@@ -125,7 +125,7 @@ const TOL_JOIN = 1e-9;        // mm — continuity (numeric tolerance)
 const TOL_LEN = 1e-9;         // mm — length balance (numeric)
 const TOL_REF = 1e-6;         // mm — match calc.py (two independent implementations of the same geometry)
 const TOL_PERP_DEG = 1e-6;    // ° — perpendicularity: model builds it exactly; numeric tolerance
-const TOL_SYM = 1e-9;         // mm — symmetry
+const TOL_SYM = 1e-9;         // mm — symmetry base; V15 uses max(TOL_SYM, 1e-9·R) for scale invariance
 const TOL_RAD = 1e-9;         // mm — model radial position (numeric)
 const TOL_MESH = 1e-6;        // mm — tube mesh (frame rotation accumulation)
 
@@ -355,24 +355,68 @@ export function runValidators(A, stage = '2b', ref = null) {
     const expected = new Map();
     for (const t of threadIds) { const ts = segs.filter((s) => s.thread === t); for (let i = 1; i < ts.length; i++) expected.set(pairKey(ts[i - 1].id, ts[i].id), 'join'); }
     const warnList = [];
-    const alphaTip = Math.PI / 10;
-    const hxTip = (m + w) / (2 * Math.tan(alphaTip));
-    const isTipCrossPair = (ca, cb) => {
-      const A = segById.get(ca), B = segById.get(cb);
-      if (!A || !B || A.type !== 'leg' || B.type !== 'leg') return false;
-      if (A.set !== B.set || A.line !== B.line || A.row === B.row) return false;
-      const lo = A.row < B.row ? A : B, hi = lo === A ? B : A;
+    const order = new Map(path.segs.map((x, i) => [x.id, i]));
+    // Δ₂ for 6a.13 h_k = h_x − k·Δ/2 (tipDrop of first bottoms; path unchanged).
+    const deltaTip = path.tipDrop?.tipDrop_mm ?? w;
+    // h_x from own tip cross of row 1 (meridional |Δs|), else bite formula at α=18°.
+    const ownHxSamples = [];
+    for (const c of path.crossings) {
+      if (c.kind !== 'crossing' || c.s == null || !ids.has(c.a) || !ids.has(c.b)) continue;
+      const A = segById.get(c.a), B = segById.get(c.b);
+      if (!A || !B || A.type !== 'leg' || B.type !== 'leg' || A.set !== B.set || A.row !== 1 || B.row !== 1) continue;
+      if (A.level === B.level) continue;
+      const dLine = Math.min((A.line - B.line + N) % N, (B.line - A.line + N) % N);
+      if (dLine !== 1) continue;
+      const st = stitchesDone.find((s) => s.set === A.set && s.row === 1 && s.level === 'bottom' && !s.closing
+        && (s.line === A.line || s.line === B.line));
+      if (!st) continue;
+      const h = Math.abs((st.s ?? 0) - c.s);
+      if (h > 0 && h < 10) ownHxSamples.push(h);
+    }
+    ownHxSamples.sort((a, b) => a - b);
+    const hxTip = ownHxSamples.length
+      ? ownHxSamples[Math.floor(ownHxSamples.length / 2)]
+      : (m + w) / (2 * Math.tan(Math.PI / 10));
+    // 6a.13 tipCross: same set, adjacent lines, opposite levels (in×out / mirror), k∈{1,2},
+    // later on top, 0<h<h_x, |h−(h_x−k·Δ/2)|≤0.3·(w/w0). Same-line mid-leg (~35 mm) is NOT tipCross.
+    const W0_V = 0.714;
+    const mmW = (mm) => mm * ((w || W0_V) / W0_V); // absolute-mm → fraction of w (similarity)
+    const tipTol = mmW(0.3);   // 6a.13 window was ±0.3 mm at w0
+    const tipBand = mmW(0.5);  // tip-zone / near-tip band was +0.5 mm at w0
+    const tipNear = mmW(1.0);  // nearTipPair endpoint band was +1 mm at w0
+    const tipCrossAt = (P, Q, cpOrS) => {
+      if (!P || !Q || P.type !== 'leg' || Q.type !== 'leg') return null;
+      if (P.set !== Q.set || P.row === Q.row || P.level === Q.level) return null;
+      const dLine = Math.min((P.line - Q.line + N) % N, (Q.line - P.line + N) % N);
+      if (dLine !== 1) return null;
+      const lo = P.row < Q.row ? P : Q, hi = lo === P ? Q : P;
+      const later = order.get(P.id) > order.get(Q.id) ? P : Q;
+      if (later !== hi) return null;
       const k = hi.row - lo.row;
-      if (k < 1 || k > 2) return false;
-      const st = stitchesDone.find((s) => s.set === lo.set && s.row === lo.row && s.level === 'bottom' && s.line === lo.line && !s.closing);
-      if (!st) return false;
-      return true; // geometric h checked in classify; here label candidate same-line neighbor pairs
+      if (k < 1 || k > 2) return null;
+      const hExp = hxTip - k * deltaTip / 2;
+      if (!(hExp > 0)) return null;
+      const st = stitchesDone.find((s) => s.set === lo.set && s.row === lo.row && s.level === 'bottom' && !s.closing
+        && (s.line === lo.line || s.line === hi.line));
+      if (!st) return null;
+      let h;
+      if (typeof cpOrS === 'number') h = Math.abs((st.s ?? 0) - cpOrS);
+      else if (cpOrS && Array.isArray(cpOrS)) {
+        const sp = toSPhi(R, cpOrS);
+        h = Math.abs((st.s ?? 0) - sp.s);
+      } else return null;
+      if (!(h > 0 && h < hxTip)) return null;
+      if (Math.abs(h - hExp) > tipTol) return null;
+      return 'tipCross (6a.13): later row over earlier tip';
     };
+    const tipCrossHits = [];
     for (const c of path.crossings) if (ids.has(c.a) && ids.has(c.b) && c.allowed) {
       if (c.kind === 'squeeze') warnList.push(`${c.a}×${c.b} s=${f(c.s, 1)} d=${f(c.dmin, 3)} (tight spot, V19)`);
-      const tipLab = isTipCrossPair(c.a, c.b) ? 'tipCross (6a.13): later row over earlier tip' : null;
-      expected.set(pairKey(c.a, c.b), tipLab ? tipLab
-        : c.kind === 'wedge' ? 'uwagake wedge (over prior row)'
+      // tipCross is location-specific (height window); do not stamp the whole pair from identity.
+      const tipAt = tipCrossAt(segById.get(c.a), segById.get(c.b), c.s ?? c.at);
+      if (tipAt) tipCrossHits.push({ a: c.a, b: c.b, d: c.dmin, s: c.s, why: tipAt });
+      expected.set(pairKey(c.a, c.b),
+        c.kind === 'wedge' ? 'uwagake wedge (over prior row)'
         : c.kind === 'squeeze' ? 'WARN: tight spot at pierce — threads must compress (V19)'
         : c.kind === 'climb' ? 'climb/merge (Errata 6a.7): thread climbs onto previous row at the hole'
         : c.kind === 'rail-parallel' ? 'rail parallel of prev row at distance w (6a.11)'
@@ -402,11 +446,19 @@ export function runValidators(A, stage = '2b', ref = null) {
     const axis = segs.map((s) => (s.type === 'leg' ? s.pts.map((p) => [p[0] * lift, p[1] * lift, p[2] * lift]) : s.pts));
     const boxes = axis.map(bbox);
     const found = [], bad = [];
-    const order = new Map(path.segs.map((x, i) => [x.id, i]));
     const nextOf = (h) => path.segs.find((x) => x.thread === h.thread && Math.abs(x.u0 - h.u1) < 1e-12);
     const classify = (P, Q, md) => {
       const k = pairKey(P.id, Q.id);
-      if (expected.has(k)) return expected.get(k);
+      // Same-line k=1,2: location-specific 6a.13 — do not return pair-level expected early.
+      const sameLineK12Early = P.type === 'leg' && Q.type === 'leg' && P.set === Q.set && P.line === Q.line
+        && P.row !== Q.row && Math.abs(P.row - Q.row) <= 2;
+      if (sameLineK12Early) {
+        const tipLab = tipCrossAt(P, Q, md.cp);
+        if (tipLab) return tipLab;
+        // fall through; may still match rail-parallel / hole / unexpected
+      } else if (expected.has(k)) {
+        return expected.get(k);
+      }
       if (squeezeOk(P, Q, md)) { warnList.push(`${P.id}×${Q.id} s=${f(toSPhi(R, md.cp).s, 1)} d=${f(md.d, 3)} (tight spot, V19)`); return 'WARN: tight spot at pierce — threads must compress (V19)'; }
       const later = order.get(P.id) > order.get(Q.id) ? P : Q, earlier = later === P ? Q : P;
       const types = [P.type, Q.type].sort().join('+');
@@ -437,10 +489,10 @@ export function runValidators(A, stage = '2b', ref = null) {
       }
       if (types === 'hidden-start+pickup') { warnList.push(`${P.id}×${Q.id} s=${f(toSPhi(R, md.cp).s, 1)} d=${f(md.d, 3)}`); return 'WARN: needle channel near hidden start (in wrap)'; }
       if (types === 'leg+leg') {
-        // 6a.13 tipCross + tip-zone / over-bite: later on top, near an earlier tip stitch.
+        // 6a.13 tipCross first (height window); pair-level expected must not stamp mid-leg contacts.
+        const tipLab = tipCrossAt(P, Q, md.cp);
+        if (tipLab) return tipLab;
         const lo = P.row <= Q.row ? P : Q, hi = lo === P ? Q : P;
-        const alpha = Math.PI / 10;
-        const hx = (m + w) / (2 * Math.tan(alpha));
         const tipOf = (set, row, line) => {
           const bot = stitchesDone.filter((st) => st.set === set && st.row === row && st.level === 'bottom' && !st.closing);
           return (line != null ? bot.find((s) => s.line === line) : null) || bot[0] || null;
@@ -450,21 +502,16 @@ export function runValidators(A, stage = '2b', ref = null) {
           const T = unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2]);
           return R * angle(T, unit(md.cp));
         };
+        const sameLineK12 = P.set === Q.set && P.line === Q.line && hi.row > lo.row && (hi.row - lo.row) <= 2;
         if (later === hi && hi.row > lo.row) {
-          // Same line + set: classical tipCross (k = 1, 2; two hits/pair accepted).
-          if (P.set === Q.set && P.line === Q.line) {
-            const k = hi.row - lo.row;
-            const st = tipOf(lo.set, lo.row, lo.line);
-            const h = heightAboveTip(st);
-            if (k >= 1 && k <= 2 && h > 0 && h < hx + 0.3) {
-              return 'tipCross (6a.13): later row over earlier tip';
-            }
-          }
           // Over bite zone / tip diamond (adj. marking lines) and through-row over hole.
-          const stLo = tipOf(lo.set, lo.row, lo.line);
-          const hLo = heightAboveTip(stLo);
-          if (hLo < hx + 0.5) {
-            return 'tip zone / over bite (6a.13)';
+          // Same-line k=1,2 is NOT tipCross (needs adjacent lines in×out); do not blanket tip-zone.
+          if (!sameLineK12) {
+            const stLo = tipOf(lo.set, lo.row, lo.line);
+            const hLo = heightAboveTip(stLo);
+            if (hLo > 0 && hLo < hxTip + tipBand) {
+              return 'tip zone / over bite (6a.13)';
+            }
           }
           const holes = stitchesDone.filter((st) => st.set === earlier.set && st.row === earlier.row);
           for (const st of holes) {
@@ -473,10 +520,12 @@ export function runValidators(A, stage = '2b', ref = null) {
             }
           }
         }
-        // Rail parallel of prev row at ~w
+        // Rail parallel of prev row at ~w (includes same-line mid-leg flush — NOT tipCross).
         if (P.set === Q.set && Math.abs(P.row - Q.row) === 1 && md.d >= w * 0.5) {
           return 'rail parallel of prev row at distance w (6a.11)';
         }
+        // Same-line neighbor outside rail-parallel band → unexpected (not tipCross).
+        if (sameLineK12) return null;
       }
       return null;
     };
@@ -486,45 +535,99 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (md.d >= w - 1e-9) continue;
       const why = classify(segs[i], segs[j], md);
       const sp = toSPhi(R, md.cp);
-      (why ? found : bad).push({ a: segs[i].id, b: segs[j].id, d: md.d, s: sp.s, why: why || 'UNEXPECTED' });
+      (why ? found : bad).push({ a: segs[i].id, b: segs[j].id, d: md.d, s: sp.s, at: md.cp, why: why || 'UNEXPECTED' });
+    }
+    // Seed tipCross from path.crossings at c.at (global minDist often sits mid-leg, missing the tip diamond).
+    for (const hit of tipCrossHits) {
+      if (!found.some((r) => r.a === hit.a && r.b === hit.b && /tipCross/.test(r.why))) found.push(hit);
     }
     const cnt = {};
     for (const r of found) cnt[r.why] = (cnt[r.why] || 0) + 1;
     const wedges = path.crossings.filter((c) => c.kind === 'wedge' && ids.has(c.a) && ids.has(c.b));
     const wedgeTxt = wedges.length ? `; wedges: max overlap ${f(Math.max(...wedges.map((c) => w - c.dmin)), 3)} mm over length up to ${f(Math.max(...wedges.map((c) => c.lenMm)), 1)} mm from tip` : '';
     const notAllowed = path.crossings.filter((c) => !c.allowed && ids.has(c.a) && ids.has(c.b));
-    // Tip-zone contacts (bite diamond / over-bite) are expected (6a.13); do not fail V8 on them —
-    // bite model is frozen. Unexpected remainder = non-tip bad + non-tip notAllowed.
-    const nearTipPair = (a, b) => {
-      const A = segById.get(a), B = segById.get(b);
-      if (!A || !B) return false;
-      const row = Math.min(A.row || 99, B.row || 99);
-      const st = stitchesDone.find((s) => s.set === (A.set || B.set) && s.row === row && s.level === 'bottom' && !s.closing);
-      if (!st) return false;
-      const T = unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2]);
-      // Use crossing/at point if present on notAllowed entries via found bad s — approximate by tip s
-      return Math.abs((st.s ?? 0) - (toSPhi(R, A.from).s)) < hxTip + 1 || Math.abs((st.s ?? 0) - (toSPhi(R, B.from).s)) < hxTip + 1
-        || Math.abs((st.s ?? 0) - (toSPhi(R, A.to).s)) < hxTip + 1 || Math.abs((st.s ?? 0) - (toSPhi(R, B.to).s)) < hxTip + 1;
+    // 6a.13 / Codex block-B: tip contacts must be CLASSIFIED (tipCross / through-row / tip-zone),
+    // not excluded from unexpected. Unclassified remainder = fail.
+    // Flush rail-parallel (d∈[0.5w, w]) is a classified expected class (6a.11), not a tip dump.
+    const flushOk = (d) => d != null && d >= w * 0.5 && d < w * (1 + 1e-3);
+    // Re-classify residual bad / notAllowed that classify() missed but tipCrossAt / tip-zone cover.
+    const promote = (a, b, cpOrS, d, atPt = null) => {
+      if (flushOk(d)) return 'rail parallel of prev row at distance w (6a.11)';
+      // Axis coincidence (same as path.legZones): treat as crossing.
+      if (d != null && d < 0.05 * w) return 'crossing (over/under by rule)';
+      const P = segById.get(a), Q = segById.get(b);
+      const tip = tipCrossAt(P, Q, cpOrS);
+      if (tip) return tip;
+      const at = (atPt && Array.isArray(atPt)) ? atPt
+        : (cpOrS && Array.isArray(cpOrS)) ? cpOrS
+        : null;
+      if (P?.type === 'leg' && Q?.type === 'leg' && P.row !== Q.row) {
+        const lo = P.row < Q.row ? P : Q, hi = lo === P ? Q : P;
+        const later = order.get(P.id) > order.get(Q.id) ? P : Q;
+        if (later === hi) {
+          if (P.set === Q.set) {
+            const bot = stitchesDone.find((st) => st.set === lo.set && st.row === lo.row && st.level === 'bottom' && !st.closing
+              && (st.line === lo.line || st.line === hi.line));
+            if (bot) {
+              let h;
+              if (typeof cpOrS === 'number') h = Math.abs((bot.s ?? 0) - cpOrS);
+              else if (at) h = Math.abs((bot.s ?? 0) - toSPhi(R, at).s);
+              if (h != null && h > 0 && h < hxTip + tipBand) return 'tip zone / over bite (6a.13)';
+            }
+          }
+          // Through-row / tip-zone over prior holes (same or other set).
+          const holes = stitchesDone.filter((st) => st.set === lo.set && st.row === lo.row);
+          if (at) {
+            for (const st of holes) {
+              if (Math.min(dist(at, st.X), dist(at, st.E)) < w) return 'leg over prior-row hole (through-row / tip zone)';
+            }
+          }
+        }
+      }
+      // Near bottom tip (bite diamond) or upper tip (uwagake / set meet) → tip-zone class (6a.13 / 6a.18).
+      if (P?.type === 'leg' && Q?.type === 'leg' && at) {
+        const sp = toSPhi(R, at);
+        const nearSt = stitchesDone.filter((s) => !s.closing
+          && (s.set === P.set || s.set === Q.set)
+          && (s.row === P.row || s.row === Q.row || s.row === Math.min(P.row, Q.row)));
+        const upperBand = Math.max(hxTip + tipNear, mmW(6)); // legs meet a few mm below top hole
+        for (const st of nearSt) {
+          const band = st.level === 'top' ? upperBand : (hxTip + tipNear);
+          if (Math.abs((st.s ?? 0) - sp.s) < band) {
+            return st.level === 'top'
+              ? 'uwagake / top meet (6a.18)'
+              : 'tip zone / over bite (6a.13)';
+          }
+        }
+      }
+      return null;
     };
-    const badTip = bad.filter((b) => nearTipPair(b.a, b.b));
-    const badRest = bad.filter((b) => !nearTipPair(b.a, b.b));
-    const naTip = notAllowed.filter((c) => nearTipPair(c.a, c.b));
-    const naRest = notAllowed.filter((c) => !nearTipPair(c.a, c.b));
+    const badRest = [], badPromoted = [];
+    for (const b of bad) {
+      const why = promote(b.a, b.b, b.s, b.d, b.at);
+      if (why) { badPromoted.push({ ...b, why }); found.push({ ...b, why }); cnt[why] = (cnt[why] || 0) + 1; }
+      else badRest.push(b);
+    }
+    const naRest = [], naPromoted = [];
+    for (const c of notAllowed) {
+      const why = promote(c.a, c.b, c.s ?? c.at, c.dmin, c.at);
+      if (why) { naPromoted.push({ a: c.a, b: c.b, d: c.dmin, s: c.s, why }); found.push({ a: c.a, b: c.b, d: c.dmin, s: c.s, why }); cnt[why] = (cnt[why] || 0) + 1; }
+      else naRest.push(c);
+    }
     // δ>w/2 = G3 miss (6a.7 / 6a.11(2) / 6a.12): always a bug on legs IN THIS PREFIX.
-    // Must use prefix `segs`, not full path.segs — otherwise late-row δFails poison early stages (2b/B1).
     const deltaFails = segs.filter((s) => s.deltaFail).length;
     const unexpected = badRest.length + naRest.length;
-    add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: axis distance ≥ w (tube Ø w); allowed: crossing, tipCross (6a.13), tip-zone/over-bite, through-row, uwagake wedge, climb/merge (6a.7), catch, join; δ>w/2 fail',
+    add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: axis distance ≥ w (tube Ø w); allowed: crossing, tipCross (6a.13), tip-zone/over-bite, through-row, uwagake wedge, climb/merge (6a.7), catch, join; tip contacts CLASSIFIED not excluded; δ>w/2 fail',
       status: unexpected || deltaFails ? 'fail' : warnList.length ? 'warn' : 'pass',
       value: `near-zones < w: ${Object.entries(cnt).map(([k2, v]) => `${k2} — ${v}`).join('; ')}; unexpected ${unexpected}` +
-        (badTip.length || naTip.length ? `; tip-zone expected ${badTip.length + naTip.length}` : '') +
+        (badPromoted.length || naPromoted.length ? `; tip-classified ${badPromoted.length + naPromoted.length}` : '') +
         (deltaFails ? `; δ>w/2 fails ${deltaFails}` : '') + wedgeTxt +
         (badRest.length ? ': ' + badRest.slice(0, 6).map((b) => `${b.a}×${b.b} s=${f(b.s, 1)} d=${f(b.d, 3)}`).join('; ') : '') +
         (warnList.length ? `; warnings (hidden wrap threads closer than w; radial compress not modelled): ${warnList.slice(0, 8).join('; ')}${warnList.length > 8 ? '…' : ''}` : ''),
-      details: { found, bad, badRest, badTip, notAllowed, naRest, naTip, warnList } });
+      details: { found, bad, badRest, badPromoted, notAllowed, naRest, naPromoted, warnList } });
   }
 
-  // K16 (6a.16) — tip coverage acceptance
+  // K16 (6a.16 / 6a.17) — tip coverage; K16b at λ=0 is formula-diagnostic
   {
     const bottoms = stitchesDone.filter((st) => st.level === 'bottom' && !st.closing);
     const bySet = {};
@@ -532,41 +635,82 @@ export function runValidators(A, stage = '2b', ref = null) {
     const parts = [];
     let fail = false;
     const diagH = [];
+    const lambdaTip = path.tipDrop?.lambda ?? path.tipDrop?.bowLambda ?? 0;
+    const isGeo0 = !(lambdaTip > 1e-9) && (path.tipDrop?.shoulderForm !== 'bow');
+    // Per-set row bottom s for Δ_n
+    const rowS = (set, row) => {
+      const st = bottoms.find((s) => s.set === set && s.row === row && !s.closing);
+      return st ? (st.s ?? toSPhi(R, unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2])).s) : null;
+    };
+    // Measure fix: subsample along leg edges — discrete pts alone miss the true closest approach
+    // (e.g. B7/L6 dE 0.40 on verts vs 0.24 dense; threshold w/2·1.1 unchanged).
     const minDistToRow = (P, set, row) => {
       const legs = segs.filter((s) => s.type === 'leg' && s.set === set && s.row === row);
+      const Pu = unit(P);
       let best = Infinity;
-      for (const leg of legs) for (const q of leg.pts) best = Math.min(best, R * angle(unit(P), unit(q)));
+      for (const leg of legs) {
+        const pts = leg.pts;
+        for (let i = 0; i < pts.length; i++) {
+          best = Math.min(best, R * angle(Pu, unit(pts[i])));
+          if (i + 1 >= pts.length) continue;
+          const a = unit(pts[i]), b = unit(pts[i + 1]);
+          const edge = R * angle(a, b);
+          const steps = Math.max(1, Math.ceil(edge / Math.max(1e-9, w * 0.25)));
+          for (let k = 1; k < steps; k++) {
+            const t = k / steps;
+            const q = unit([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]);
+            best = Math.min(best, R * angle(Pu, q));
+          }
+        }
+      }
       return best;
     };
     for (const [set, sts] of Object.entries(bySet)) {
       const rows = [...new Set(sts.map((s) => s.row))].sort((a, b) => a - b);
-      const N = rows.length ? rows[rows.length - 1] : 0;
-      let aOk = 0, aN = 0, bOk = 0, bN = 0, cBad = 0;
+      const Nrow = rows.length ? rows[rows.length - 1] : 0;
+      let aOk = 0, aN = 0, bOk = 0, bN = 0, bPromised = 0, bMiss = 0, cBad = 0;
+      // α: geodesic ~8.5°, bow ~18° (π/10)
+      const alphaK = isGeo0 ? (8.5 * Math.PI / 180) : Math.PI / 10;
+      const rhs = (m + w) - w / (2 * Math.cos(alphaK)); // coverage threshold length
       for (const n of rows) {
         const mine = sts.filter((s) => s.row === n);
         for (const st of mine) {
+          // 6a.17: exclude closing stitch with X = −(c0+w) from K16b (flag or xOff ≤ −(w+0.5)).
+          const closingWide = !!st.closing || (st.xOff != null && st.xOff <= -(w + 0.5 * (w / 0.714)));
           const T = unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2]);
-          // K16a: T_n covered by n+1 for n < N; last open
-          if (n < N) {
+          // K16a: T_n covered by n+1 for n < N; last open — acceptance
+          if (n < Nrow) {
             aN++;
             const d = minDistToRow(T, set, n + 1);
             if (d <= w / 2 * 1.1) aOk++;
           }
-          // K16b: E_n, X_n covered by n+2 for n < N-1
-          if (n < N - 1) {
-            bN += 2;
+          // K16b: E_n, X_n covered by n+2 — at λ=0 diagnostic via formula (6a.17)
+          if (n < Nrow - 1 && !closingWide) {
+            const s0 = rowS(set, n), s1 = rowS(set, n + 1), s2 = rowS(set, n + 2);
+            const d1 = (s0 != null && s1 != null) ? Math.abs(s1 - s0) : (path.tipDrop?.tipDrop_mm ?? w);
+            const d2 = (s1 != null && s2 != null) ? Math.abs(s2 - s1) : d1;
+            const promised = (d1 + d2) * Math.tan(alphaK) >= rhs - 1e-9;
             const dE = minDistToRow(st.E, set, n + 2);
             const dX = minDistToRow(st.X, set, n + 2);
-            if (dE <= w / 2 * 1.1) bOk++;
-            if (dX <= w / 2 * 1.1) bOk++;
+            const covE = dE <= w / 2 * 1.1, covX = dX <= w / 2 * 1.1;
+            if (isGeo0) {
+              // Diagnostic: fail only where formula promises coverage but model has none
+              if (promised) {
+                bPromised += 2;
+                if (covE) bOk++; else bMiss++;
+                if (covX) bOk++; else bMiss++;
+              }
+              bN += 2;
+            } else {
+              bN += 2;
+              if (covE) bOk++;
+              if (covX) bOk++;
+            }
           }
-          // Diagnostic: height of a tipCross of row n+1 above T_n
-          if (n < N) {
-            const alpha = Math.PI / 10;
-            const hx = (m + w) / (2 * Math.tan(alpha));
-            // sample: distance from T to nearest point of row n+1 legs that is also near a row-n leg (proxy)
+          if (n < Nrow) {
+            const hx = (m + w) / (2 * Math.tan(alphaK));
             const d = minDistToRow(T, set, n + 1);
-            diagH.push(hx - d); // rough; real C height printed in value
+            diagH.push(hx - d);
           }
         }
         // K16c: own tip crossing C_n uncovered — within w/2 of C only own two legs
@@ -596,18 +740,25 @@ export function runValidators(A, stage = '2b', ref = null) {
         }
       }
       if (aN && aOk < aN) fail = true;
-      if (bN && bOk < bN) fail = true;
+      if (isGeo0) {
+        // 6a.17: K16b is diagnostic at λ=0 — record misses, do not fail acceptance (K16a/c still fail).
+      } else if (bN && bOk < bN) {
+        fail = true;
+      }
       if (cBad) fail = true;
-      parts.push(`set ${set}: K16a ${aOk}/${aN} (T covered by n+1); K16b ${bOk}/${bN} (E/X by n+2); K16c foreign-near-C ${cBad}`);
+      const bTxt = isGeo0
+        ? `K16b diag ${bOk}/${bPromised || 0} promised-covered (miss ${bMiss}; raw ${bOk}/${bN})`
+        : `K16b ${bOk}/${bN} (E/X by n+2)`;
+      parts.push(`set ${set}: K16a ${aOk}/${aN} (T covered by n+1); ${bTxt}; K16c foreign-near-C ${cBad}`);
     }
-    const alpha = Math.PI / 10;
+    const alpha = isGeo0 ? (8.5 * Math.PI / 180) : Math.PI / 10;
     const hx = (m + w) / (2 * Math.tan(alpha));
     const enough = Object.values(bySet).some((sts) => new Set(sts.map((s) => s.row)).size >= 2);
     add({
-      id: 'K16', name: 'Tip coverage (T by n+1, E/X by n+2, C open)', crit: '6a.16 K16a–c',
+      id: 'K16', name: 'Tip coverage (T by n+1, E/X by n+2, C open)', crit: '6a.16/6a.17 K16a–c (K16b formula-diag at λ=0)',
       status: !enough ? 'n/a' : (fail ? 'fail' : 'pass'),
       value: parts.join('; ') + `; h_x=${f(hx, 2)} mm; diag mean (h_x − d_T→n+1)=${diagH.length ? f(diagH.reduce((a, b) => a + b, 0) / diagH.length, 2) : '—'} mm`,
-      numbers: { hx, diagH },
+      numbers: { hx, diagH, isGeo0 },
     });
   }
 
@@ -747,6 +898,9 @@ export function runValidators(A, stage = '2b', ref = null) {
     else {
       const parts = [];
       let unexplained = 0, explained = 0;
+      // Similarity: absolute 1e-9 mm fails at ×1.25 (B3 E/X ~4.9e-9); use relative-to-R tol.
+      const tolSym = Math.max(TOL_SYM, 1e-9 * R);
+      const tolLen = Math.max(TOL_LEN, 1e-9 * R);
       for (const [ra, rb] of pairs) {
         const rot = rotZ((rb.startLine - ra.startLine) * 2 * Math.PI / N);
         const sa = ra.stitchIdx.map((i) => path.stitches[i]), sb = rb.stitchIdx.map((i) => path.stitches[i]);
@@ -755,7 +909,7 @@ export function runValidators(A, stage = '2b', ref = null) {
         for (let i = 0; i < N; i++) {
           const dpi = Math.max(dist(rot(sa[i].E), sb[i].E), dist(rot(sa[i].X), sb[i].X));
           dP = Math.max(dP, dpi);
-          if (dpi >= TOL_SYM) diffSt.push(sb[i]);
+          if (dpi >= tolSym) diffSt.push(sb[i]);
           const la = segById.get(sa[i].legId), lb = segById.get(sb[i].legId);
           for (let q = 0; q < la.pts.length; q++) dL = Math.max(dL, dist(rot(la.pts[q]), lb.pts[q]));
         }
@@ -765,12 +919,12 @@ export function runValidators(A, stage = '2b', ref = null) {
           const hA = segs.filter((s2) => s2.round === ra.id && s2.type === 'hidden-start'), hB = segs.filter((s2) => s2.round === rb.id && s2.type === 'hidden-start');
           hA.forEach((s2, q) => { dH = Math.max(dH, dist(rot(s2.from), hB[q].from), dist(rot(s2.to), hB[q].to)); });
         }
-        const same = dP < TOL_SYM && dL < TOL_SYM && dLen < TOL_LEN && dH < TOL_SYM;
+        const same = dP < tolSym && dL < tolSym && dLen < tolLen && dH < tolSym;
         // asymmetry explanation: stitch catch contains OTHER-set thread (occupancy, not an error)
         const foreignOf = (st) => [...st.sides.cluster.filter((c) => c.seg !== 'marking' && segById.get(c.seg).set !== st.set).map((c) => `${segById.get(c.seg).round}(${c.kind})`),
           ...(st.sides.squeeze || []).filter((q) => q.seg !== 'marking').map((q) => `${segById.get(q.seg).round}(tight, gap ${f(q.gap, 3)})`)];
         const why = [...new Set([...diffSt, ...sa.filter((_, i) => diffSt.includes(sb[i]))].flatMap(foreignOf))];
-        const firstDiff = sb.findIndex((st, i) => st.i && Math.max(dist(rot(sa[i].E), st.E), dist(rot(sa[i].X), st.X)) >= TOL_SYM);
+        const firstDiff = sb.findIndex((st, i) => st.i && Math.max(dist(rot(sa[i].E), st.E), dist(rot(sa[i].X), st.X)) >= tolSym);
         const upstream = firstDiff < 0 || sb.slice(0, firstDiff + 1).some((st) => foreignOf(st).length) || sa.slice(0, firstDiff + 1).some((st) => foreignOf(st).length);
         if (!same) { if (why.length || upstream) explained++; else unexplained++; }
         parts.push(`${rb.id} vs ${ra.id}: ${same ? 'matches' : `DIFFERS — E/X Δmax ${f(dP, 3)} mm na ${diffSt.length} stezhchkh (${diffSt.map((st) => `L${st.line}`).join(',')}), legs Δmax ${f(dL, 3)} mm, dlina ${f(ra.length)} vs ${f(rb.length)} mm${why.length ? `; prichina — v catche thread drugogo seta: ${why.join(', ')}` : ''}`}`);
@@ -884,20 +1038,33 @@ export function runValidators(A, stage = '2b', ref = null) {
         numbers: { matrix, tally } });
     }
   }
-  // V19 — room for working thread at each pierce: if occupancy clearance to the NEIGHBOR point (past the bisector) is < w,
-  //        needle goes between threads mid-gap, and threads must compress by (w − gap)/2 on each side
+  // V19 — room for working thread at each pierce (6a.18 upper-tip rule).
+  // Upper tips: clearance needed only OUTSIDE the bundle; puncture condition is V16 (hole > w/2 from axes).
+  // Row 2 upper squeeze is NOT a fail (rule bug). Rows ≥4 upper fan → U14 flat-model limit (document, no fail).
   {
     const sq = stitchesDone.flatMap((st) => (st.sides.squeeze || []).map((q) => ({ st, q })));
-    const noRoom = sq.filter((x) => x.q.noRoom);
+    const isUpper = (x) => x.st.level === 'top';
+    const noRoomRaw = sq.filter((x) => x.q.noRoom);
+    const noRoomFail = noRoomRaw.filter((x) => {
+      if (!isUpper(x)) return true; // bottom: keep prior fail
+      if (x.st.row === 2) return false; // 6a.18: row-2 upper is rule bug, not fail
+      if (x.st.row >= 4) return false; // 6a.18: U14 fan — document only
+      return true; // row 3 upper: still report
+    });
+    const u14Upper = noRoomRaw.filter((x) => isUpper(x) && x.st.row >= 4);
+    const row2Upper = noRoomRaw.filter((x) => isUpper(x) && x.st.row === 2);
     const nameOf = (id) => (id === 'marking' ? 'neighbor marking' : `${id}/${segById.get(id)?.round}`);
     const byRound = {};
     for (const x of sq) (byRound[x.st.round] || (byRound[x.st.round] = [])).push(x);
-    add({ id: 'V19', name: 'Room for needle between threads (compression in tight spots)', crit: 'prior #105 (needle between threads); thread compression not modelled (U14, spec F4) — tight spots listed only; gap ≤ 0 — no room',
-      status: noRoom.length ? 'fail' : sq.length ? 'warn' : 'pass',
+    const status = noRoomFail.length ? 'fail' : (sq.length || u14Upper.length || row2Upper.length) ? 'warn' : 'pass';
+    add({ id: 'V19', name: 'Room for needle between threads (compression in tight spots)', crit: 'prior #105; 6a.18: upper row2 ≠ fail (V16); rows≥4 upper = U14',
+      status,
       value: sq.length ? `tight pierces ${sq.length}: ` + Object.entries(byRound).map(([r, xs]) => `${r}: ${xs.length} (${[...new Set(xs.map((x) => `${x.q.side} on L${x.st.line}`))].slice(0, 4).join(', ')}…), gap ${f(Math.min(...xs.map((x) => x.q.gap)), 3)}…${f(Math.max(...xs.map((x) => x.q.gap)), 3)} mm to ${[...new Set(xs.map((x) => nameOf(x.q.seg)))].slice(0, 3).join(', ')}, compression to ${f(Math.max(...xs.map((x) => x.q.comp)), 3)} mm from the other side`).join('; ') +
-        (noRoom.length ? `; NO ROOM: ${noRoom.map((x) => `${x.st.round}/L${x.st.line}`).join(', ')}` : '')
+        (noRoomFail.length ? `; NO ROOM: ${noRoomFail.map((x) => `${x.st.round}/L${x.st.line}`).join(', ')}` : '') +
+        (row2Upper.length ? `; row2 upper listed not fail (6a.18/V16): ${row2Upper.length}` : '') +
+        (u14Upper.length ? `; U14 upper fan rows≥4: ${u14Upper.length}` : '')
         : 'all pierces have gap to neighbor point ≥ w (thread lays flush to its own cluster)',
-      numbers: { squeezes: sq.map((x) => ({ round: x.st.round, line: x.st.line, i: x.st.i, ...x.q })) } });
+      numbers: { squeezes: sq.map((x) => ({ round: x.st.round, line: x.st.line, i: x.st.i, ...x.q })), u14Upper: u14Upper.length, row2UpperExempt: row2Upper.length } });
   }
 
   // V20 — friction cone Φ3 (Errata 6a.9.1): FREE-CLASS segments only.
@@ -918,17 +1085,25 @@ export function runValidators(A, stage = '2b', ref = null) {
         const hole = Math.abs(s.holeTurnDeg ?? 0);
         const merge = Math.abs(s.mergeTurnDeg ?? s.turnAtTDeg ?? 0);
         kinkRows.push({ id: s.id, row: s.row, joinMode: s.joinMode, holeTurnDeg: hole, mergeTurnDeg: merge });
-        if ((s.joinMode === 'climb' || s.joinMode === 'tangent') && (hole > 20 + 1e-6 || merge > 20 + 1e-6)) badKink++;
-        if (s.joinMode === 'climb' || s.joinMode === 'onRail') continue; // excluded from κ_g
+        // 6a.19 / Codex block-B: splice checked by ANGLE — tangent ≤1°, climb ≤20°; hole ≤20°.
+        // κ_g excludes a window of width w around the splice join (discrete kink ≠ free curvature).
+        if (s.joinMode === 'climb') {
+          if (hole > 20 + 1e-6 || merge > 20 + 1e-6) badKink++;
+          continue; // rail+climb excluded from κ_g
+        }
+        if (s.joinMode === 'onRail') continue;
         if (s.joinMode === 'tangent') {
           const splice = Math.max(0, s.spliceMm ?? 0);
-          // Hole kink is gated by angle ≤20° (above); exclude ≥2w at the hole so discrete
-          // κ_g does not score the hole-departure samples that sit just past w (false λ≫μ).
-          // Hole + join kinks gated by angle ≤20°; free κ_g needs a clean mid-splice geodesic.
-          // Keep ≥2w clear of both the hole and the rail join (discrete bleed).
-          const exclHole = Math.min(Math.max(0, splice - 2 * wMm), Math.max(2 * wMm, wMm));
-          const freeEnd = Math.max(exclHole, splice - 2 * wMm);
-          if (freeEnd - exclHole < wMm) continue;
+          // Degenerate short splice (<w): hole and merge coincide — only hole ≤20° (not exterior ≤1°).
+          if (splice < wMm) {
+            if (hole > 20 + 1e-6) badKink++;
+            continue;
+          }
+          if (hole > 20 + 1e-6 || merge > 1 + 1e-6) badKink++; // exterior tangent ≤1°
+          // Free κ_g on exterior tangent splice only, excluding ≤w at hole AND ≤w around splice join.
+          const exclHole = Math.min(Math.max(0, splice - wMm), wMm);
+          const freeEnd = Math.max(exclHole, splice - wMm); // stop w before splice
+          if (freeEnd - exclHole < wMm * 0.5) continue; // too short to score
           const lam = maxAbsGeodesicKg(s.pts, R, exclHole, 0, freeEnd) * R;
           if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
           continue;
@@ -977,7 +1152,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     if (ratio > FAIL_RATIO - 1e-12 || cmdMismatch || badKink > 0) status = 'fail';
     else if (ratio > WARN_RATIO + 1e-9) status = 'warn';
     add({ id: 'V20', name: 'Friction cone Φ3 (λ ≤ μWrap)',
-      crit: 'Errata 6a.9.1: λ_max from discrete κ_g on FREE segments only (row1 excl ≤w at holes; n≥2 exterior tangent splice only); rail+climb excluded; hole/merge kink angles ≤20°',
+      crit: 'Errata 6a.9.1/block-B: λ_max κ_g on FREE only (row1 excl ≤w holes; n≥2 exterior tangent excl ≤w at hole and ≤w around splice); rail+climb excluded; kink angles: hole≤20°, tangent splice≤1°, climb≤20°',
       status,
       value: `λ_max=${f(lambdaMax, 6)} · μWrap=${f(muW, 4)} · λ/μ=${f(ratio, 6)}` +
         ` [warn>${WARN_RATIO}, fail≥${FAIL_RATIO}; free-class κ_g]` +
@@ -989,13 +1164,14 @@ export function runValidators(A, stage = '2b', ref = null) {
         bowLambda: A.params.bowLambda ?? null, cmdLambda, cmdSource, cmdMismatch, worstCmd, badKink, kinkRows } });
   }
 
-  // V21 — transversality (Fable v2 / Errata §6a / 6a.9.2). Criteria:
+  // V21 — transversality (Fable v2 / Errata §6a / 6a.9.2 / 6a.19 / 6a.20). Criteria:
   //  (1) destination meridian crossed exactly once — ALL legs
   //  (2) stick = length(segment ∩ {|lat|<ε}) ≤ 1.2·2ε/sin(α_exp) — ALL legs
-  //  (3) crossing angle ≥ α_geo — ONLY lower legs (6a.3)
-  // α_exp = axis-crossing angle of the REFERENCE curve at the crossing itself:
-  //   Row 1: analytic arc (geodesic / small-circle at own λ)
-  //   Rows n≥2: parallel rail (path after splice ≈ accepted parallel of row n−1)
+  //  (3) lower-arm angle: |sin α_act/sin α_ref−1|≤0.03 for rail AND free (6a.19/6a.20)
+  // α_ref at the AXIS CROSSING POINT:
+  //   Free λ>0: tangent of analytical small-circle arc (6a.20; "+θ" is tables-only)
+  //   Free λ=0: reference-geodesic angle at the same point
+  //   Rail n≥2: parallel of accepted row n−1
   // 1.2 factor = discretization margin only (6a.9.2).
   {
     const legs = segs.filter((s) => s.type === 'leg' && s.pts && s.pts.length >= 3);
@@ -1240,19 +1416,35 @@ export function runValidators(A, stage = '2b', ref = null) {
         alpha = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(TpathT), unit(TmerC))))));
       }
       const aDeg = alpha * 180 / Math.PI, gDeg = alphaGeo * 180 / Math.PI;
-      angleRows.push({ id: s.id, angleDeg: aDeg, alphaGeoDeg: gDeg });
+      // 6a.19/6a.20: free = row 1 (any λ) and joinMode/railKind=free (λ=0 free-exit).
+      // Residual climb/rail at λ=0 uses α_ref = parallel of accepted n−1 (rail rule).
+      const isFree = s.row === 1 || s.joinMode === 'free' || s.railKind === 'free';
+      const isRail = !isFree && s.row >= 2;
+      // 6a.20: free α_ref = analytic arc tangent at axis crossing (λ>0) or ref geodesic there (λ=0).
+      // α_geo+θ is tables-only — not the validator reference.
+      const alphaRef = isFree
+        ? (lamCmd > 1e-15 ? alphaExp : alphaGeo)
+        : alphaExp;
+      const sinAct = Math.sin(alpha), sinRef = Math.sin(Math.max(alphaRef, 1e-12));
+      const sinRatio = sinAct / sinRef;
+      const deficitDeg = gDeg - aDeg; // α_geo(own) − α_act (physicality: ≈0 at row2, grows with n on rail)
+      angleRows.push({
+        id: s.id, row: s.row, set: s.set, angleDeg: aDeg, alphaGeoDeg: gDeg,
+        alphaRefDeg: alphaRef * 180 / Math.PI, alphaExpDeg: alphaExp * 180 / Math.PI,
+        sinRatio, deficitDeg, layMode: s.layMode, joinMode: s.joinMode, isRail, isFree,
+      });
       if (minAngleDeg == null || aDeg < minAngleDeg) { minAngleDeg = aDeg; minAngleGeoDeg = gDeg; }
-      // Crit: angle ≥ α_geo on lower legs only. Rail path ≠ chord geodesic through X,E —
-      // allow 5° discretization (curved rail / tip exit); row-1 stays tight.
-      const angTol = (s.layMode === 'rail') ? (5.0 * Math.PI / 180) : 1e-3;
-      // 6a.3: α ≥ α_geo on lower legs. Rail n≥2: tip follows ref parallel — floor is α_exp (not chord α_geo).
-      const angleFloor = (s.layMode === 'rail' && s.row >= 2) ? alphaExp : alphaGeo;
-      if (s.level === 'bottom' && !(alpha + angTol >= angleFloor)) badAngle++;
+      // 6a.19/6a.20: |sin α_act / sin α_ref − 1| ≤ 0.03 for rail and free (bilateral).
+      // Climb: meridian may sit inside the climb splice — α vs rail α_ref not applicable; V20 owns ≤20° kink.
+      // 5° allowance removed.
+      if (s.level === 'bottom' && s.joinMode !== 'climb') {
+        if (!(Math.abs(sinRatio - 1) <= 0.03 + 1e-12)) badAngle++;
+      }
     }
     if (!Number.isFinite(minLat)) minLat = Infinity;
     const ok = badStick === 0 && badCrossings === 0 && badAngle === 0;
     add({ id: 'V21', name: 'Transversality at destination meridian',
-      crit: 'Fable v2 Errata §6a/6a.9.2: one crossing + stick ≤ 1.2·2ε/sin(α_exp) (α_exp=ref-curve angle at axis crossing; 1.2=discretization only); angle ≥ α_geo lower legs only',
+      crit: 'Fable v2 Errata §6a/6a.9.2/6a.19/6a.20: one crossing + stick ≤ 1.2·2ε/sin(α_exp); lower |sinα_act/sinα_ref−1|≤0.03 (rail: parallel n−1; free λ>0: analytic arc at axis; free λ=0: geodesic at axis); +θ tables-only; no 5° allowance',
       status: ok ? 'pass' : 'fail',
       value: legs.length
         ? `stick max ${f(worstStick, 3)} mm (threshold ${f(worstThr || (worst && worst.thresholdMm) || 0, 3)} mm ≤ 1.2·2ε/sin α_exp); meetings≠1: ${badCrossings}; badAngle: ${badAngle}; badStick: ${badStick}` +

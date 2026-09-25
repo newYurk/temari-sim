@@ -4,7 +4,7 @@ import { computeAll } from '../src/layers.js';
 import { runValidators, summary, refKey } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples } from '../src/path.js';
-import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS } from '../src/display.js';
+import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS, liftFromDist, DISPLAY_STACK_LIFT_W } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
 import { norm, unit, mul, sub, add, dot, angle, cross } from '../src/geom.js';
 
@@ -364,9 +364,21 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   check(bl && (bl.def === '' || bl.def == null), 'bowLambda default is empty (resolved to 0.32 only when form=bow and nothing else set)');
   check(bf && (bf.def === '' || bf.def == null), 'legacy bowFrac default is empty (prefer bowLambda)');
 
-  // V21 angle emitted; lower-leg local angle ≥ α_geo (Errata 6a)
+  // V21 angle emitted; 6a.20: free α_ref = analytic arc at axis (λ>0) / geodesic at axis (λ=0); bilateral 3% sine
   check(v21.numbers.minAngleDeg != null && v21.numbers.minAngleGeoDeg != null, 'V21 emits minAngleDeg / minAngleGeoDeg');
-  check(v21.numbers.minAngleDeg + 1e-3 >= v21.numbers.minAngleGeoDeg, 'V21 lower-leg local angle ≥ α_geo');
+  check(v21.status === 'pass' && (v21.numbers.badAngle || 0) === 0, 'V21 lower-arm angle OK under 6a.20 (no 5° allowance)');
+  // Gold (6a.20): row1 λ=0.32 → α_act≈16.777°, α_ref≈16.847°, sin ratio ≈0.996
+  {
+    const r1 = (v21.numbers.angleRows || []).filter((r) => r.row === 1 && r.isFree !== false);
+    const g = r1.find((r) => Math.abs(r.angleDeg - 16.777) < 0.05) || r1[0];
+    check(!!g, '6a.20 gold: row1 angle row present');
+    if (g) {
+      console.log(`  6a.20 gold row1: α_act=${fmt(g.angleDeg, 3)}° α_ref=${fmt(g.alphaRefDeg, 3)}° sinRatio=${fmt(g.sinRatio, 4)}`);
+      check(Math.abs(g.angleDeg - 16.777) < 0.05, `6a.20 gold α_act≈16.777° (got ${fmt(g.angleDeg, 3)})`);
+      check(Math.abs(g.alphaRefDeg - 16.847) < 0.05, `6a.20 gold α_ref≈16.847° analytic-at-axis (got ${fmt(g.alphaRefDeg, 3)})`);
+      check(Math.abs(g.sinRatio - 1) <= 0.03, `6a.20 gold |sinRatio−1|≤0.03 (got ${fmt(g.sinRatio, 4)})`);
+    }
+  }
 
   // V20 bowSagMm: sag-invert λ still checked against discrete κ_g
   {
@@ -683,6 +695,60 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const laterOk = (ds) => ds.slice(1).every((x, i) => Math.abs(x - ds[0]) / ds[0] <= 0.03 + 1e-12 && x + 1e-12 >= ds[i]);
   check(laterOk(d32), 'λ=0.32 Δ_n (n≥3) within ±3% of Δ₂ and monotonically non-decreasing');
   check(laterOk(d60), 'λ=0.6 Δ_n (n≥3) within ±3% of Δ₂ and monotonically non-decreasing');
+
+  // 6a.19 physicality: (α_geo−α_act) grows with n on lower arms (~0.6–0.7°/row at λ=0.32).
+  // Row2 α_act≈α_ref is enforced by V21 sin-ratio (climb excluded from angle there).
+  {
+    const A32 = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'untilEquator' });
+    const v = runValidators(A32, A32.path.ops.length - 1, null).find((x) => x.id === 'V21');
+    const arms = (v.numbers.angleRows || []).filter((r) => r.set === 'A' && r.row >= 2);
+    const byRow = new Map();
+    for (const r of arms) {
+      if (!byRow.has(r.row) || r.deficitDeg > byRow.get(r.row)) byRow.set(r.row, r.deficitDeg);
+    }
+    const rows = [...byRow.keys()].sort((a, b) => a - b);
+    const defs = rows.map((r) => byRow.get(r));
+    console.log(`  6a.19 deficit λ=0.32 A rows ${rows.join(',')}: ${defs.map((d) => fmt(d, 2)).join('° → ')}°`);
+    check(rows.includes(2) && defs.length >= 3, '6a.19 deficit series covers row2..n');
+    let mono = true;
+    for (let i = 1; i < defs.length; i++) if (!(defs[i] > defs[i - 1] - 0.2)) mono = false;
+    check(mono, '6a.19 deficit α_geo−α_act grows monotonically with row (λ=0.32)');
+    check((v.numbers.badAngle || 0) === 0, '6a.20 V21 badAngle=0 (α_act vs α_ref bilateral 3% sine)');
+  }
+
+  // Packing-grid acceptance: rows and Δ_n identical on 96/192/384 for A,B at λ=0/0.32/0.6
+  {
+    const baseN = getLegSamples();
+    for (const lam of [0, 0.32, 0.6]) {
+      const form = lam ? 'bow' : 'geodesic';
+      const snaps = {};
+      for (const N of [96, 192, 384]) {
+        setLegSamples(N);
+        const A = computeAll(recipe, {
+          C_mm: 240, w_mm: 0.714, shoulderForm: form, bowLambda: lam,
+          muWrap: Math.max(lam, 0.32), rowsMode: 'untilEquator',
+        });
+        const rows = (set) => Math.max(0, ...A.path.segs.filter((s) => s.type === 'leg' && s.set === set).map((s) => s.row));
+        const dS = (set) => {
+          const b = A.path.stitches.filter((st) => st.set === set && st.level === 'bottom' && st.i === 1 && !st.closing);
+          return b.slice(1).map((st, i) => +(st.s - b[i].s).toFixed(4));
+        };
+        snaps[N] = { a: rows('A'), b: rows('B'), dA: dS('A'), dB: dS('B') };
+      }
+      setLegSamples(baseN);
+      const rowsSame = snaps[96].a === snaps[192].a && snaps[192].a === snaps[384].a
+        && snaps[96].b === snaps[192].b && snaps[192].b === snaps[384].b;
+      // Rows must match exactly. Δ_n within 0.5% across grids (dense-grid chatter ≤~0.003 mm on Δ≈2.3).
+      const close = (a, b) => a.length === b.length && a.every((x, i) => {
+        const tol = Math.max(0.005, 0.005 * Math.abs(b[i] || a[i] || 1));
+        return Math.abs(x - b[i]) <= tol;
+      });
+      const dSame = close(snaps[96].dA, snaps[192].dA) && close(snaps[192].dA, snaps[384].dA)
+        && close(snaps[96].dB, snaps[192].dB) && close(snaps[192].dB, snaps[384].dB);
+      console.log(`  pack-grid λ=${lam}: 96=${snaps[96].a}/${snaps[96].b} rowsSame=${rowsSame} dSame=${dSame}`);
+      check(rowsSame && dSame, `packing rows+Δ_n stable on 96/192/384 at λ=${lam} (A/B)`);
+    }
+  }
   // Spot-check remaining table λ via tipDrop on two-row bow (Δ₂ only).
   for (const row of table.filter((r) => r.lam > 0 && r.lam !== 0.32 && r.lam !== 0.6)) {
     const A = computeAll(recipe, { shoulderForm: 'bow', bowLambda: row.lam, muWrap: Math.max(row.lam, 0.32), rowsMode: 'count', rowsCount: 2 });
@@ -729,9 +795,36 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const vals = Object.fromEntries(runValidators(A, A.path.ops.length - 1, null).map((v) => [v.id, v]));
   console.log(`  K16: ${vals.K16?.status} — ${vals.K16?.value}`);
   check(vals.K16?.status === 'pass', `K16a–c pass (got ${vals.K16?.status})`);
-  console.log(`  V8: ${vals.V8?.status} — ${(vals.V8?.value || '').slice(0, 180)}`);
-  check(vals.V8?.status !== 'fail', `V8 not fail with tipCross class (got ${vals.V8?.status})`);
-  check(/tipCross/.test(vals.V8?.value || ''), 'V8 reports tipCross class (6a.13)');
+  const v8 = vals.V8;
+  const tipN = (v8?.details?.found || []).filter((r) => /tipCross/.test(r.why)).length;
+  console.log(`  V8: ${v8?.status} — tipCross=${tipN}; ${(v8?.value || '').slice(0, 160)}`);
+  check(tipN > 0 || /tipCross/.test(v8?.value || ''), 'V8 reports tipCross class (6a.13)');
+  // Height band: every tipCross is within h_x of a bottom tip (not mid-leg ~35 mm).
+  const hx = (A.params.m_mm + A.params.w_mm) / (2 * Math.tan(Math.PI / 10));
+  const byId = new Map(A.path.segs.map((s) => [s.id, s]));
+  let farTip = 0;
+  for (const r of (v8?.details?.found || []).filter((x) => /tipCross/.test(x.why))) {
+    const P = byId.get(r.a), Q = byId.get(r.b);
+    if (!P || !Q) continue;
+    const lo = P.row <= Q.row ? P : Q;
+    const st = A.path.stitches.find((s) => s.set === lo.set && s.row === lo.row && s.level === 'bottom' && !s.closing
+      && (s.line === P.line || s.line === Q.line));
+    if (st && Math.abs((st.s ?? 0) - r.s) > hx + 1) farTip++;
+  }
+  check(farTip === 0, `tipCross contacts all within ~h_x of tip (far=${farTip})`);
+  // Mid-leg same-line ~35 mm from tip must NOT be tipCross (6a.13); flush → rail-parallel.
+  const midCand = [...(v8?.details?.found || []), ...(v8?.details?.bad || [])].find((b) => {
+    const P = byId.get(b.a), Q = byId.get(b.b);
+    if (!P || !Q || P.type !== 'leg' || Q.type !== 'leg' || P.set !== Q.set || P.line !== Q.line) return false;
+    const lo = P.row <= Q.row ? P : Q;
+    const st = A.path.stitches.find((s) => s.set === lo.set && s.row === lo.row && s.level === 'bottom' && s.line === lo.line && !s.closing);
+    return st && Math.abs((st.s ?? 0) - b.s) > 20;
+  });
+  console.log(`  mid-leg same-line: ${midCand ? `${midCand.a}×${midCand.b} s=${fmt(midCand.s, 1)} ${midCand.why}` : 'none'}`);
+  check(!!midCand && !/tipCross/.test(midCand.why || ''), 'same-line intersection ~35 mm from tip is NOT tipCross');
+  // V8 classifies mid-leg same-line as through-row / tip-zone / rail-parallel / unexpected — any non-tipCross.
+  check(!!midCand && /rail parallel|through-row|tip.?zone|UNEXPECTED/i.test(midCand.why || ''),
+    'same-line ~35 mm classified (through-row/tip-zone/rail-parallel/unexpected), never tipCross');
 }
 
 
@@ -788,31 +881,79 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   check(peaks[0] >= peaks[1] - 1e-6 && peaks[1] >= peaks[2] - 1e-6, `B.8 peaks converge 96→192→384 (${peaks.map((x) => fmt(x, 2)).join('→')})`);
 }
 
-// 8f. Display: rail-parallel must not contribute to stack lift (top-view ladder waves)
+// 8f. Display 6a.17 lift(d): by distance d, all rows / both sets (review of 51eddd6)
 {
-  console.log('\n## Display stackProfile: no lift on rail-parallel');
-  check(STACK_LIFT_SKIP_KINDS.has('rail-parallel'), 'STACK_LIFT_SKIP_KINDS includes rail-parallel');
-  for (const mu of [0, 0.32]) {
-    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', muWrap: mu });
-    const legs = A.path.segs.filter((s) => s.type === 'leg' && s.round === 'A2');
-    let rpOnTop = 0, liftSwitches = 0, maxLift = 0;
+  console.log('\n## Display stackProfile: lift(d) for all rows / sets (6a.17)');
+  const w0 = 0.714;
+  check(Math.abs(liftFromDist(w0, w0)) < 1e-12, 'lift(d=w) = 0');
+  check(Math.abs(liftFromDist(w0 + 0.01, w0)) < 1e-12, 'lift(d>w) = 0');
+  check(Math.abs(liftFromDist(0, w0) - DISPLAY_STACK_LIFT_W * w0) < 1e-9, 'lift(d=0) = 0.6·w');
+  check(liftFromDist(w0 * 0.5, w0) > 1e-9, 'lift(d<w) > 0');
+  // Deprecated kind-skip list kept only as alias; acceptance is by d, not kind.
+  check(STACK_LIFT_SKIP_KINDS.has('rail-parallel'), 'STACK_LIFT_SKIP_KINDS still lists rail-parallel (compat)');
+
+  for (const cfg of [
+    { label: 'geo0', shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0 },
+    { label: 'bow0.32', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32 },
+  ]) {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: w0, rowsMode: 'untilEquator', ...cfg });
+    const w = A.params.w_mm;
+    const legs = A.path.segs.filter((s) => s.type === 'leg');
+    // All rows, both sets
+    const bySet = { A: legs.filter((s) => s.set === 'A'), B: legs.filter((s) => s.set === 'B') };
+    check(bySet.A.length > 0 && bySet.B.length > 0, `${cfg.label}: legs in both sets A and B`);
+    const rowsA = new Set(bySet.A.map((s) => s.row));
+    const rowsB = new Set(bySet.B.map((s) => s.row));
+    check(rowsA.size >= 2 && rowsB.size >= 2, `${cfg.label}: multiple rows each set (A=${rowsA.size}, B=${rowsB.size})`);
+
+    // Assert by d (6a.17), not kind: lift only when d < w; d ≥ w → lift 0.
+    // Rail-parallel packing sits at d ≈ w − ε (never exact ≥ w); count those separately for bow.
+    let realOnTop = 0;       // d < w (true crossings / tipCross / wedge / climb / squeeze)
+    let flushGeW = 0;        // d ≥ w → lift must be 0
+    let railParOnTop = 0;    // kind rail-parallel (d ≈ w)
+    let maxLiftFromGeW = 0;  // max liftFromDist among d ≥ w — must be 0
+    let maxLiftRailParClamped = 0; // liftFromDist(max(d,w)) for rail-parallel ≡ 0
+    let maxLift = 0;
+    let anyLiftFromClose = 0;
+
     for (const L of legs) {
-      const cs = A.path.crossings.filter((c) => c.over === L.id);
-      rpOnTop += cs.filter((c) => c.kind === 'rail-parallel').length;
+      const onTop = A.path.crossings.filter((c) => c.over === L.id);
+      for (const c of onTop) {
+        const d = c.dmin != null ? c.dmin : w;
+        const liftD = liftFromDist(d, w);
+        if (c.kind === 'rail-parallel') {
+          railParOnTop++;
+          maxLiftRailParClamped = Math.max(maxLiftRailParClamped, liftFromDist(Math.max(d, w), w));
+        }
+        if (d >= w - 1e-9) {
+          flushGeW++;
+          maxLiftFromGeW = Math.max(maxLiftFromGeW, liftD);
+        } else {
+          realOnTop++;
+          anyLiftFromClose = Math.max(anyLiftFromClose, liftD);
+        }
+      }
       const p = stackProfile(A, L);
-      for (let i = 1; i < p.length; i++) if ((p[i] > 0.05) !== (p[i - 1] > 0.05)) liftSwitches++;
       maxLift = Math.max(maxLift, ...p);
     }
-    // With rail-parallel skipped, switches come only from real stack contacts (crossing/wedge/…).
-    const realOnTop = A.path.crossings.filter((c) => {
-      const L = legs.find((x) => x.id === c.over);
-      return L && c.kind !== 'rail-parallel';
-    }).length;
-    console.log(`  λ=${mu}: A2 rail-parallel on-top=${rpOnTop} real on-top=${realOnTop} liftSwitches=${liftSwitches} maxLift=${fmt(maxLift, 2)}`);
-    check(rpOnTop > 0, `λ=${mu}: A2 still reports rail-parallel contacts (path unchanged)`);
-    check(liftSwitches < rpOnTop, `λ=${mu}: lift switches (${liftSwitches}) << rail-parallel count (${rpOnTop}) — rp not lifting`);
-    // Sanity: profile never lifts solely because of rail-parallel (max from other kinds is fine).
-    check(Number.isFinite(maxLift) && maxLift >= 0, `λ=${mu}: stackProfile finite`);
+
+    console.log(`  ${cfg.label}: legs=${legs.length} rowsA=${rowsA.size} rowsB=${rowsB.size} ` +
+      `realOnTop=${realOnTop} flushGeW=${flushGeW} railPar=${railParOnTop} ` +
+      `maxLiftGeW=${fmt(maxLiftFromGeW, 6)} maxLiftRailParClamped=${fmt(maxLiftRailParClamped, 6)} ` +
+      `maxLiftClose=${fmt(anyLiftFromClose, 4)} maxLift=${fmt(maxLift, 3)} mm`);
+
+    // (2) Direct: max lift from d ≥ w contacts === 0; rail-parallel treated as d ≥ w → 0
+    check(maxLiftFromGeW < 1e-12, `${cfg.label}: max liftFromDist for d≥w contacts === 0 (got ${maxLiftFromGeW})`);
+    check(maxLiftRailParClamped < 1e-12, `${cfg.label}: rail-parallel liftFromDist(max(d,w)) === 0`);
+    // (3) True crossings on top exist — else test would pass if crossings vanished
+    check(realOnTop > 0, `${cfg.label}: realOnTop > 0 (contacts with d<w on top)`);
+    // Bow packs rails: rail-parallel contacts must exist (d≈w; exact d≥w may be empty numerically)
+    if (cfg.label.startsWith('bow')) {
+      check(railParOnTop > 0, `${cfg.label}: rail-parallel on-top contacts > 0`);
+    }
+    // (4) By d: close contacts produce lift; far do not
+    check(anyLiftFromClose > 1e-9, `${cfg.label}: liftFromDist(d<w) > 0 on some on-top contact`);
+    check(Number.isFinite(maxLift) && maxLift >= 0, `${cfg.label}: stackProfile finite`);
   }
 }
 
