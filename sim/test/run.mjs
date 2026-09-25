@@ -64,14 +64,30 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   check(summary(V2).fail === 0, 'подобный набор проходит все валидаторы (до A2)');
 }
 
-// 2c. Недопустимый дизайн ловится валидатором: S16 с верхом в 5 мм — замыкающий захват задевает соседнюю линию
+// 2c. S16: dense marking — V5 catches neighbour-line reach; closing X uses squeeze (D36), not calc.py's old formula
 {
   const A = computeAll(recipe, { N: 16 });
   const V = runValidators(A, '2b', ref);
   const v5 = V.find((v) => v.id === 'V5');
   console.log(`\n  N = 16, верх 5 мм: V5 ${v5.status}: ${v5.value}`);
   check(v5.status === 'fail', 'S16 при верхе 5 мм: V5 = fail (захват задевает соседнюю линию разметки) — ожидаемо');
-  check(V.find((v) => v.id === 'V3').status === 'pass', 'S16: геометрия всё равно совпадает с calc.py');
+  // calc.py still uses X = −((m+w)/2 + w) for closing; sim squeezes to mid-gap when neighbour gap < w (D36).
+  // V3 may fail on the squeezed closing stitch — contract: non-squeezed stitches match; closing Δ = squeeze.comp.
+  const m = A.params.m_mm, w = A.params.w_mm;
+  const a1 = A.path.stitches.filter((st) => st.round === 'A1');
+  const closing = a1.find((st) => st.closing);
+  const nonsq = a1.filter((st) => !(st.sides.squeeze || []).length);
+  const oldClosingX = -((m + w) / 2 + w);
+  const sq = (closing.sides.squeeze || []).find((q) => q.side === 'X');
+  check(!!sq, 'S16 closing stitch records X-side squeeze');
+  check(Math.abs(closing.xOff - (oldClosingX + sq.comp)) < 1e-9,
+    `S16 closing xOff = oldFormula + squeeze.comp (got Δ=${(closing.xOff - oldClosingX).toFixed(6)}, comp=${sq.comp.toFixed(6)})`);
+  check(nonsq.every((st) => Math.abs(st.eOff - (m + w) / 2) < 1e-9 && Math.abs(st.xOff + (m + w) / 2) < 1e-9),
+    'S16 non-squeezed A1 stitches keep E/X = ±(m+w)/2 (calc.py contract)');
+  const v3 = V.find((v) => v.id === 'V3');
+  console.log(`  S16 V3 ${v3.status} (expected fail/info on squeezed closing): dXY=${v3.numbers?.dXY?.toFixed?.(6) ?? v3.numbers?.dXY}`);
+  check(v3.status === 'fail' && Math.abs((v3.numbers?.dXY ?? 0) - sq.comp) < 1e-6,
+    'S16 V3 fails only by closing squeeze compensation (dXY ≈ comp)');
   const B = computeAll(recipe, { N: 16, sTop_mm: 8 });
   check(summary(runValidators(B, '2b', null)).fail === 0, 'S16 с верхом 8 мм: без fail');
 }
