@@ -833,61 +833,63 @@ function railLeg(R, from, to, prevArm, w = 0) {
     const tangRes = (s) => {
       const P = pointAtArcMm(R, railPts, s);
       const q = unit(P.q);
-      const Ta = polyTangent(railPts, P.i);
+      const Ta = polyTangentAt(railPts, P); // v3 §3.2(8): same continuous tangent field as the exit
       const spl = R * angle(X, q);
       // Co-directional arrival∥rail along travel toward E (no abs — abs accepted ~180° reverse).
       const Tdir = towardE > 0 ? Ta : mul(Ta, -1);
       const arrive = mul(tangentTo(q, X), -1); // inbound at q from X
       return { q, Ta, P, res: dot(X, cross(q, Tdir)), score: dot(arrive, Tdir), spl };
     };
-    let best = null;
+    // v3 §3.2(10)/(13б): the entry is a tangency found by geometry, not by a cost minimum — a
+    // residual root (or a touching double root) that meets the same dimensionless criterion as
+    // the exit: sin∠(rail tangent, arrival) ≤ 0.01 or residual ≤ 0.02·w. Several numeric roots →
+    // smallest residual, then nearest to the lateral foot. No tangency → the climb path below.
+    const wE = Math.max(w || W0_MM, 1e-9);
+    const entryOk = (t) => t.spl <= spliceCap + 1e-9 && t.score > cos1
+      && (Math.sqrt(Math.max(0, 1 - t.score * t.score)) <= 0.01 || R * Math.asin(Math.min(1, Math.abs(t.res))) <= 0.02 * wE);
     const nScan = 160;
     const sSpan = Math.max(1e-9, sHi - sLo);
-    for (let k = 0; k <= nScan; k++) {
-      const s = sLo + sSpan * (k / nScan);
-      const t = tangRes(s);
-      if (t.spl > spliceCap + 1e-9) continue;
-      if (!(t.score > cos1)) continue; // co-directional within 1°
-      // residual≈0 + mild pull toward predicted L_j.
-      const cost = Math.abs(t.res) * R + (1 - t.score) * 2 * (w || 1) + Math.abs(t.spl - Lj) * 0.05;
-      if (!best || cost < best.cost) best = { s, score: t.score, cost, res: t.res };
+    const scan = [];
+    for (let k = 0; k <= nScan; k++) { const sk = sLo + sSpan * (k / nScan); scan.push({ s: sk, ...tangRes(sk) }); }
+    const cands = [];
+    for (let k = 0; k < nScan; k++) {
+      const a = scan[k], c = scan[k + 1];
+      if (!(a.score > 0 && c.score > 0) || a.res * c.res > 0) continue;
+      let lo = a.s, hi = c.s, flo = a.res;
+      for (let it = 0; it < 48; it++) {
+        const mid = 0.5 * (lo + hi), fm = tangRes(mid).res;
+        if (flo * fm <= 0) hi = mid; else { lo = mid; flo = fm; }
+      }
+      const sm = 0.5 * (lo + hi);
+      cands.push({ s: sm, ...tangRes(sm) });
+    }
+    for (let k = 1; k < nScan; k++) {
+      const a = scan[k - 1], b = scan[k], c = scan[k + 1];
+      if (!(b.score > 0) || Math.abs(b.res) > Math.abs(a.res) || Math.abs(b.res) > Math.abs(c.res)) continue;
+      let lo = a.s, hi = c.s;
+      for (let it = 0; it < 48; it++) {
+        const m1 = lo + (hi - lo) * 0.382, m2 = lo + (hi - lo) * 0.618;
+        if (Math.abs(tangRes(m1).res) < Math.abs(tangRes(m2).res)) hi = m2; else lo = m1;
+      }
+      const sm = 0.5 * (lo + hi);
+      cands.push({ s: sm, ...tangRes(sm) });
+    }
+    let best = null;
+    for (const c of cands) {
+      if (!entryOk(c)) continue;
+      const r = Math.abs(c.res) * R, rb = best ? Math.abs(best.res) * R : Infinity;
+      if (!best || r < rb - 1e-9 * wE || (Math.abs(r - rb) <= 1e-9 * wE && Math.abs(c.s - s0) < Math.abs(best.s - s0))) best = c;
     }
     if (!best) {
-      // No co-directional entrance in window — climb/merge path below (not a reverse tangent).
+      // No co-directional tangency in the window — climb/merge path below (not a reverse tangent).
       best = { s: s0, score: 0, cost: Infinity, res: 0 };
-    }
-    // Bracket a sign-change of residual near the best score and bisect
-    let sL = best.s, sR = best.s, rL = best.res;
-    const ds = (sHi - sLo) / nScan;
-    for (const dir of [-1, 1]) {
-      for (let step = 1; step <= 6; step++) {
-        const s2 = Math.min(sHi, Math.max(sLo, best.s + dir * step * ds));
-        const r2 = tangRes(s2).res;
-        if (rL * r2 <= 0) { sL = best.s; sR = s2; rL = best.res; break; }
-      }
-    }
-    if (rL * tangRes(sR).res <= 0) {
-      let a = sL, b = sR, fa = tangRes(a).res;
-      for (let it = 0; it < 48; it++) {
-        const mid = 0.5 * (a + b), fm = tangRes(mid).res;
-        if (fa * fm <= 0) b = mid; else { a = mid; fa = fm; }
-      }
-      best.s = 0.5 * (a + b);
-    } else {
-      // Golden refine on |res|
-      let a = Math.max(sLo, best.s - 2 * ds), b = Math.min(sHi, best.s + 2 * ds);
-      for (let it = 0; it < 40; it++) {
-        const m1 = a + (b - a) * 0.382, m2 = a + (b - a) * 0.618;
-        if (Math.abs(tangRes(m1).res) < Math.abs(tangRes(m2).res)) b = m2; else a = m1;
-      }
-      best.s = 0.5 * (a + b);
     }
     Tpt = tangRes(best.s).q;
     splice = R * angle(X, Tpt);
     // 6a.17 / block-B: exterior tangent ≤1°. If search landed >1° from parallel, use climb/merge instead.
     {
       const hitJ = closestOnPoly(R, Tpt, railPts);
-      const Trail = polyTangent(railPts, hitJ.i);
+      const Trail = polyTangentAt(railPts, hitJ);
       const Tarrive = mul(tangentTo(unit(Tpt), unit(X)), -1);
       const nrm = unit(Tpt);
       const proj = (v) => {
@@ -911,7 +913,7 @@ function railLeg(R, from, to, prevArm, w = 0) {
         const angAt = (sM) => {
           const q = unit(pointAtArcMm(R, railPts, sM).q);
           const hitJ2 = closestOnPoly(R, q, railPts);
-          const Trail2 = polyTangent(railPts, hitJ2.i);
+          const Trail2 = polyTangentAt(railPts, hitJ2);
           const Tarr = mul(tangentTo(q, unit(X)), -1);
           const n2 = q;
           const pr = (v) => {
@@ -954,101 +956,137 @@ function railLeg(R, from, to, prevArm, w = 0) {
     pts.push(mul(unit(add(mul(X, Math.sin((1 - tt) * a) / s), mul(Tpt, Math.sin(tt * a) / s))), R));
   }
   const hitT = closestOnPoly(R, Tpt, railPts);
-  // 6a.15 tangent exit: leave rail at Tex where geodesic Tex→E is co-directional with
-  // the rail tangent along travel T→E. Require dot > cos(1°) — NEVER abs(dot), which
-  // accepted near-backward exits (dot≈−1 → ~180° reversal at leg end).
+  // Spec v3 §3.2(13) (= v2 6a.23, #21) upper end: E_n is fixed, so the exit is the tangent from a fixed point to the
+  // (convex) rail. Window [T₁; rail end] in travel direction — never behind T₁ (no backward walk).
+  // One continuous tangent field (polyTangentAt) for entry and exit. No cost pull toward E:
+  // geometry chooses. Tangency is dimensionless: sin∠(rail tangent at T, T→E_n) ≤ 0.01 or
+  // residual ≤ 0.02·w (§3.2(13б)); cos 5° is only a direction guard. Window (13в). No root → drain
+  // at the hole (E inside the rail, mirror of (11)) or free geodesic from the end of contact (E
+  // outside); fail only on contradiction (13г). Lower-end packing root: §3.2(12), no tangency search.
   const sT0 = polyArcMm(R, railPts, hitT.i, hitT.t);
   const sE0 = polyArcMm(R, railPts, hitE.i, hitE.t);
   const forward = sE0 >= sT0;
-  const span = Math.max(Math.abs(sE0 - sT0), mmAtW(2, w || W0_MM));
-  // Directed T→E window (small pads for discrete rail); still require co-directionality.
-  const sLo = Math.max(0, (forward ? sT0 : sE0) - 0.05 * span);
-  const sHi = Math.max(sLo + 1e-9, (forward ? sE0 : sT0) + 0.05 * span);
-  // Ideal co-directionality: dot > cos(1°). Faceted rails often peak near ~2°; accept
-  // up to cos(5°) as co-directional (faceted rail; still rejects reverse). NEVER abs(dot) — that accepted ~180° reverse exits.
-  const cos1 = Math.cos(Math.PI / 180);
-  const cosAccept = Math.cos(5 * Math.PI / 180); // faceted-rail slack; ideal remains cos1
+  const railCum = [0];
+  for (let i = 1; i < railPts.length; i++) railCum.push(railCum[i - 1] + R * angle(railPts[i - 1], railPts[i]));
+  const railLen = railCum[railCum.length - 1];
+  const railAt = (sMm) => {
+    const s = Math.min(railLen, Math.max(0, sMm));
+    let lo = 0, hi = railPts.length - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (railCum[mid] <= s) lo = mid; else hi = mid; }
+    const i = Math.min(lo, railPts.length - 2);
+    const seg = railCum[i + 1] - railCum[i];
+    const u = seg > 1e-15 ? Math.min(1, Math.max(0, (s - railCum[i]) / seg)) : 0;
+    const a = unit(railPts[i]), b = unit(railPts[i + 1]);
+    const om = angle(a, b);
+    const q = om < 1e-15 ? a
+      : unit(add(mul(a, Math.sin((1 - u) * om) / Math.sin(om)), mul(b, Math.sin(u * om) / Math.sin(om))));
+    return { q, i, t: u };
+  };
+  const sLo = forward ? sT0 : 0;
+  const sHi = forward ? railLen : sT0;
+  const dirS = forward ? 1 : -1;
+  const cosAccept = Math.cos(5 * Math.PI / 180); // direction guard only (v3 §3.2(13б))
+  const wEff = Math.max(w || W0_MM, 1e-9);
+  const tanSinTol = 0.01, tanResTol = 0.02 * wEff;
   const exitRes = (s) => {
-    const P = pointAtArcMm(R, railPts, s);
-    const q = unit(P.q);
+    const P = railAt(s);
+    const q = P.q;
     const Ta = polyTangentAt(railPts, P);
     const Tdir = forward ? Ta : mul(Ta, -1);
     const towardE = tangentTo(q, E);
-    return { q, score: dot(towardE, Tdir), res: dot(E, cross(q, Tdir)), s };
+    const res = dot(E, cross(q, Tdir));
+    return {
+      q, s, score: dot(towardE, Tdir), res,
+      sin: Math.abs(dot(cross(Tdir, towardE), q)),
+      resMm: R * Math.asin(Math.min(1, Math.abs(res))),
+    };
   };
-  // One cost for every candidate kind (scan sample, score peak, tangency root): residual,
-  // co-directionality, and a pull toward E along the rail. All terms are lengths (mm) built
-  // from R, w and rail arc length, so the choice is invariant under uniform scaling. The
-  // pull also breaks ties between several genuine tangency roots deterministically
-  // (keep the thread on the rail as long as possible), instead of by float round-off.
-  const exitCost = (t) => Math.abs(t.res) * R + (1 - t.score) * 2 * (w || 1)
-    + 0.02 * Math.abs(t.s - sE0) + (t.score > cos1 ? 0 : 0.01 * (w || 1));
-  // Scan for co-directional candidates; prefer a true tangency root (res sign change).
-  let best = null;
-  let bestAny = null; // max directed score (for refine)
-  const nScan = 120;
+  const isTangent = (t) => t.score > cosAccept && (t.sin <= tanSinTol || t.resMm <= tanResTol);
+  // Scan at about half the rail vertex spacing (grid-following, dimensionless in the rail).
+  const nScan = Math.max(160, Math.min(4000, 2 * railPts.length));
   const samples = [];
-  for (let k = 0; k <= nScan; k++) {
-    const s = sLo + (sHi - sLo) * (k / nScan);
-    const t = exitRes(s);
-    samples.push(t);
-    if (!bestAny || t.score > bestAny.score) bestAny = t;
-    if (!(t.score > cosAccept)) continue;
-    const cost = exitCost(t); // prefers ≤1° when available
-    if (!best || cost < best.cost) best = { ...t, cost };
-  }
-  // Golden-section polish on directed score around the peak.
-  if (bestAny) {
-    let a = Math.max(sLo, bestAny.s - (sHi - sLo) / nScan * 4);
-    let b = Math.min(sHi, bestAny.s + (sHi - sLo) / nScan * 4);
-    for (let it = 0; it < 28; it++) {
-      const m1 = a + (b - a) * 0.382, m2 = a + (b - a) * 0.618;
-      if (exitRes(m1).score < exitRes(m2).score) a = m1; else b = m2;
+  for (let k = 0; k <= nScan; k++) samples.push(exitRes(sLo + (sHi - sLo) * (k / nScan)));
+  const cands = [];
+  for (let i = 0; i < samples.length - 1; i++) {
+    const a = samples[i], b = samples[i + 1];
+    if (!(a.score > 0 && b.score > 0) || a.res * b.res > 0) continue; // never across reverse
+    let lo = a.s, hi = b.s, flo = a.res;
+    for (let it = 0; it < 48; it++) {
+      const mid = 0.5 * (lo + hi), fm = exitRes(mid);
+      if (flo * fm.res <= 0) hi = mid; else { lo = mid; flo = fm.res; }
     }
-    const peak = exitRes(0.5 * (a + b));
-    if (!bestAny || peak.score > bestAny.score) bestAny = peak;
-    if (peak.score > cosAccept) {
-      const cost = exitCost(peak);
-      if (!best || cost < best.cost) best = { ...peak, cost };
-    }
+    cands.push(exitRes(0.5 * (lo + hi)));
   }
-  // Bisect a residual sign-change among co-directional samples (true tangency root).
+  // Double (touching) roots have no sign change: refine local minima of |res| too.
+  for (let i = 1; i < samples.length - 1; i++) {
+    const a = samples[i - 1], b = samples[i], c = samples[i + 1];
+    if (!(b.score > 0) || Math.abs(b.res) > Math.abs(a.res) || Math.abs(b.res) > Math.abs(c.res)) continue;
+    let lo = a.s, hi = c.s;
+    for (let it = 0; it < 48; it++) {
+      const m1 = lo + (hi - lo) * 0.382, m2 = lo + (hi - lo) * 0.618;
+      if (Math.abs(exitRes(m1).res) < Math.abs(exitRes(m2).res)) hi = m2; else lo = m1;
+    }
+    cands.push(exitRes(0.5 * (lo + hi)));
+  }
   {
-    let root = null;
-    for (let i = 0; i < samples.length - 1; i++) {
-      const a = samples[i], b = samples[i + 1];
-      if (!(a.score > 0 && b.score > 0)) continue; // never across reverse
-      if (a.res * b.res > 0) continue;
-      let lo = a.s, hi = b.s, flo = a.res;
-      for (let it = 0; it < 40; it++) {
-        const mid = 0.5 * (lo + hi), fm = exitRes(mid);
-        if (!(fm.score > 0)) break;
-        if (flo * fm.res <= 0) hi = mid; else { lo = mid; flo = fm.res; }
-      }
-      const mid = exitRes(0.5 * (lo + hi));
-      if (mid.score > cosAccept) {
-        const cost = exitCost(mid);
-        if (!root || cost < root.cost) root = { ...mid, cost };
-      }
-    }
-    if (root) best = root;
+    const last = samples[samples.length - 1];
+    if (last.score > 0) cands.push(last);
   }
-  // hitE.q only if co-directional within accept gate — never silent reverse/orthogonal fallback.
+  // E_n on the rail (|d| within the onRail band): the tangent from E_n is the rail tangent at
+  // E_n's own foot, so the thread stays on the rail up to the hole. Handled explicitly: near a
+  // point of the curve every nearby sample has a round-off-level residual, and picking the
+  // "smallest" of those would depend on float noise (it broke ×k similarity).
+  const latE = signedLateralToPoly(R, E, railPts, prevArm);
+  const dE = latE.signedMm;
+  const eOnRail = Math.abs(dE) < onRailTol;
+  // Smallest tangency residual wins; residuals equal to 1e-9·w → first along travel.
+  let best = null;
+  if (eOnRail) best = exitRes(sE0);
+  else for (const c of cands) {
+    if (!isTangent(c)) continue;
+    if (!best || c.resMm < best.resMm - 1e-9 * wEff
+      || (Math.abs(c.resMm - best.resMm) <= 1e-9 * wEff && dirS * (c.s - best.s) < 0)) best = c;
+  }
+  let exitKind = eOnRail ? 'atE' : 'root', exitFail = false;
   if (!best) {
-    const atE = exitRes(sE0);
-    if (atE.score > cosAccept) best = { ...atE, cost: Math.abs(atE.res) * R };
+    if (dE <= 0) {
+      // E_n inside (or on) the rail: drain at the hole, mirror of 6a.7(3): geodesic from the rail
+      // point ℓ_m = max(w, 3δ) before E_n's foot to the hole.
+      const deltaE = Math.max(0, -dE);
+      const Lm = Math.max(w || 0, 3 * deltaE);
+      const sDrain = forward ? Math.max(sT0, sE0 - Lm) : Math.min(sT0, sE0 + Lm);
+      best = exitRes(sDrain);
+      exitKind = 'drain';
+    } else {
+      // E_n outside with no tangency: the rail ends where contact ends (6a.15) — the point of
+      // maximum co-directionality toward E_n — and the exit is a free geodesic from there.
+      let pk = samples[0];
+      for (const t of samples) if (t.score > pk.score) pk = t;
+      let a = Math.max(sLo, pk.s - (sHi - sLo) / nScan), b = Math.min(sHi, pk.s + (sHi - sLo) / nScan);
+      for (let it = 0; it < 40; it++) {
+        const m1 = a + (b - a) * 0.382, m2 = a + (b - a) * 0.618;
+        if (exitRes(m1).score < exitRes(m2).score) a = m1; else b = m2;
+      }
+      const pk2 = exitRes(0.5 * (a + b));
+      best = pk2.score > pk.score ? pk2 : pk;
+      exitKind = 'free';
+      // Contradiction (the only fail): the free geodesic re-enters the tube of row n−1.
+      const om = angle(best.q, E);
+      const L = R * om;
+      if (L > wEff) {
+        const nChk = Math.max(8, Math.ceil(L / (0.25 * wEff)));
+        for (let k = 1; k < nChk; k++) {
+          const tt = k / nChk;
+          if (tt * L < wEff) continue;
+          const g = unit(add(mul(best.q, Math.sin((1 - tt) * om) / Math.sin(om)), mul(E, Math.sin(tt * om) / Math.sin(om))));
+          if (pointPolyDistMm(R, g, prevPts) < wEff * (1 - 0.01)) { exitFail = true; break; }
+        }
+      }
+      if (exitFail) exitKind = 'contradiction';
+    }
   }
-  if (!best && bestAny && bestAny.score > cosAccept) {
-    best = { ...bestAny, cost: Math.abs(bestAny.res) * R };
-  }
-  if (!best || !(best.score > cosAccept)) {
-    const sc = bestAny ? bestAny.score : NaN;
-    throw new Error(
-      `rail exit: no co-directional tangency (dot>cos5°, target cos1°) on T→E `
-      + `(sT=${sT0.toFixed(3)}, sE=${sE0.toFixed(3)}, forward=${forward}, peakScore=${Number.isFinite(sc) ? sc.toFixed(6) : 'na'}); `
-      + `refusing reverse/silent hitE fallback`,
-    );
-  }
+  const exitSin = eOnRail ? 0 : best.sin, exitResMm = eOnRail ? Math.abs(dE) : best.resMm; // at E: tangent at the foot
+  const exitAlongMm = Math.abs(best.s - sT0);
   const exitQ = best.q;
   const railSlice = polySliceToward(R, railPts, hitT.i, hitT.t, exitQ, Math.max(1, n - Tcount));
   for (let i = 0; i < railSlice.length; i++) {
@@ -1166,6 +1204,7 @@ function railLeg(R, from, to, prevArm, w = 0) {
     railKind,
     holeTurnDeg,
     mergeTurnDeg,
+    exitKind, exitFail, exitSin, exitResMm, exitAlongMm,
   };
 }
 
@@ -1492,7 +1531,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         layMode: legShape.layMode || (spec.row === 1 ? 'row1' : 'rail'),
         spliceMm: legShape.spliceMm ?? 0, lateralMm: legShape.lateralMm ?? 0, turnAtTDeg: legShape.turnAtTDeg ?? 0, interiorXn: !!legShape.interiorXn,
         joinMode: legShape.joinMode || null, climbMm: legShape.climbMm ?? 0, deltaMm: legShape.deltaMm ?? 0, deltaFail: !!legShape.deltaFail,
-        railKind: legShape.railKind || null, holeTurnDeg: legShape.holeTurnDeg ?? 0, mergeTurnDeg: legShape.mergeTurnDeg ?? 0 });
+        railKind: legShape.railKind || null, holeTurnDeg: legShape.holeTurnDeg ?? 0, mergeTurnDeg: legShape.mergeTurnDeg ?? 0,
+        exitKind: legShape.exitKind || null, exitFail: !!legShape.exitFail, exitSin: legShape.exitSin ?? null, exitResMm: legShape.exitResMm ?? null, exitAlongMm: legShape.exitAlongMm ?? null });
       if (i === 1) RD.firstLegId = leg.id;
       // перекресты и прилегания со ВСЕМИ ранее уложенными плечами (обе нити): правило над/под
       for (const other of legs()) {

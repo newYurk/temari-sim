@@ -898,6 +898,32 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   }
 }
 
+// 8d0c. Spec v3 §3.2(13) (v2 6a.23, #21) rail exit: tangent root / on-rail E / drain / free geodesic; no throw, no cost pull.
+{
+  console.log('\n## v3 §3.2(13) rail exit classes (root / atE / drain / free; fail only on contradiction)');
+  for (const lam of [0.32, 0.6]) {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', bowLambda: lam, muWrap: 0.32, rowsMode: 'untilEquator' });
+    const w = A.params.w_mm;
+    const rail = A.path.segs.filter((s) => s.type === 'leg' && s.exitKind);
+    const by = {};
+    for (const s of rail) by[s.exitKind] = (by[s.exitKind] || 0) + 1;
+    console.log(`  λ=${lam}: rail legs ${rail.length} ${JSON.stringify(by)}`);
+    check(rail.length > 0 && rail.every((s) => ['root', 'atE', 'drain', 'free'].includes(s.exitKind)),
+      `λ=${lam}: every rail exit is root/atE/drain/free (no contradiction; got ${JSON.stringify(by)})`);
+    // v3 §3.2(13б): an accepted tangency is dimensionless — sin ≤ 0.01 or residual ≤ 0.02·w.
+    const badRoot = rail.filter((s) => s.exitKind === 'root' && !(s.exitSin <= 0.01 || s.exitResMm <= 0.02 * w));
+    check(badRoot.length === 0, `λ=${lam}: every root exit meets sin≤0.01 or res≤0.02w (bad ${badRoot.map((s) => s.id).join(',') || 0})`);
+    // Lower end (bottom legs, v3 §3.2(12)): E_n is the packing root on the rail — the thread stays on the rail to E_n.
+    const botOff = rail.filter((s) => s.level === 'bottom' && s.exitKind !== 'atE');
+    check(botOff.length === 0, `λ=${lam}: bottom legs end on the rail at E_n (atE; off ${botOff.map((s) => s.id).join(',') || 0})`);
+  }
+  // No tangent root is not a throw (v3 §3.2(13г)): m=0.5, λ=0.2 used to throw "no co-directional tangency".
+  let thrown = null;
+  try { computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.2, muWrap: 0.32, rowsMode: 'untilEquator' }); }
+  catch (e) { thrown = e.message; }
+  check(thrown === null, `m=0.5 λ=0.2 builds without a rail-exit throw (${thrown ? thrown.slice(0, 80) : 'ok'})`);
+}
+
 // 8d0b. K16b λ=0: per-leg α + per-line Δ → 0 false promises (independent audit match)
 {
   console.log('\n## K16b λ=0 per-leg/line inputs (0 false promises)');
