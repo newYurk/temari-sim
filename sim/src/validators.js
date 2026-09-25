@@ -129,6 +129,64 @@ const TOL_SYM = 1e-9;         // mm — symmetry base; V15 uses max(TOL_SYM, 1e-
 const TOL_RAD = 1e-9;         // mm — model radial position (numeric)
 const TOL_MESH = 1e-6;        // mm — tube mesh (frame rotation accumulation)
 
+
+/**
+ * Clairaut on a sphere: sin(α)·sin(s/R) = const.
+ * Returns the average of tan(α(s)) between sHole and sTip (inclusive samples).
+ * Used by K16b (6a.20): mean tan α between the hole and tip-n level.
+ */
+export function clairautAvgTan(alphaHole, sHole, sTip, R, samples = 16) {
+  if (!(R > 0) || !Number.isFinite(alphaHole)) return Math.tan(alphaHole || 0);
+  const s0 = Number(sHole), s1 = Number(sTip);
+  if (!Number.isFinite(s0) || !Number.isFinite(s1) || Math.abs(s1 - s0) < 1e-15) {
+    return Math.tan(alphaHole);
+  }
+  const C = Math.sin(alphaHole) * Math.sin(s0 / R);
+  const tanAt = (s) => {
+    const sinTh = Math.sin(s / R);
+    if (!(Math.abs(sinTh) > 1e-12)) return Math.tan(alphaHole);
+    const arg = Math.max(-1, Math.min(1, C / sinTh));
+    return Math.tan(Math.asin(arg));
+  };
+  const n = Math.max(1, samples | 0);
+  let sum = 0;
+  for (let i = 0; i <= n; i++) sum += tanAt(s0 + (s1 - s0) * (i / n));
+  return sum / (n + 1);
+}
+
+/**
+ * K16b two-sided Clairaut window (Fable 6a.20 correction of one-sided 6a.17).
+ * Outgoing leg of row n+2 at tip-n level:
+ *   x_leg = −(m + w)/2 + (Δ_{n+1} + Δ_{n+2}) · tanα
+ * Coverage of E_n ⟺ |x_leg − x_E| ≤ w / (2 cos α).
+ * Overshoot (leg past E beyond the half-width) is NOT coverage.
+ *
+ * @param {object} args
+ * @param {number} args.m  marking gap m (mm)
+ * @param {number} args.w  thread width (mm)
+ * @param {number} args.alpha  angle α (rad) used for cos α (and tan α if tanAlpha omitted)
+ * @param {number} args.deltaSum  Δ_{n+1}+Δ_{n+2} (mm)
+ * @param {number} args.xE  signed lateral of E_n (mm), typically +(m+w)/2
+ * @param {number} [args.tanAlpha]  Clairaut-average tan α; defaults to tan(alpha)
+ * @param {number} [args.xX]  if set, also evaluate mirrored incoming-leg coverage of X_n
+ * @returns {{ xLeg: number, xLegX: number|null, half: number, coveredE: boolean, coveredX: boolean|null, dxE: number }}
+ */
+export function k16bCoverageWindow({ m, w, alpha, deltaSum, xE, tanAlpha, xX }) {
+  const tanA = tanAlpha != null && Number.isFinite(tanAlpha) ? tanAlpha : Math.tan(alpha);
+  const cosA = Math.cos(alpha);
+  const half = (cosA > 1e-12) ? w / (2 * cosA) : Infinity;
+  const xLeg = -(m + w) / 2 + deltaSum * tanA;
+  const dxE = xLeg - xE;
+  const coveredE = Math.abs(dxE) <= half + 1e-9;
+  let xLegX = null, coveredX = null;
+  if (xX != null && Number.isFinite(xX)) {
+    // Incoming leg of n+2 (mirror): starts at +(m+w)/2 and shifts by −Δsum·tanα
+    xLegX = (m + w) / 2 - deltaSum * tanA;
+    coveredX = Math.abs(xLegX - xX) <= half + 1e-9;
+  }
+  return { xLeg, xLegX, half, coveredE, coveredX, dxE };
+}
+
 export function refKey(A) {
   const P = A.params;
   const g = (x) => String(Number(x));
@@ -627,7 +685,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       details: { found, bad, badRest, badPromoted, notAllowed, naRest, naPromoted, warnList } });
   }
 
-  // K16 (6a.16 / 6a.17) — tip coverage; K16b at λ=0 is formula-diagnostic
+  // K16 (6a.16 / 6a.17 / 6a.20) — tip coverage; K16b at λ=0 is two-sided Clairaut-window diagnostic
   {
     const bottoms = stitchesDone.filter((st) => st.level === 'bottom' && !st.closing);
     const bySet = {};
@@ -637,6 +695,13 @@ export function runValidators(A, stage = '2b', ref = null) {
     const diagH = [];
     const lambdaTip = path.tipDrop?.lambda ?? path.tipDrop?.bowLambda ?? 0;
     const isGeo0 = !(lambdaTip > 1e-9) && (path.tipDrop?.shoulderForm !== 'bow');
+    // 6a.20: exclude first lower circuit line after resume (transition step; e.g. B → L2)
+    const resumeFirstBot = new Set();
+    for (const r of path.rounds.filter((q) => q.begin === 'resume')) {
+      const firstBot = r.stitchIdx.map((i) => path.stitches[i])
+        .find((s) => s && s.level === 'bottom' && !s.closing);
+      if (firstBot) resumeFirstBot.add(`${firstBot.set}:${firstBot.row}:${firstBot.line}`);
+    }
     // Per-set row bottom s for Δ_n
     const rowS = (set, row) => {
       const st = bottoms.find((s) => s.set === set && s.row === row && !s.closing);
@@ -671,12 +736,12 @@ export function runValidators(A, stage = '2b', ref = null) {
       let aOk = 0, aN = 0, bOk = 0, bN = 0, bPromised = 0, bMiss = 0, cBad = 0;
       // α: geodesic ~8.5°, bow ~18° (π/10)
       const alphaK = isGeo0 ? (8.5 * Math.PI / 180) : Math.PI / 10;
-      const rhs = (m + w) - w / (2 * Math.cos(alphaK)); // coverage threshold length
       for (const n of rows) {
         const mine = sts.filter((s) => s.row === n);
         for (const st of mine) {
-          // 6a.17: exclude closing stitch with X = −(c0+w) from K16b (flag or xOff ≤ −(w+0.5)).
+          // 6a.17/6a.20: exclude closing X=−(c0+w) and first lower line after resume from K16b
           const closingWide = !!st.closing || (st.xOff != null && st.xOff <= -(w + 0.5 * (w / 0.714)));
+          const firstLowerResume = resumeFirstBot.has(`${st.set}:${st.row}:${st.line}`);
           const T = unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2]);
           // K16a: T_n covered by n+1 for n < N; last open — acceptance
           if (n < Nrow) {
@@ -684,22 +749,30 @@ export function runValidators(A, stage = '2b', ref = null) {
             const d = minDistToRow(T, set, n + 1);
             if (d <= w / 2 * 1.1) aOk++;
           }
-          // K16b: E_n, X_n covered by n+2 — at λ=0 diagnostic via formula (6a.17)
-          if (n < Nrow - 1 && !closingWide) {
+          // K16b: E_n, X_n covered by n+2 — at λ=0 diagnostic via two-sided Clairaut window (6a.20)
+          if (n < Nrow - 1 && !closingWide && !firstLowerResume) {
             const s0 = rowS(set, n), s1 = rowS(set, n + 1), s2 = rowS(set, n + 2);
             const d1 = (s0 != null && s1 != null) ? Math.abs(s1 - s0) : (path.tipDrop?.tipDrop_mm ?? w);
             const d2 = (s1 != null && s2 != null) ? Math.abs(s2 - s1) : d1;
-            const promised = (d1 + d2) * Math.tan(alphaK) >= rhs - 1e-9;
+            const deltaSum = d1 + d2;
+            // Clairaut-average tan α between hole (row n+2) and tip-n level
+            const sHole = (s2 != null) ? s2 : (s0 != null ? s0 + deltaSum : null);
+            const tanA = (sHole != null && s0 != null)
+              ? clairautAvgTan(alphaK, sHole, s0, R)
+              : Math.tan(alphaK);
+            const alphaEff = Math.atan(tanA);
+            const xE = st.eOff != null ? st.eOff : (m + w) / 2;
+            const xX = st.xOff != null ? st.xOff : -(m + w) / 2;
+            const win = k16bCoverageWindow({ m, w, alpha: alphaEff, deltaSum, xE, tanAlpha: tanA, xX });
+            const promisedE = win.coveredE;
+            const promisedX = win.coveredX;
             const dE = minDistToRow(st.E, set, n + 2);
             const dX = minDistToRow(st.X, set, n + 2);
             const covE = dE <= w / 2 * 1.1, covX = dX <= w / 2 * 1.1;
             if (isGeo0) {
-              // Diagnostic: fail only where formula promises coverage but model has none
-              if (promised) {
-                bPromised += 2;
-                if (covE) bOk++; else bMiss++;
-                if (covX) bOk++; else bMiss++;
-              }
+              // Diagnostic: record where two-sided window promises coverage but model has none
+              if (promisedE) { bPromised++; if (covE) bOk++; else bMiss++; }
+              if (promisedX) { bPromised++; if (covX) bOk++; else bMiss++; }
               bN += 2;
             } else {
               bN += 2;
@@ -741,7 +814,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       }
       if (aN && aOk < aN) fail = true;
       if (isGeo0) {
-        // 6a.17: K16b is diagnostic at λ=0 — record misses, do not fail acceptance (K16a/c still fail).
+        // 6a.17/6a.20: K16b is diagnostic at λ=0 — record misses, do not fail acceptance (K16a/c still fail).
       } else if (bN && bOk < bN) {
         fail = true;
       }
@@ -755,7 +828,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     const hx = (m + w) / (2 * Math.tan(alpha));
     const enough = Object.values(bySet).some((sts) => new Set(sts.map((s) => s.row)).size >= 2);
     add({
-      id: 'K16', name: 'Tip coverage (T by n+1, E/X by n+2, C open)', crit: '6a.16/6a.17 K16a–c (K16b formula-diag at λ=0)',
+      id: 'K16', name: 'Tip coverage (T by n+1, E/X by n+2, C open)', crit: '6a.16/6a.17/6a.20 K16a–c (K16b two-sided Clairaut window; formula-diag at λ=0)',
       status: !enough ? 'n/a' : (fail ? 'fail' : 'pass'),
       value: parts.join('; ') + `; h_x=${f(hx, 2)} mm; diag mean (h_x − d_T→n+1)=${diagH.length ? f(diagH.reduce((a, b) => a + b, 0) / diagH.length, 2) : '—'} mm`,
       numbers: { hx, diagH, isGeo0 },

@@ -1,7 +1,7 @@
 // Безбраузерные тесты: генератор пути + валидаторы. Запуск: node sim/test/run.mjs  (код выхода 0 = всё прошло)
 import { loadRecipe, loadJSON } from '../src/recipe.js';
 import { computeAll } from '../src/layers.js';
-import { runValidators, summary, refKey } from '../src/validators.js';
+import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples } from '../src/path.js';
 import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS, liftFromDist, DISPLAY_STACK_LIFT_W } from '../src/display.js';
@@ -787,6 +787,64 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 
 
 
+
+// 8d0. K16b two-sided Clairaut window (6a.20) — pure formula
+{
+  console.log('\n## K16b two-sided Clairaut window (6a.20)');
+  const m = 1.0, w = 0.714;
+  const alpha = 8.5 * Math.PI / 180;
+  const half = w / (2 * Math.cos(alpha));
+  const xE = (m + w) / 2; // +0.857
+  // Overshoot: E=+0.857, leg=+1.666 → |dx|=0.809 > half≈0.361 → NOT coverage
+  {
+    const xLeg = 1.666;
+    const deltaSum = (xLeg + (m + w) / 2) / Math.tan(alpha);
+    const win = k16bCoverageWindow({ m, w, alpha, deltaSum, xE });
+    console.log(`  overshoot: xE=${fmt(xE, 3)} xLeg=${fmt(win.xLeg, 3)} |dx|=${fmt(Math.abs(win.dxE), 3)} half=${fmt(win.half, 3)} covered=${win.coveredE}`);
+    check(Math.abs(win.xLeg - 1.666) < 1e-9, `overshoot x_leg≈1.666 (got ${fmt(win.xLeg, 6)})`);
+    check(Math.abs(xE - 0.857) < 1e-9, 'E at +0.857');
+    check(win.coveredE === false, 'B2-style overshoot (leg=+1.666, E=+0.857) is NOT coverage');
+    check(Math.abs(win.dxE) > win.half, 'overshoot |x_leg−x_E| > w/(2 cos α)');
+  }
+  // In-window: place x_leg at xE (perfect center) → covered
+  {
+    const deltaSum = ((m + w) / 2 + xE) / Math.tan(alpha); // x_leg = -(m+w)/2 + Δtan = xE
+    const win = k16bCoverageWindow({ m, w, alpha, deltaSum, xE });
+    console.log(`  centered: xLeg=${fmt(win.xLeg, 3)} |dx|=${fmt(Math.abs(win.dxE), 6)} half=${fmt(half, 3)} covered=${win.coveredE}`);
+    check(win.coveredE === true, 'centered x_leg=x_E is coverage');
+    check(Math.abs(win.xLeg - xE) < 1e-9, 'centered x_leg equals x_E');
+  }
+  // Edge of window: |x_leg−x_E| = half → covered; just outside → not
+  {
+    const xLegIn = xE + half;
+    const dIn = (xLegIn + (m + w) / 2) / Math.tan(alpha);
+    const winIn = k16bCoverageWindow({ m, w, alpha, deltaSum: dIn, xE });
+    const xLegOut = xE + half + 1e-6;
+    const dOut = (xLegOut + (m + w) / 2) / Math.tan(alpha);
+    const winOut = k16bCoverageWindow({ m, w, alpha, deltaSum: dOut, xE });
+    check(winIn.coveredE === true, `|x_leg−x_E|=half (${fmt(half, 4)}) is coverage`);
+    check(winOut.coveredE === false, 'just outside half-width is NOT coverage');
+  }
+  // Clairaut average tan α rises when moving toward pole (smaller s) from hole
+  {
+    const R = 240 / (2 * Math.PI);
+    const sHole = 50, sTip = 40;
+    const tanAvg = clairautAvgTan(alpha, sHole, sTip, R);
+    const tan0 = Math.tan(alpha);
+    console.log(`  Clairaut tanAvg ${fmt(tanAvg, 5)} vs tan(α0)=${fmt(tan0, 5)} (s ${sHole}→${sTip})`);
+    check(tanAvg > tan0, 'Clairaut avg tan α between hole and tip-n exceeds tan(α_hole)');
+  }
+  // One-sided would accept overshoot; two-sided rejects — document the correction
+  {
+    const xLeg = 1.666;
+    const deltaSum = (xLeg + (m + w) / 2) / Math.tan(alpha);
+    const rhs = (m + w) - w / (2 * Math.cos(alpha));
+    const oneSided = deltaSum * Math.tan(alpha) >= rhs - 1e-9;
+    const win = k16bCoverageWindow({ m, w, alpha, deltaSum, xE });
+    check(oneSided === true && win.coveredE === false,
+      'correction: one-sided promised overshoot, two-sided window rejects it');
+  }
+}
 
 // 8d. K16 tip coverage + V8 tipCross (6a.13 / 6a.16)
 {
