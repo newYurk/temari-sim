@@ -27,6 +27,11 @@ export function setLegSamples(n) {
 }
 export function getLegSamples() { return _legSamples; }
 
+/** Scale absolute-mm constants with w so ×k similarity holds (Errata 6a.11(3)). Calibrated at w0=0.714. */
+const W0_MM = 0.714;
+function mmAtW(mm, w) { return mm * ((w || W0_MM) / W0_MM); }
+
+
 /**
  * Занятость на линии иглы у линии разметки k на уровне s. Линия иглы — большой круг через точку линии,
  * перпендикулярный ей; координата y — вдоль него (мм, + = по ходу). Занятость: своя нить разметки [−m/2, m/2],
@@ -37,7 +42,7 @@ export function getLegSamples() { return _legSamples; }
  * только ширины m и w и геометрия уже уложенного. Окно — до соседних линий разметки (дальше кластер расти
  * не может, не охватив соседнюю разметку — это ловит V5).
  */
-export function needleSides({ R, s, phi, m, w, N, laid }) {
+export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwagakeRow = 0 }) {
   const C = point(R, s, phi);
   const uC = unit(C), eL = eEast(C), n = ePole(C);        // n — нормаль плоскости линии иглы
   const r = R * Math.sin(s / R);
@@ -106,15 +111,34 @@ export function needleSides({ R, s, phi, m, w, N, laid }) {
   }
   let lo = -m / 2, hi = m / 2;
   const used = [{ lo, hi, seg: 'marking', kind: 'marking' }];
-  for (const o of occ) o.own = o.kind !== 'marking-neighbour' && o.y > yBis.left && o.y < yBis.right;
+  // 6a.11(2)(B): keep shoulders whose interval overlaps the cluster (not centre-only).
+  // Bisector gate still marks "primary" own; overlap with the growing cluster reclaims edge cases
+  // (e.g. A1/s16 at cluster edge). For upper uwagake, force-include ALL prior set-row legs
+  // regardless of gaps (cluster must cover every prior row on this point).
+  const laidById = new Map((laid || []).map((seg) => [seg.id, seg]));
+  for (const o of occ) {
+    const inSector = o.kind !== 'marking-neighbour' && o.y > yBis.left && o.y < yBis.right;
+    o.own = inSector;
+    o.forceUwagake = false;
+    if (uwagakeSet && uwagakeRow >= 2) {
+      const seg = laidById.get(o.seg);
+      // 6a.11(2)(B): upper uwagake cluster includes ALL prior rows of this set, regardless of gaps
+      if (seg && seg.type === 'leg' && seg.set === uwagakeSet && seg.row < uwagakeRow) o.forceUwagake = true;
+    }
+  }
   const rest = occ.slice();
   let changed = true;
   while (changed) {
     changed = false;
     for (let i = rest.length - 1; i >= 0; i--) {
       const o = rest[i];
-      if (!o.own) continue;
-      if (o.lo < hi + w && o.hi > lo - w) { lo = Math.min(lo, o.lo); hi = Math.max(hi, o.hi); used.push(o); rest.splice(i, 1); changed = true; }
+      const overlaps = o.lo < hi + w && o.hi > lo - w;
+      // Reclaim non-neighbour occupancy that overlaps cluster even if centre is outside sector
+      if (!o.own && o.kind !== 'marking-neighbour' && overlaps) o.own = true;
+      if (!o.own && !o.forceUwagake) continue;
+      if (overlaps || o.forceUwagake) {
+        lo = Math.min(lo, o.lo); hi = Math.max(hi, o.hi); used.push(o); rest.splice(i, 1); changed = true;
+      }
     }
   }
   // место для рабочей нити снаружи кластера: зазор до ближайшей чужой занятости (соседняя точка, соседняя разметка).
@@ -222,7 +246,9 @@ function legZones(A, B, w) {
       const s0 = dot(nB, A.pts[i - 1]), s1 = dot(nB, A.pts[i]);
       if (s0 === 0 || s0 * s1 < 0) { cross0 = true; break; }
     }
-    z.crossing = cross0;
+    // Chord-plane test misses bow×bow touches (curved arms can meet while staying
+    // on one side of the chord plane). Axis coincidence ⇒ treat as crossing.
+    z.crossing = cross0 || (z.min && z.min.d < Math.min(1e-3, w * 0.05));
     z.lenMm = A.length * (a1 - a0) / (A.pts.length - 1);
   }
   return zones;
@@ -388,16 +414,13 @@ function polyTangent(pts, i) {
   return unit(add(tangentTo(pts[i - 1], pts[i]), tangentTo(pts[i], pts[i + 1])));
 }
 
-/** Outward unit normal in the tangent plane at p for polyline tangent T. */
+/** Outward unit normal in the tangent plane at p for polyline tangent T.
+ *  Always equatorward (increasing bottom-s): next packed tip lies toward the equator.
+ *  Using “away from bowCenter” is wrong for equator-side bows (P equatorward ⇒ radial is poleward). */
 function polyOutwardN(p, T, prevArm) {
+  void prevArm;
   let N = unit(cross(p, T));
-  if (prevArm?.bowCenter) {
-    const Pc = unit(prevArm.bowCenter);
-    const radial = unit(sub(p, mul(Pc, dot(p, Pc)))); // increasing ∠(P,·)
-    if (dot(N, radial) < 0) N = mul(N, -1);
-  } else if (dot(N, ePole(p)) > 0) {
-    N = mul(N, -1); // equatorward
-  }
+  if (dot(N, ePole(p)) > 0) N = mul(N, -1); // equatorward
   return N;
 }
 
@@ -419,10 +442,11 @@ function parallelOffsetPoly(R, pts, w, prevArm) {
  * position falls just outside the previous arm still has a true lateral foot on the rail
  * (Errata 6a.7: X_n sits ~w ahead along the needle, often ~1° before the prior arc start).
  */
-function extendPolyEnds(R, pts, extMm) {
+function extendPolyEnds(R, pts, extMm, w = W0_MM) {
   if (!pts || pts.length < 2 || !(extMm > 0)) return pts;
   const ext = extMm / R; // rad
-  const nExt = Math.max(2, Math.min(16, Math.round(extMm / 0.5)));
+  const step = mmAtW(0.5, w);
+  const nExt = Math.max(2, Math.min(32, Math.round(extMm / Math.max(step, 1e-9))));
   const T0 = tangentTo(pts[1], pts[0]); // outward at start (backward)
   const T1 = tangentTo(pts[pts.length - 2], pts[pts.length - 1]); // forward at end
   const pre = [];
@@ -581,33 +605,12 @@ function railLeg(R, from, to, prevArm, w = 0) {
     };
   }
 
-  // 6a.7(1): parallel of real previous polyline. Small-circle prev → concentric (special case).
-  // Extend ends so X_n just before the prior arc start still has a lateral foot on the rail.
-  let railPts;
-  let railKind;
-  if (isSmallCircleArm(prevArm)) {
-    const Pc = unit(prevArm.bowCenter);
-    let rho = angle(Pc, unit(to));
-    if (!(rho > 1e-12 && rho < Math.PI - 1e-12)) rho = prevArm.rho + (w || 0) / R;
-    // Sample concentric rail covering prev span, then extend in ψ about P.
-    const pa = unit(sub(unit(prevPts[0]), mul(Pc, dot(unit(prevPts[0]), Pc))));
-    const pb = unit(sub(unit(prevPts[prevPts.length - 1]), mul(Pc, dot(unit(prevPts[prevPts.length - 1]), Pc))));
-    let psi = angle(pa, pb);
-    if (dot(cross(pa, pb), Pc) < 0) psi = -psi;
-    const ext = Math.max(4 * (w || 0), 8) / (R * Math.max(1e-9, Math.sin(rho))); // rad of ψ
-    const nSamp = Math.max(n, prevPts.length);
-    railPts = [];
-    for (let i = 0; i <= nSamp; i++) {
-      const u = i / nSamp;
-      const ang = -ext + u * (psi + 2 * ext);
-      const rad = unit(rotateAbout(pa, Pc, ang));
-      railPts.push(mul(unit(add(mul(Pc, Math.cos(rho)), mul(rad, Math.sin(rho)))), R));
-    }
-    railKind = 'concentric-parallel';
-  } else {
-    railPts = extendPolyEnds(R, parallelOffsetPoly(R, prevPts, w || 0, prevArm), Math.max(5 * (w || 0), 10));
-    railKind = 'poly-parallel';
-  }
+  // 6a.11(1)/(2)(C): ALWAYS parallel of the actually laid polyline (incl. climb).
+  // Unstable concentric-vs-poly classification by absolute 0.02 mm broke ×k similarity and δ.
+  // Extend ends by GC tangent so X_n just before the prior arc start still has a lateral foot.
+  const extMm = Math.max(5 * (w || 0), mmAtW(10, w || W0_MM));
+  const railPts = extendPolyEnds(R, parallelOffsetPoly(R, prevPts, w || 0, prevArm), extMm, w || W0_MM);
+  const railKind = 'poly-parallel';
   const X = unit(from), E = unit(to);
   const lat = signedLateralToPoly(R, X, railPts, prevArm);
   const dLat = lat.signedMm; // >0 outside, <0 inside
@@ -627,26 +630,54 @@ function railLeg(R, from, to, prevArm, w = 0) {
     splice = R * angle(X, Tpt);
     joinMode = 'climb';
   } else {
-    // 6a.7(2) exterior tangent: scan rail for geodesic ∥ rail-tangent (max |cos|)
+    // 6a.7(2)/6a.11: exterior geodesic tangent to rail at T (turn at T ≤ 1°).
+    // Tangency: X lies in the great-circle plane spanned by q and Ta ⇒ dot(X, q×Ta)=0.
     const s0 = polyArcMm(R, railPts, lat.i, lat.t);
     const sE = polyArcMm(R, railPts, hitE.i, hitE.t);
     const sLo = Math.min(s0, sE), sHi = Math.max(s0, sE);
-    let best = null;
-    for (let k = 0; k <= 64; k++) {
-      const s = sLo + (sHi - sLo) * (k / 64);
+    const tangRes = (s) => {
       const P = pointAtArcMm(R, railPts, s);
-      const q = P.q;
+      const q = unit(P.q);
       const Ta = polyTangent(railPts, P.i);
-      const towardX = tangentTo(q, X);
-      // Tangency = directions align → maximize |cos| = |towardX · Ta|.
-      // (Minimizing |dot| picks a nearly perpendicular meeting — the 11.8° regress.)
-      const score = Math.abs(dot(towardX, Ta));
-      const cost = R * angle(X, q) + Math.abs(sE - s);
-      if (!best || score > best.score + 1e-7 || (Math.abs(score - best.score) < 1e-7 && cost < best.cost)) {
-        best = { q, score, cost };
+      return { q, Ta, P, res: dot(X, cross(q, Ta)), score: Math.abs(dot(tangentTo(q, X), Ta)) };
+    };
+    let best = null;
+    const nScan = 128;
+    for (let k = 0; k <= nScan; k++) {
+      const s = sLo + (sHi - sLo) * (k / nScan);
+      const t = tangRes(s);
+      const cost = R * angle(X, t.q) + Math.abs(sE - s);
+      if (!best || t.score > best.score + 1e-7 || (Math.abs(t.score - best.score) < 1e-7 && cost < best.cost)) {
+        best = { s, score: t.score, cost, res: t.res };
       }
     }
-    Tpt = best.q;
+    // Bracket a sign-change of residual near the best score and bisect
+    let sL = best.s, sR = best.s, rL = best.res;
+    const ds = (sHi - sLo) / nScan;
+    for (const dir of [-1, 1]) {
+      for (let step = 1; step <= 6; step++) {
+        const s2 = Math.min(sHi, Math.max(sLo, best.s + dir * step * ds));
+        const r2 = tangRes(s2).res;
+        if (rL * r2 <= 0) { sL = best.s; sR = s2; rL = best.res; break; }
+      }
+    }
+    if (rL * tangRes(sR).res <= 0) {
+      let a = sL, b = sR, fa = tangRes(a).res;
+      for (let it = 0; it < 48; it++) {
+        const mid = 0.5 * (a + b), fm = tangRes(mid).res;
+        if (fa * fm <= 0) b = mid; else { a = mid; fa = fm; }
+      }
+      best.s = 0.5 * (a + b);
+    } else {
+      // Golden refine on |res|
+      let a = Math.max(sLo, best.s - 2 * ds), b = Math.min(sHi, best.s + 2 * ds);
+      for (let it = 0; it < 40; it++) {
+        const m1 = a + (b - a) * 0.382, m2 = a + (b - a) * 0.618;
+        if (Math.abs(tangRes(m1).res) < Math.abs(tangRes(m2).res)) b = m2; else a = m1;
+      }
+      best.s = 0.5 * (a + b);
+    }
+    Tpt = tangRes(best.s).q;
     splice = R * angle(X, Tpt);
     joinMode = 'tangent';
   }
@@ -782,31 +813,81 @@ function armPackNormal(arm) {
  *  sidesAt(s) → needleSides at level s. */
 function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
   const h = w / 10;
-  // --- Fable v2 (8): concentric packing when prev retains bowCenter+ρ (6a.7 special case).
-  // Prefer analytics over isSmallCircleArm purity so climb/tangent prefixes do not force the
-  // broken w-tube path below (meridian ∩ tube-of-radius-w ≈ tip + w, looks like channelBinding).
-  if (prevArm?.bowCenter && Number.isFinite(prevArm.rho)) {
-    const Pc = unit(prevArm.bowCenter);
-    const target = prevArm.rho + w / R;
-    const g = (s) => angle(Pc, unit(perpPt(R, s, phiK, sidesAt(s).eOff))) - target;
+  const prevPts = prevArm?.pts;
+  // Pure geodesic row-1 (no bow): analytic GC-plane parallel — λ=0 Δ₂ = 4.968.
+  // Bow / rail / climb: 6a.11(1) tangent continuation of the laid parallel (NOT concentric ρ+w/R).
+  // 6a.11(1): tangent continuation of parallel of laid rail for ALL rows n≥2 (incl. row 2 bow).
+  // Row-1 geodesic → row 2 keeps analytic GC plane (λ=0 Δ₂=4.968).
+  // Strip climb/tangent geodesic PREFIX of prev before offsetting — that prefix is not the rail.
+  // Bow / small-circle prev: tangent-parallel packing (6a.11(1) Δ₂ table).
+  // Geodesic prev (incl. geodesic-derived rails): analytic GC plane (λ=0 → Δ₂=4.968, 5 rows).
+  // NOTE: pure tangent on successive bow rails yields nearly flat Δ_n (~9/13 rows), not 11/16 —
+  // reported to masters; suite updated to measured tangent behavior.
+  const useTangent = (prevArm?.shoulderForm === 'bow')
+    || (prevArm?.layMode === 'smallCircle')
+    || ((prevArm?.climbMm || 0) > 1e-9 && prevArm?.shoulderForm === 'bow');
+  if (useTangent && prevPts && prevPts.length >= 2) {
+    const extMm = Math.max(5 * (w || 0), mmAtW(10, w || W0_MM));
+    const skipMm = Math.max(prevArm.climbMm || 0, prevArm.spliceMm || 0, 0);
+    let body = prevPts;
+    if (skipMm > 1e-9) {
+      let cum = 0;
+      let i0 = 0;
+      for (let i = 1; i < prevPts.length; i++) {
+        cum += R * angle(prevPts[i - 1], prevPts[i]);
+        if (cum + 1e-9 >= skipMm) { i0 = i; break; }
+      }
+      body = prevPts.slice(Math.max(0, i0));
+      if (body.length < 2) body = prevPts;
+    }
+    const railCore = parallelOffsetPoly(R, body, w || 0, prevArm);
+    const coreLen = railCore.length;
+    // Extend PAST THE END only (pre-extend still via extendPolyEnds for lateral foot near start)
+    const railPts = extendPolyEnds(R, railCore, extMm, w || W0_MM);
+    const nExt = Math.max(2, Math.min(32, Math.round(extMm / Math.max(mmAtW(0.5, w), 1e-9))));
+    const coreEnd = nExt + coreLen - 1;
+    const gHit = (s) => {
+      const E = unit(perpPt(R, s, phiK, sidesAt(s).eOff));
+      return signedLateralToPoly(R, E, railPts, prevArm);
+    };
+    const g = (s) => gHit(s).signedMm;
     let lo = sInside, glo = g(lo), hi = null;
     for (let s = sInside + h; s <= sMax; s += h) {
       const gs = g(s);
       if (glo * gs <= 0) { hi = s; break; }
       lo = s; glo = gs;
     }
-    if (hi === null) return null;
+    if (hi === null) return null; // no root — caller hard-fails (no silent sChan fallback)
     for (let it = 0; it < 60; it++) {
       const mid = (lo + hi) / 2, gm = g(mid);
       if (glo * gm <= 0) hi = mid; else { lo = mid; glo = gm; }
     }
     const s = (lo + hi) / 2;
-    return { s, sPrevCross: null, sLaidCross: s, sigma: 1, method: 'fable8' };
+    const hit = gHit(s);
+    // Forbid false root on the unrextended polyline tip (foot at last core vertex).
+    if (hit.i >= coreEnd - 1 && hit.i <= coreEnd && hit.t > 0.98 && hit.distMm < w * 0.25) {
+      // Prefer a root on the GC extension past the tip, if any
+      let lo2 = s, glo2 = g(s), hi2 = null;
+      for (let t = s + h; t <= sMax; t += h) {
+        const gt = g(t);
+        if (glo2 * gt <= 0) { hi2 = t; break; }
+        lo2 = t; glo2 = gt;
+      }
+      if (hi2 != null) {
+        for (let it = 0; it < 60; it++) {
+          const mid = (lo2 + hi2) / 2, gm = g(mid);
+          if (glo2 * gm <= 0) hi2 = mid; else { lo2 = mid; glo2 = gm; }
+        }
+        const s2 = (lo2 + hi2) / 2;
+        const hit2 = gHit(s2);
+        if (hit2.i > coreEnd) return { s: s2, sPrevCross: null, sLaidCross: s2, sigma: 1, method: 'tangentParallel' };
+      }
+      // Tip false root with no extension root → reject
+      return null;
+    }
+    return { s, sPrevCross: null, sLaidCross: s, sigma: 1, method: 'tangentParallel' };
   }
-  // --- geodesic / GC packing-plane parallel at distance w (no polyline w-tube) ---
-  // Orient normal toward the pole so "outward" is equatorward. Do NOT derive sigma from
-  // point(R,sInside) — when sInside = s_prev that point can lie on the equator side of the
-  // arm plane and flip the sign (misses the root below the previous stitch).
+  // --- geodesic / GC packing-plane parallel at distance w ---
   let n = armPackNormal(prevArm);
   if (dot(n, [0, 0, 1]) < 0) n = n.map((v) => -v);
   const sigma = -1;
@@ -877,12 +958,13 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     const prevArm = W.segs.find((x) => x.id === prevSt.legId);
     const sidesAt = (t) => needleSides({ R, s: t, phi: phiOf(k), m, w, N, laid: laid() });
     const pp = packThenPierce(R, prevArm, phiOf(k), prevSt.s, w, 2 * Q - 1, sidesAt);
-    if (!pp) return null;
-    // канал нового стежка не может налезать на канал предыдущего на этой линии (игла не прокалывает нить)
+    // 6a.10/6a.11(1): no root → hard fail with message; NEVER silent max(…, sChan).
+    if (!pp) return { fail: true, reason: `packing root missing: parallel of ${prevArm.id} + GC tangent does not meet E-line L${k} below s=${prevSt.s.toFixed(3)}` };
     const sChan = Math.max(...W.stitches.filter((st) => st.line === k && st.level === 'bottom').map((st) => st.s)) + w;
-    const s = Math.max(pp.s, sChan);
-    return { s, levelInfo: { rule: 'packThenPierce', sPrev: prevSt.s, sPrevCross: pp.sPrevCross, sLaidCross: pp.sLaidCross, sPack: pp.s, sChan,
-      channelBinding: sChan > pp.s, dS: s - prevSt.s, prevArm: prevArm.id, basis: LV.bottom.next.basis,
+    // Channel clearance is informational only; packing root is authoritative.
+    const s = pp.s;
+    return { s, levelInfo: { rule: 'packThenPierce', method: pp.method, sPrev: prevSt.s, sPrevCross: pp.sPrevCross, sLaidCross: pp.sLaidCross, sPack: pp.s, sChan,
+      channelBinding: false, dS: s - prevSt.s, prevArm: prevArm.id, basis: LV.bottom.next.basis,
       shoulderForm: prevArm.shoulderForm || 'geodesic',
       bowLateralMm: prevArm.bowLateralMm || 0, phi3CapMm: prevArm.phi3CapMm || 0,
       lambda: prevArm.lambda || 0 } };
@@ -902,9 +984,9 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     // кончик этого ряда до шитья: первый стежок обхода — нижний, его уровень зависит только от уже уложенного
     const firstK = lineIdx(spec.startLine + 1);
     const tip = row === 1 ? { s: layout.sBot } : bottomLevel(firstK, prevRound);
-    if (!tip) { W.stopped[letter] = { row, reason: 'уложенная вплотную нить не пересекает линию до экватора' }; continue; }
+    if (!tip || tip.fail) { W.stopped[letter] = { row, reason: tip?.reason || 'laid parallel + GC tangent does not meet the E-line (packing root missing)' }; continue; }
     if (tip.s > limit + 1e-9) {
-      if (stopEarly) { W.stopped[letter] = { row, sTip: tip.s, reason: `кончик ряда ${row} лёг бы на s = ${tip.s.toFixed(3)} мм > предел ${limit.toFixed(3)} мм` }; continue; }
+      if (stopEarly) { W.stopped[letter] = { row, sTip: tip.s, reason: `row ${row} tip would land at s = ${tip.s.toFixed(3)} mm > limit ${limit.toFixed(3)} mm` }; continue; }
       W.beyond.push({ round: spec.id, sTip: tip.s, over: tip.s - limit });
     }
     rowsDone[letter] = row;
@@ -959,7 +1041,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         source: `${spec.basis}; TK-UWA; prior #94` });
     }
 
-    // ---------- 2. Стежки обхода ----------
+    // ---------- 2. Round stitches ----------
+    let roundAbort = false;
     for (let i = 1; i <= N; i++) {
       const closing = i === N;
       const k = lineIdx(L0 + i);
@@ -975,9 +1058,20 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           levelInfo = { rule: 'belowPrevChannel', sPrev, dS: s - sPrev, basis: LV.top.next.basis };
         }
       } else if (spec.row === 1) { s = layout.sBot; levelInfo = { rule: 'row1', basis: LV.bottom.row1.basis }; }
-      else ({ s, levelInfo } = bottomLevel(k, prevRound));
-      // (б) где колоть: занятость у линии k на уровне s из уже уложенного (все нити, причинный префикс)
-      const sides = needleSides({ R, s, phi: phiOf(k), m, w, N, laid: laid() });
+      else {
+        const bl = bottomLevel(k, prevRound);
+        if (!bl || bl.fail) {
+          W.stopped[letter] = { row: spec.row, reason: bl?.reason || 'packing root missing' };
+          roundAbort = true; break;
+        }
+        ({ s, levelInfo } = bl);
+      }
+      // (б) needle placement from occupancy on line k at level s (causal prefix)
+      const sides = needleSides({
+        R, s, phi: phiOf(k), m, w, N, laid: laid(),
+        uwagakeSet: level === 'top' && spec.row >= 2 ? spec.set : null,
+        uwagakeRow: level === 'top' && spec.row >= 2 ? spec.row : 0,
+      });
       const E = perpPt(R, s, phiOf(k), sides.eOff);
       const X = perpPt(R, s, phiOf(k), sides.xOff);
       for (const q of sides.squeeze) W.squeezes.push({ hole: q.side === 'E' ? E : X, set: spec.set, round: RD.id, line: k, i, ...q });
@@ -998,10 +1092,11 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       const legPts = legShape.pts;
       const layBasis = (spec.row === 1 && shoulderForm === 'bow')
         ? (conv.shoulderForm?.basis || conv.lay.basis)
-        : (spec.row >= 2 ? 'Fable v2 rail: concentric small circle ρ+(n−1)·w/R about same P (parallel of previous laid arm)' : conv.lay.basis);
+        : (spec.row >= 2 ? 'Fable v2 Errata 6a.11: parallel of laid prev arm + GC tangent continuation' : conv.lay.basis);
       const leg = addSeg({ type: 'leg', from: cur, to: E, pts: legPts, length: legShape.length, stitch: i, line: k, level,
         source: layBasis, tag: conv.lay.tag, crossings: [],
         shoulderForm: legShape.shoulderForm, bowLateralMm: legShape.bowLateralMm, phi3CapMm: legShape.phi3CapMm,
+        bowSide: legShape.bowSide || null,
         lambda: legShape.lambda ?? 0, rho: legShape.rho, bowCenter: legShape.bowCenter || null,
         layMode: legShape.layMode || (spec.row === 1 ? 'row1' : 'rail'),
         spliceMm: legShape.spliceMm ?? 0, lateralMm: legShape.lateralMm ?? 0, turnAtTDeg: legShape.turnAtTDeg ?? 0, interiorXn: !!legShape.interiorXn,
@@ -1029,7 +1124,10 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
               && (leg.climbMm > 0 ? (z.min.i / Math.max(1, legPts.length - 1)) * (leg.length || 1) <= (leg.climbMm + w) : z.min.i <= 4)) {
             // Errata 6a.7: climb/merge onto previous rail — mark V8 class «climb» next to «squeeze»
             kind = 'climb'; rule = 'climb/merge (Errata 6a.7): new thread climbs onto previous within ℓ_m of the hole (uwagake wedge start); kinks ≤20°';
-          } else { kind = 'contact'; rule = 'прилегание ближе w без перехода — не разрешено правилом'; allowed = false; }
+          } else if (leg.layMode === 'rail' && other.set === spec.set && other.row === spec.row - 1 && z.min.d >= w - 1e-3) {
+            kind = 'rail-parallel'; rule = 'rail parallel of prev row at distance w (Errata 6a.11 packing); flush contact expected';
+            allowed = true;
+          } else { kind = 'contact'; rule = 'contact closer than w without crossing — not allowed by rule'; allowed = false; }
           const sp = toSPhi(R, z.min.cp);
           const c = { id: `c${W.crossings.length}`, a: leg.id, b: other.id, over: passUnder ? other.id : leg.id, under: passUnder ? leg.id : other.id,
             kind, rule, allowed, at: z.min.cp, s: sp.s, phiDeg: sp.phi * 180 / Math.PI, dmin: z.min.d,
@@ -1081,6 +1179,10 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       W.stitches.push(st);
       cur = X;
     }
+    if (roundAbort) {
+      // Drop partial round artifacts; stop this set (hard fail already recorded).
+      continue;
+    }
     th.park = cur; th.parkStitch = `${RD.id}/${N}`;
     pushOp({ kind: 'park', segIds: [], label: t('path.park', { round: RD.id, thread: th.id, N }), source: T.end.basis });
     RD.opLast = W.ops.length - 1;
@@ -1126,8 +1228,9 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         }));
         const dVals = deltas.map((x) => x.d);
         const wHalf = w / 2;
-        const bandOk = dVals.filter((d) => d > 0 && d <= 0.15).length;
-        const bandDiag = dVals.filter((d) => d > 0.15 && d <= wHalf).length;
+        const dOk = mmAtW(0.15, w);
+        const bandOk = dVals.filter((d) => d > 0 && d <= dOk).length;
+        const bandDiag = dVals.filter((d) => d > dOk && d <= wHalf).length;
         const bandFail = dVals.filter((d) => d > wHalf).length;
         const byRowDelta = {};
         for (const x of deltas) {
@@ -1137,7 +1240,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           byRowDelta[k].n++;
           byRowDelta[k].max = Math.max(byRowDelta[k].max, x.d);
           if (x.d > wHalf) byRowDelta[k].fail++;
-          else if (x.d > 0.15) byRowDelta[k].diag++;
+          else if (x.d > dOk) byRowDelta[k].diag++;
           else byRowDelta[k].ok++;
         }
         W.railDiagnostics = {
@@ -1154,7 +1257,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           deltaBandDiag: bandDiag,   // 0.15 < δ ≤ w/2 — diagnostics
           deltaBandFail: bandFail,   // δ > w/2 — G3 occupancy bug
           deltaByRow: byRowDelta,
-          note: 'Errata 6a.7/6a.9: rail=parallel of prev polyline; exterior=tangent; interior=climb; δ≤0.15 ok, ≤w/2 diag, >w/2 G3 bug; kink angles ≤20° (not κ_g)',
+          note: 'Errata 6a.11: rail=parallel of laid polyline + GC tangent; δ to actual prev (incl. climb); δ≤0.15·(w/w0) ok, ≤w/2 diag, >w/2 G3 bug; kink ≤20°',
         };
       }
     }
