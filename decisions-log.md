@@ -62,3 +62,14 @@
 3. Which verified fields (title, exact date, “5 rows” timestamp) should the catalog record if we add it?
 
 Until answered: docs note the gap; **no fabricated** `SUESS-2014` row in `build_sources.py` / `sources.md`.
+
+### Q-V21 — literal “min lat > w/2” vs meridian crossing (2026-09-25)
+
+Fable leg-shape-spec §4 / acceptance §5 say V21: min lateral distance of interior shoulder points to the destination meridian > w/2.
+
+**Observation:** every X→E leg (geodesic or small-circle bow) **crosses** the destination meridian plane, so min lat ≈ 0. Geodesic tip-region length with lat < w/2 ≈ 5 mm; true “glue” (lat < 0.05 mm) ≈ 0.4 mm. D33 clamp stuck ~9–12 mm.
+
+**Implemented (pending owner):** tip glue-stick (lat < 0.05 mm, frac > 0.5) ≤ 2·w. Fail on long glue; allow brief crossing.
+
+**Question:** confirm operational criterion, or is there another reading of “destination meridian” / interior set that makes literal min lat > w/2 pass for correct bow?
+

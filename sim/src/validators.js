@@ -94,7 +94,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     let nGeo = 0, nBow = 0;
     for (const s of segs.filter((s) => s.type === 'leg')) {
       // Haversine checks great-circle length; bowed legs use polyLen (Φ3 tip bow) — skip those.
-      if ((s.bowLateralMm || 0) > 1e-6 || s.shoulderForm === 'bowToMarking') { nBow++; continue; }
+      if ((s.bowLateralMm || 0) > 1e-6 || s.shoulderForm === 'bow' || s.shoulderForm === 'bowToMarking') { nBow++; continue; }
       nGeo++;
       const a = toSPhi(R, s.from), b = toSPhi(R, s.to);
       hvMax = Math.max(hvMax, Math.abs(haversineLen(R, a.s, a.phi, b.s, b.phi) - s.length));
@@ -587,6 +587,73 @@ export function runValidators(A, stage = '2b', ref = null) {
         : 'у всех проколов зазор до соседней точки ≥ w (нить ложится вплотную к своему кластеру)',
       numbers: { squeezes: sq.map((x) => ({ round: x.st.round, line: x.st.line, i: x.st.i, ...x.q })) } });
   }
+
+  // V20 — friction cone Φ3: λ_max = max |κ_g|·R over shoulders ≤ μWrap (fail > μ, warn > 0.9μ)
+  {
+    const muW = A.params.muWrap ?? A.params.mu ?? 0;
+    const legs = segs.filter((s) => s.type === 'leg');
+    let lambdaMax = 0;
+    let worst = null;
+    for (const s of legs) {
+      const lam = Math.abs(s.lambda ?? 0);
+      if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
+    }
+    const ratio = muW > 1e-15 ? lambdaMax / muW : (lambdaMax > 1e-15 ? Infinity : 0);
+    let status = 'pass';
+    if (ratio > 1 + 1e-6) status = 'fail';
+    else if (ratio > 0.9 + 1e-9 && ratio < 1 - 1e-9) status = 'warn';
+    add({ id: 'V20', name: 'Friction cone Φ3 (λ ≤ μWrap)',
+      crit: 'model/spec.md Φ3; samples/kiku-s8/leg-shape-spec.md §2(7); D40',
+      status,
+      value: `λ_max=${f(lambdaMax, 6)} · μWrap=${f(muW, 4)} · λ/μ=${f(ratio, 6)}` +
+        (worst ? ` (worst ${worst.id}/${worst.round})` : '') +
+        (legs.length ? `; shoulders ${legs.length}` : ''),
+      numbers: { lambdaMax, muWrap: muW, ratio, bowFrac: A.params.bowFrac ?? null } });
+  }
+  // V21 — no stick-to-axis (D40).
+  // Literal “min lat > w/2 for every interior point” fails any X→E leg that crosses the destination
+  // meridian (geodesic tipStick≈5 mm at thr=w/2). Operational: tip-region contiguous length where
+  // lat < 0.05 mm (true glue to the axis) must be ≤ 2·w. D33 clamp stuck ~9–12 mm; bow/geodesic ~0.4 mm.
+  {
+    const legs = segs.filter((s) => s.type === 'leg' && s.pts && s.pts.length >= 3);
+    const glueThr = 0.05; // mm — glued to marking axis
+    const maxOk = 2 * w;
+    let worstStick = 0;
+    let worst = null;
+    let minLat = Infinity;
+    for (const s of legs) {
+      const phi = A.marking.phis[((s.line % N) + N) % N];
+      const nMer = [-Math.sin(phi), Math.cos(phi), 0];
+      const nLast = s.pts.length - 1;
+      const step = s.length / Math.max(1, nLast);
+      let run = 0;
+      for (let i = 1; i < nLast; i++) {
+        const u = unit(s.pts[i]);
+        const lat = R * Math.abs(Math.asin(Math.max(-1, Math.min(1, dot(u, nMer)))));
+        if (lat < minLat) minLat = lat;
+        const frac = i / nLast;
+        if (frac > 0.5 && lat < glueThr) run++;
+        else {
+          const len = run * step;
+          if (len > worstStick) { worstStick = len; worst = { id: s.id, round: s.round, stickMm: len }; }
+          run = 0;
+        }
+      }
+      const len = run * step;
+      if (len > worstStick) { worstStick = len; worst = { id: s.id, round: s.round, stickMm: len }; }
+    }
+    if (!Number.isFinite(minLat)) minLat = Infinity;
+    const ok = worstStick <= maxOk + 1e-9;
+    add({ id: 'V21', name: 'No stick-to-axis on shoulder',
+      crit: 'samples/kiku-s8/leg-shape-spec.md §4; D40; tip glue-length (lat<0.05 mm) ≤ 2·w (see Q-V21 on literal min-lat>w/2)',
+      status: ok ? 'pass' : 'fail',
+      value: legs.length
+        ? `tip glue-stick max ${f(worstStick, 3)} мм (порог 2·w=${f(maxOk, 3)}; glue thr 0,05 мм; min lat ${f(minLat, 3)})` +
+          (worst ? `; worst ${worst.id}/${worst.round}` : '')
+        : 'нет плеч',
+      numbers: { tipStickMm: worstStick, thresholdMm: maxOk, glueThrMm: glueThr, minLatMm: minLat, worst } });
+  }
+
   return out;
 }
 
