@@ -100,6 +100,11 @@ S("TEX-GRAMSCH2022","https://journals.sagepub.com/doi/full/10.1177/1558925021107
 S("TEX-DURUR2000","https://etheses.whiterose.ac.uk/id/eprint/4047/1/uk_bl_ethos_550542.pdf","G. Durur","2000","en","диссертация (Leeds)",
   "Толщина скрещённых нитей; плотность паковки от натяжения (+25 % при ×3.75 T) — по prior-project review","","","","","medium","Мной не открыт",status="not-opened"),
 S("TEX-AFRASHTEH2013","https://nopr.niscpr.res.in/bitstream/123456789/19249/1/IJFTR%2038(2)%20126-131.pdf","Afrashteh, Merati, Jeddi","2013","en","статья IJFTR","Толщина ткани ≈ сумма малых диаметров; сплющивание — по prior review","","","","","medium","Мной не открыт",status="not-opened"),
+# --- math / virtual temari ---
+S("EMARI","https://doi.org/10.5642/jhummath.202002.12","Giuffre & Stemkoski","2020","en","article (Journal of Humanistic Mathematics 10(2):237–257)",
+  "«Virtual Temari: Artistically Inspired Mathematics» — reusable for sphere patterns / layer-height ideas, not craft needle routing. «Layer» = k × tube radius (w/2) for the whole curve, no contact — drawing convention; does not close U14. Normalization onto the sphere only at polyhedron vertices. Licenses: code MIT © 2019 stemkoski; article © authors, CC BY-NC-ND (DOAJ); Fig. 3 all rights reserved; polyhedra.js data: George Hart, non-commercial use only — not MIT.",
+  "","","virtual temari / polyhedral sphere patterns","DOI 10.5642/jhummath.202002.12; JHM 10(2):237–257","high",
+  "«Layer» drawing convention does not close U14; polyhedra.js (George Hart) non-commercial only — not MIT"),
 # --- prior project ---
 S("PRIOR-ISSUES","https://github.com/newYurk/temari/issues","newYurk/temari (владелица + агенты)","2026-09-08…24","ru","предыдущий проект: issues",
   "История попыток: законы укладки #106/#107/#101–#105, сжатие #93, #100 (верх/низ), #97, #94 (сквозные пересечения), #86/#36 (кику S8 GT14), #112 (архитектурный аудит)","","S8","GT14 uwagake kiku","см. prior-project/state.md","high (как запись истории)",
@@ -108,6 +113,16 @@ S("PRIOR-THREAD-OVER-THREAD","prior-project/docs_thread-over-thread.md (копи
   "Аналоговые оценки сечения 0.71×0.46, t_c≈0.37, подъём ≈0.28 мм при принятом T≈1 Н, m^0.85, закон роста паковки — явно НЕ измерены на перле #5","","","","","medium (как гипотеза)"),
 S("PRIOR-THREAD","/workspace/temari-thread-search-report.md","предыдущий агент (поиск по нитям)","2026-09","ru/ja/en","внутренний отчёт",
   "Метраж/линейная плотность нитей #5 (25 м/5 г ≈ 200 tex), гейдж 0.71 мм, расход 99DA04","","","","","medium"),
+# --- live needle video (EN/JA) ---
+S("KARO-KIKU-V","https://www.youtube.com/watch?v=tiZkl_1Wv1Y","カロhandicraft (Karo handicraft)","n/d (YouTube; checked 2026-09-25)","ja","video lesson (~13 min) with live needle + colour diagrams",
+  "uwagake chidori kagari with real hands/needle; ~2:37 needle under gold jiwari with wrapping threads; ~3:56 nested zigzags for later rows with tip offset; on-screen rule: equal distance from the pole; diagram note ~2–3 mm between row entry points; from row 2 change colour and stitch 2 rounds each",
+  "","S8-style gold meridians (8 lines from pole)","上掛け千鳥かがり (uwagake chidori kagari) / kiku",
+  "2:37 needle close-up; 3:56 colour row diagram; owner frames in sources/photos/karo-handicraft/ (gitignored)","high",
+  "Exact mari circumference and thread brand not stated in the checked clips; whether '2 rounds per colour' matches GT14 alternate sets or Suess blocks",excerpt="excerpts/KARO-KIKU-V.md"),
+S("SUESS-KIKU-V","https://www.youtube.com/watch?v=ceyC3uYHPxQ","Barbara B. Suess","Temari Challenge Kiku Herringbone Stitch Along (~9 min); checked 2026-09-24/25","en","video stitch-along",
+  "Live English demo of kiku herringbone (= uwagake chidori); ~4:39 needle and first stitches close-up; recipe uses blocks (e.g. several A then several B) rather than strict A/B alternate — compare with GT14",
+  "","","uwagake chidori / kiku herringbone","4:39 needle close-up; earlier work also used ~6:30 for tip behaviour","high",
+  "Confirm exact block sizes (5A then 5B) from full watch vs alternate GT14",excerpt="excerpts/SUESS-KIKU-V.md"),
 # --- not opened ---
 S("NO-ASTITCH","astitchornine.com","—","—","en","блог","Домен истёк","","","","","—","",status="not-opened"),
 S("NO-KAGA","kagatemari yubinuki","—","—","ja","сайт","HTTP 500","","","","","—","",status="not-opened"),

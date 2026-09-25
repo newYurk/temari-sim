@@ -2,7 +2,7 @@
 
 Сгенерировано `sources/build_sources.py` → `sources.json`. Статусы: **opened** — открыт и прочитан мной 2026-09-24; **abstract** — только аннотация/заголовок/описание; **snippet** — только поисковый сниппет; **catalog** — только каталожная запись; **not-opened** — не удалось открыть (или известен только через prior-project).
 
-Итого: abstract: 3, catalog: 1, not-opened: 7, opened: 40, snippet: 1 (всего 54; +KARO-KIKU-V, SUESS-KIKU-V 2026-09-25).
+Итого: abstract: 3, catalog: 1, not-opened: 7, opened: 43, snippet: 1 (всего 55).
 
 Изображения в `sources/img/` — скачаны для внутреннего изучения (права у авторов: Olympus, TemariKai); не для публикации. Сырые страницы — `sources/raw/` (в .gitignore).
 
@@ -51,11 +51,12 @@
 | [TEX-GRAMSCH2022](https://journals.sagepub.com/doi/full/10.1177/15589250211073249) | opened | en | S. Gramsch, E.G. Bell, A. Moghiseh, A. Schmeißer, 2022 | Рост диаметра цилиндрической паковки от длины лучше всего описывается квадратным корнем (сохранение объёма для цилиндра); для шара то же сохранение даёт кубический корень — это мой/prior вывод, не измерение |  /  | high (цилиндр) / вывод (шар) |
 | [TEX-DURUR2000](https://etheses.whiterose.ac.uk/id/eprint/4047/1/uk_bl_ethos_550542.pdf) | not-opened | en | G. Durur, 2000 | Толщина скрещённых нитей; плотность паковки от натяжения (+25 % при ×3.75 T) — по prior-project review |  /  | medium |
 | [TEX-AFRASHTEH2013](https://nopr.niscpr.res.in/bitstream/123456789/19249/1/IJFTR%2038(2)%20126-131.pdf) | not-opened | en | Afrashteh, Merati, Jeddi, 2013 | Толщина ткани ≈ сумма малых диаметров; сплющивание — по prior review |  /  | medium |
+| [EMARI](https://doi.org/10.5642/jhummath.202002.12) | opened | en | Giuffre & Stemkoski, 2020 | «Virtual Temari: Artistically Inspired Mathematics» — reusable for sphere patterns / layer-height ideas, not craft needle routing. «Layer» = k × tube radius (w/2) for the whole curve, no contact — drawing convention; does not close U14. Normalization onto the sphere only at polyhedron vertices. Licenses: code MIT © 2019 stemkoski; article © authors, CC BY-NC-ND (DOAJ); Fig. 3 all rights reserved; polyhedra.js data: George Hart, non-commercial use only — not MIT. | virtual temari / polyhedral sphere patterns /  | high |
 | [PRIOR-ISSUES](https://github.com/newYurk/temari/issues) | opened | ru | newYurk/temari (владелица + агенты), 2026-09-08…24 | История попыток: законы укладки #106/#107/#101–#105, сжатие #93, #100 (верх/низ), #97, #94 (сквозные пересечения), #86/#36 (кику S8 GT14), #112 (архитектурный аудит) | GT14 uwagake kiku / S8 | high (как запись истории) |
 | [PRIOR-THREAD-OVER-THREAD](prior-project/docs_thread-over-thread.md (копия из newYurk/temari docs/)) | opened | ru | newYurk/temari, 2026-09-23 | Аналоговые оценки сечения 0.71×0.46, t_c≈0.37, подъём ≈0.28 мм при принятом T≈1 Н, m^0.85, закон роста паковки — явно НЕ измерены на перле #5 |  /  | medium (как гипотеза) |
 | [PRIOR-THREAD](/workspace/temari-thread-search-report.md) | opened | ru/ja/en | предыдущий агент (поиск по нитям), 2026-09 | Метраж/линейная плотность нитей #5 (25 м/5 г ≈ 200 tex), гейдж 0.71 мм, расход 99DA04 |  /  | medium |
-| [KARO-KIKU-V](https://www.youtube.com/watch?v=tiZkl_1Wv1Y) | opened | ja | カロhandicraft, n/d (checked 2026-09-25) | Live needle uwagake chidori; 2:37 under jiwari+wrap; 3:56 nested rows ~2–3 mm; equal distance from pole; “2 rounds” per colour from row 2 | uwagake chidori kagari / kiku / gold S8-style | high |
-| [SUESS-KIKU-V](https://www.youtube.com/watch?v=ceyC3uYHPxQ) | opened | en | Barbara B. Suess, Stitch Along ~9 min | Live EN kiku herringbone; 4:39 needle close-up; block A-then-B recipe vs GT14 alternate | uwagake chidori / kiku herringbone | high |
+| [KARO-KIKU-V](https://www.youtube.com/watch?v=tiZkl_1Wv1Y) | opened | ja | カロhandicraft (Karo handicraft), n/d (YouTube; checked 2026-09-25) | uwagake chidori kagari with real hands/needle; ~2:37 needle under gold jiwari with wrapping threads; ~3:56 nested zigzags for later rows with tip offset; on-screen rule: equal distance from the pole; diagram note ~2–3 mm between row entry points; from row 2 change colour and stitch 2 rounds each | 上掛け千鳥かがり (uwagake chidori kagari) / kiku / S8-style gold meridians (8 lines from pole) | high |
+| [SUESS-KIKU-V](https://www.youtube.com/watch?v=ceyC3uYHPxQ) | opened | en | Barbara B. Suess, Temari Challenge Kiku Herringbone Stitch Along (~9 min); checked 2026-09-24/25 | Live English demo of kiku herringbone (= uwagake chidori); ~4:39 needle and first stitches close-up; recipe uses blocks (e.g. several A then several B) rather than strict A/B alternate — compare with GT14 | uwagake chidori / kiku herringbone /  | high |
 | [NO-ASTITCH](astitchornine.com) | not-opened | en | —, — | Домен истёк |  /  | — |
 | [NO-KAGA](kagatemari yubinuki) | not-opened | ja | —, — | HTTP 500 |  /  | — |
 | [NO-TENTEMARI](tentemari.com) | not-opened | en | —, — | Домен продаётся |  /  | — |
@@ -65,8 +66,6 @@
 
 ## Открытые вопросы по источникам
 
-- **KARO-KIKU-V**: Map “2 rounds per colour” and diagram 2–3 mm onto GT14 / Suess recipes without merging sources
-- **SUESS-KIKU-V**: Confirm exact block sizes from full video vs alternate GT14
 - **OLY-TM7-L**: Число рядов и цвета — в печатной инструкции набора (не видел)
 - **OLY-TM7-V**: Поверхностный или скрытый переход к 黄ピン — по кадрам не определить
 - **OLY-TM2**: Инструкция 八重菊 из набора TM-2 не найдена онлайн
@@ -82,4 +81,7 @@
 - **TEX-KAWABATA1985**: Мной открыты заголовок/аннотация; численные данные — через prior-project review
 - **TEX-DURUR2000**: Мной не открыт
 - **TEX-AFRASHTEH2013**: Мной не открыт
+- **EMARI**: «Layer» drawing convention does not close U14; polyhedra.js (George Hart) non-commercial only — not MIT
 - **PRIOR-ISSUES**: Код НЕ читался по указанию владелицы
+- **KARO-KIKU-V**: Exact mari circumference and thread brand not stated in the checked clips; whether '2 rounds per colour' matches GT14 alternate sets or Suess blocks
+- **SUESS-KIKU-V**: Confirm exact block sizes (5A then 5B) from full watch vs alternate GT14
