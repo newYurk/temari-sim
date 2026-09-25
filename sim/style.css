@@ -62,3 +62,26 @@ form .st-default { color: #b35c00; } form .st-stored { color: #888; } form .st-s
 /* Recipe color ribbon */
 .swatch-lab { display: inline-flex; align-items: center; gap: 4px; }
 .swatch-lab input[type=color] { width: 36px; height: 24px; padding: 0; border: 1px solid #aab4c0; border-radius: 4px; background: #fff; cursor: pointer; }
+
+/* Diagnostics (department rows, click-to-expand) */
+.dlist { list-style: none; padding: 0; margin: 0; }
+.dlist .drow { border-bottom: 1px solid #eef0f3; }
+.dlist .drow-btn {
+  display: flex; align-items: flex-start; gap: 6px; width: 100%;
+  text-align: left; border: 0; background: transparent; padding: 5px 2px;
+  font: inherit; cursor: pointer; border-radius: 3px;
+}
+.dlist .drow-btn:hover { background: #eef2f8; }
+.dlist .drow-btn:focus-visible { outline: 2px solid #2f6bd6; outline-offset: 1px; }
+.dlist .drow .dtitle { font-weight: 600; color: #223; }
+.dlist .drow .dsum { color: #445; flex: 1; min-width: 0; }
+.dlist .drow .dchev { color: #889; font-size: 10px; margin-left: auto; flex-shrink: 0; padding-top: 2px; }
+.dlist .drow.is-open .dchev { transform: rotate(90deg); }
+.dlist .ddetail {
+  display: none; padding: 0 6px 8px 52px; font-size: 11.5px; color: #445;
+  border-bottom: none;
+}
+.dlist .drow.is-open .ddetail { display: block; }
+.dlist .ddetail .dmetrics { margin: 4px 0; font-variant-numeric: tabular-nums; color: #223; }
+.dlist .ddetail .dparams { margin-top: 3px; color: #667; }
+.dlist .ddetail .dparams b { color: #334; font-weight: 600; }

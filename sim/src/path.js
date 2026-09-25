@@ -224,10 +224,23 @@ function tipEnv(t) {
   return (t * Math.sin(Math.PI * t)) / TIP_ENV_NORM;
 }
 
+/** Softmin blend width (mm): softMin(a,b) ≈ min(a,b) without a hard C0 switch. */
+const BOW_SOFTMIN_K_MM = 0.05;
+/** Spherical Laplacian smooth after softmin bow (rounds meridian-crossing elbows). */
+const BOW_SMOOTH_PASSES = 20;
+const BOW_SMOOTH_LAMBDA = 0.5;
+
+/** Softmin with floor at 0 (numerically stable). */
+function softMinMm(a, b, k = BOW_SOFTMIN_K_MM) {
+  const m = Math.min(a, b);
+  return Math.max(0, m - k * Math.log(Math.exp((m - a) / k) + Math.exp((m - b) / k)));
+}
+
 /**
- * Visible leg polyline: geodesic (slerp) or bowToMarking — pull interior samples toward the destination
- * marking meridian with a tip-weighted envelope, clamped to Φ3 δ_max(μ). Endpoints stay fixed; points stay on R.
- * Tip-drop Δ is NOT an input here — only shoulder form + μ.
+ * Visible leg polyline: geodesic (slerp) or bowToMarking — tip-weighted lateral offset toward the
+ * destination marking meridian, softmin-saturated by available latitude and Φ3 δ_max(μ), then light
+ * spherical Laplacian smooth (pin endpoints). bowLateralMm = max actual offset from the geodesic plane
+ * after smooth (not a control-point fiction). Tip-drop Δ is NOT an input — only shoulder form + μ.
  */
 function layLeg(R, from, to, phiMark, shoulderForm, mu) {
   const geoLen = geodLen(R, from, to);
@@ -241,18 +254,38 @@ function layLeg(R, from, to, phiMark, shoulderForm, mu) {
   const nMer = [-Math.sin(phiMark), Math.cos(phiMark), 0];
   const n = LEG_SAMPLES;
   const geo = slerp(R, from, to, n);
-  let bowLateralMm = 0;
-  const pts = geo.map((p, i) => {
-    if (i === 0 || i === n) return p;
+  let pts = geo.map((p, i) => {
+    if (i === 0 || i === n) return p; // pin endpoints — no lateral move at ends
     const t = i / n;
     const u = unit(p);
     const onMer = unit(sub(u, mul(nMer, dot(u, nMer))));
     const lat = R * angle(u, onMer);
-    if (lat < 1e-12) return p;
-    const move = Math.min(tipEnv(t) * phi3CapMm, lat);
-    bowLateralMm = Math.max(bowLateralMm, move);
+    const desired = tipEnv(t) * phi3CapMm;
+    const move = softMinMm(desired, lat);
+    if (move < 1e-12) return p;
     return rotateToward(R, p, mul(onMer, R), move / R);
   });
+  // Spherical Laplacian smooth; endpoints stay pinned.
+  const lam = BOW_SMOOTH_LAMBDA;
+  for (let pass = 0; pass < BOW_SMOOTH_PASSES; pass++) {
+    const next = pts.slice();
+    for (let i = 1; i < n; i++) {
+      const mid = unit([
+        pts[i - 1][0] + pts[i + 1][0],
+        pts[i - 1][1] + pts[i + 1][1],
+        pts[i - 1][2] + pts[i + 1][2],
+      ]);
+      next[i] = rotateToward(R, pts[i], mul(mid, R), lam * angle(unit(pts[i]), mid));
+    }
+    pts = next;
+  }
+  // Honest lateral: max distance of the finished curve from the geodesic plane (from×to).
+  const nGeo = unit(cross(from, to));
+  let bowLateralMm = 0;
+  for (let i = 1; i < n; i++) {
+    const off = R * Math.abs(Math.asin(Math.max(-1, Math.min(1, dot(unit(pts[i]), nGeo)))));
+    if (off > bowLateralMm) bowLateralMm = off;
+  }
   return {
     pts, length: polyLen(pts), shoulderForm: 'bowToMarking',
     bowLateralMm, phi3CapMm, phi3Warn: false,

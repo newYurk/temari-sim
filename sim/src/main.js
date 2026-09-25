@@ -2,6 +2,7 @@
 import { loadRecipe, loadJSON } from './recipe.js';
 import { computeAll } from './layers.js';
 import { runValidators, summary, refKey } from './validators.js';
+import { runDiagnostics } from './diagnostics.js';
 import { PARAM_SCHEMA, defaults, paramsFromQuery, groupLabel, paramLabel, paramUsed, statusLabel, optionLabel } from './params.js';
 import { Renderer, viridis, warm, SET_COLORS, roundColor, applySetColors } from './render.js';
 import { t, fmtNum, applyDomI18n, getLocale, setLocale, onLocaleChange, validatorName } from './i18n.js';
@@ -44,7 +45,9 @@ $('optTransparent').checked = R3.opts.transparent; $('optHidden').checked = R3.o
 $('optLabels').checked = R3.opts.labels; $('optPins').checked = R3.opts.pins;
 document.querySelector(`input[name=color][value=${R3.opts.color}]`).checked = true;
 
-let A = null, V = null;
+let A = null, V = null, D = null;
+/** Department ids currently expanded in the diagnostics list (survive update redraws). */
+const diagOpen = new Set();
 
 function syncLangToggle() {
   const loc = getLocale();
@@ -154,7 +157,9 @@ function setStage(stage, k = null) {
   $('step').max = kEnd;
   state.k = k === null ? kEnd : Math.max(0, Math.min(kEnd, k));
   V = runValidators(A, stage, ref);
+  D = runDiagnostics(A);
   renderValidators();
+  renderDiagnostics();
   update();
 }
 
@@ -170,6 +175,7 @@ function update() {
   window.__sim.ready = true;
   window.__sim.k = state.k; window.__sim.stage = state.stage;
   window.__sim.summary = summary(V);
+  window.__sim.diagnostics = D;
   window.__sim.locale = getLocale();
   window.__sim.recipePreset = recipePreset;
   window.__sim.materialPreset = materialPreset;
@@ -237,6 +243,134 @@ function renderValidators() {
   const s = summary(V);
   $('vsum').innerHTML = t('vsum', { stage: state.stage, pass: s.pass, fail: s.fail, warn: s.warn, info: s.info, na: s['n/a'] });
   $('validators').innerHTML = V.map((v) => `<li><span class="badge b-${v.status === 'n/a' ? 'na' : v.status}">${v.status}</span><b>${v.id}. ${validatorName(v)}</b><div class="val">${v.value}</div><div class="crit">${v.crit}</div></li>`).join('');
+}
+
+function diagBadgeClass(sev) {
+  if (sev === 'ok') return 'b-pass';
+  if (sev === 'fail') return 'b-fail';
+  if (sev === 'warn') return 'b-warn';
+  if (sev === 'info') return 'b-info';
+  return 'b-na';
+}
+
+function diagParamLabels(keys) {
+  return (keys || []).map((k) => {
+    const p = PARAM_SCHEMA.find((x) => x.key === k);
+    return p ? paramLabel(p) : k;
+  }).join(', ');
+}
+
+function diagSummaryText(d) {
+  const m = d.metrics || {};
+  if (d.id === 'path') {
+    if (!m.nLegs) return t('diag.elbow.none');
+    const vars = {
+      max: f(m.maxTurnDeg, 2),
+      ok: m.okDeg,
+      fail: m.failDeg,
+      seg: m.worstSegId || '—',
+      round: m.worstRound || '—',
+      frac: f(m.worstFrac, 3),
+      pct: m.worstFrac != null ? Math.round(m.worstFrac * 100) : '—',
+      form: m.shoulderForm || '',
+      n: m.nLegs,
+    };
+    return t(d.summaryKey || 'diag.elbow.summary.ok', vars, d.summary);
+  }
+  if (d.id === 'tip') {
+    if (m.tipDrop_mm == null) return t('diag.tip.none');
+    const vars = {
+      dS: f(m.tipDrop_mm, 3),
+      lo: m.shoulderForm === 'geodesic' ? m.geoLo : m.craftLo,
+      hi: m.shoulderForm === 'geodesic' ? m.geoHi : m.craftHi,
+      phi: m.phi3Warn ? t('diag.tip.phiWarnTag') : '',
+      bow: f(m.bowLateralMm, 3),
+      cap: f(m.phi3CapMm, 3),
+      mu: f(m.mu, 2),
+    };
+    return t(d.summaryKey || 'diag.tip.summary.geoOk', vars, d.summary);
+  }
+  return d.summary || '';
+}
+
+function diagDetailHtml(d) {
+  const m = d.metrics || {};
+  let metricsLine = '';
+  let detailBody = d.detail || '';
+  if (d.id === 'path') {
+    if (!m.nLegs) {
+      detailBody = t('diag.elbow.detail.none', {}, d.detail);
+    } else {
+      const vars = {
+        max: f(m.maxTurnDeg, 2),
+        ok: m.okDeg,
+        fail: m.failDeg,
+        seg: m.worstSegId || '—',
+        round: m.worstRound || '—',
+        frac: f(m.worstFrac, 3),
+        pct: m.worstFrac != null ? Math.round(m.worstFrac * 100) : '—',
+        form: m.shoulderForm || '',
+        n: m.nLegs,
+      };
+      detailBody = t('diag.elbow.detail', vars, d.detail);
+      metricsLine = t('diag.metrics.elbow', vars);
+    }
+  } else if (d.id === 'tip') {
+    if (m.tipDrop_mm == null) {
+      detailBody = t('diag.tip.detail.none', {}, d.detail);
+    } else {
+      detailBody = d.detail; // English prose from diagnostics.js (warn text may include Φ3 message)
+      metricsLine = t('diag.metrics.tip', {
+        dS: f(m.tipDrop_mm, 3),
+        bow: f(m.bowLateralMm, 3),
+        cap: f(m.phi3CapMm, 3),
+        mu: f(m.mu, 2),
+      });
+      if (m.packingNote) detailBody += ' ' + t('diag.packingNote');
+    }
+  }
+  const params = diagParamLabels(d.params);
+  const paramsLine = params ? `<div class="dparams">${t('diag.params', { params })}</div>` : '';
+  const metricsBlock = metricsLine ? `<div class="dmetrics">${metricsLine}</div>` : '';
+  return `${metricsBlock}<div>${detailBody}</div>${paramsLine}`;
+}
+
+function renderDiagnostics() {
+  const root = $('diagnostics');
+  if (!root || !D) return;
+  const depts = D.departments || [];
+  root.innerHTML = depts.map((d) => {
+    const open = diagOpen.has(d.id);
+    const badge = diagBadgeClass(d.severity);
+    const title = t(d.titleKey, {}, d.id);
+    const sum = diagSummaryText(d);
+    const chev = open ? '▼' : '▶';
+    return `<li class="drow${open ? ' is-open' : ''}" data-dept="${d.id}">` +
+      `<button type="button" class="drow-btn" aria-expanded="${open ? 'true' : 'false'}" aria-controls="diag-${d.id}">` +
+      `<span class="badge ${badge}">${d.severity}</span>` +
+      `<span class="dtitle">${title}</span>` +
+      `<span class="dsum">${sum}</span>` +
+      `<span class="dchev" aria-hidden="true">${chev}</span>` +
+      `</button>` +
+      `<div class="ddetail" id="diag-${d.id}">${diagDetailHtml(d)}</div>` +
+      `</li>`;
+  }).join('');
+  root.querySelectorAll('.drow-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const li = btn.closest('.drow');
+      const id = li?.dataset.dept;
+      if (!id) return;
+      if (diagOpen.has(id)) diagOpen.delete(id);
+      else diagOpen.add(id);
+      // Toggle without full recompute
+      const open = diagOpen.has(id);
+      li.classList.toggle('is-open', open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      const chev = btn.querySelector('.dchev');
+      if (chev) chev.textContent = open ? '▼' : '▶';
+    });
+  });
+  window.__sim.diagnostics = D;
 }
 
 function renderLegend() {
