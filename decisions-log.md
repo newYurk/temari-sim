@@ -113,3 +113,49 @@ Fable §5.9 / English §1.6: “V13 under bow does not improve — expected; rec
 
 So bow **can** move V13 from warn→pass at mid λ, but not monotonically and not by design of the top-channel rule (still s_prev+w). The rise in lateral capture comes from steeper arms crossing the top needle line farther out — a geometric side effect, not a V13 “cure.” **Do not retune the model to force V13 warn under bow**; ask Fable whether §5.9 should say “may pass as a side effect at some λ” instead of “does not improve.”
 
+## D42 — Codex fail-list form fixes (Fable v2 Errata §6a, 2026-09-25)
+
+Order 1→2→3→5→4→6. Concentric rails kept (Δ₂ table 2.236/1.544). Chat with owner in Russian; repo English.
+
+### 1. Rail splice (path.js `railLeg`)
+Was: on-circle arc Q0→E with `pts[0]` pinned to X → long chord + κ_g·R ~ 50 corner.
+Now: meridian geodesic samples X→Q0 (κ_g=0, same ψ about P), then concentric rail Q0→E. No off-circle pin.
+Measured (λ=0.32, untilEquator, n=96): max splice 0.929 mm; 84/160 >0.3 mm; 17/160 > w.
+Early rows ≤0.3 mm; late growth is geometric (top/bottom E sit on different ∠(P,E) cones while X inherits the other level’s ρ). Spec target ≲0.3 mm holds where geometry allows; residual documented, not papered over.
+V20 excludes path-distance ≤ max(w, spliceMm)+0.25 mm from the hole so the meridian/rail join is not scored as friction-pose λ.
+
+### 2. V20
+- Exclusion by path-distance from hole, not fixed sample count.
+- Commanded-λ check on **all** bowed legs (not only row1[0]).
+- `bowSagMm`: sag-invert λ still verified against discrete κ_g (7).
+
+### 3. V21 (Errata §6a)
+- Crossing-once + continuous stick ≤0.7 mm: **all** legs.
+- Angle ≥ α_geo: **lower legs only**; both angles local at the axis crossing (geodesic through same X,E). Upper-leg angle drop under outward bow is expected (same flatter tip lay that widens row-1 footprint / V13).
+- Stick threshold inclusive `≤ 0.7`. Continuous measure (fractional segments); was undercounting (missed first segment of a run).
+- Angle emitted in `numbers.angleRows` / `minAngleDeg`.
+
+### 5. Short-arc (6)
+`dΨ` uses signed **short** angle (same as `smallCircleArc`). Equator-side mutation length 37.4 mm (was long-arc ~200 mm).
+
+### 4. §5.2 last-segment θ
+`smallCircleArc` cosine end-clustering: last-chord error at 96 samples λ=0.32/0.6 → 0.002°/0.005° (was 0.094°/0.178°).
+
+### 6. V6 + V13
+**V6:** fails on full untilEquator for **geodesic and bow alike** (A2 passes). Not a rail bug.
+Measurements (geodesic): A1–A2 symmetric; A3 dLeg=0.132 mm; A4 0.651; A5 1.379; closing `extra→0` from A3 (fails `extra>0`).
+Bow λ=0.32: legs mostly 0 through A5; B6 dLeg=0.064; B8 0.116; many late rounds `extra=0`.
+Cause = resume-from-parking transition step + late-row squeeze (V6 message already describes this; TK-UWA deferred last stitch not modelled). Document only.
+
+**V13 (Errata 6a.1):** tip-width growth at A2 is physics from row-1 footprint — expected pass under bow at mid λ. Acceptance (do **not** retune thresholds): growth monotonic in λ and within ±0.1 w of geodesic +0.21 / λ0.2→+0.43 / 0.32→+0.59 / 0.45→+0.75 / 0.6→+0.92 w. On 4b872eb + this fix these match (measured 0.212 / 0.432 / 0.587 / 0.745 / 0.919 w); suite locks them. A V13 pass driven by rows ≥3 is suspicious — test warns.
+
+**V13 metric vs Errata “pass from λ≥0.2” (boundary, no retune):**
+- Metric compared: **same** — V13 row-1 footprint / A2 tip width `(W − Wp)/w` (row-n+1 top wider as consequence). Matches Errata 6a.1’s tip-width growth.
+- Cut differs: V13’s own pass band still requires widen ≳ 0.5 w (geodesic +0.21 w → **warn**; λ=0.2 → +0.43 w → still **warn**; λ=0.32 → +0.59 w → **pass**). Errata 6a.1 speaks of pass from λ≥0.2 for the growth rates themselves.
+- **Do not retune** V13 thresholds to force λ=0.2 pass. **Ask Fable:** should V13’s warn floor move to ~0.4 w to align with 6a.1’s pass-from-0.2, or does 6a.1’s “pass” mean only the locked growth-rate check (status may remain warn)?
+
+**V21 stick threshold (Errata 6a + English key):** continuous stick on all legs. Clean geodesic crossing has stick ≈ `2·0.05/sin(α_geo)` (~0.68 mm at C=240, ~0.85 mm at C=300). Bare absolute 0.7 fails geodesic at C=300. Restored documented scale `max(0.7, w, 0.025·R)` from Fable v2 English key / prior acceptance note — not a new invented cut. Errata’s “0.7 mm” remains the reference at default C/w.
+
+### Row construction (Errata 6a.2)
+**Kept concentric** (formula (8), Δ₂ ≈ 2.236 / 1.544). Tangential alternative (2.296 / 1.576) not adopted — same choice in code, reference, tests, docs.
+

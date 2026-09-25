@@ -120,3 +120,17 @@ Reading the table:
 | rows in petal body | parallel everywhere | parallel, climb at tip | w_eff < 0.6 |
 
 **Record.** `samples/kiku-s8/measurements/2026-09-DD.md`: table quantity / value / error / photo file; photos with scale in frame; ball and thread params in the header. First project file where column (c) “practice” stops being empty.
+
+## Errata §6a notes (2026-09-25)
+
+- **V21:** one meridian crossing + stick ≤ max(0.7 mm, w, 0.025·R) on **all** legs (Errata’s 0.7 mm = reference at default C/w; scale keeps clean geodesic pass); angle ≥ α_geo only for **lower** legs, measured locally at the crossing (geodesic through same X,E). Upper-leg angle decrease under outward bow is expected.
+- **V13:** tip-width growth at A2 from row-1 footprint is expected physics under bow; monotonic in λ (see D42 table). Do not retune V13 thresholds to force pass.
+- **Rows n≥2:** concentric rails kept (Δ₂ 2.236/1.544); tangential variant allowed by Errata but not selected.
+- **Rail splice:** meridian X→Q0 then concentric rail; target ≲0.3 mm where geometry allows; V20 excludes max(w,splice) from hole.
+
+
+
+## Errata 6a.1 — V13 tip-width growth (locked, no retune)
+
+A2 tip-width growth `(W−Wp)/w` under bow is physics (row-1 footprint), not a bug. Locked rates (±0.1 w, monotonic): geodesic +0.21; λ 0.2/0.32/0.45/0.6 → +0.43/+0.59/+0.75/+0.92 w.
+Same metric as V13; V13’s own ≥~0.5 w pass band still **warns** at λ=0.2 (+0.43 w). Do not retune thresholds — ask Fable whether the warn floor should align with pass-from-0.2.

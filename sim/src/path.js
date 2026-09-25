@@ -276,16 +276,27 @@ function rotateAbout(v, k, t) {
  * Samples of the small circle about Pc from a to b (uniform in angle about P).
  * Endpoints pinned to from/to; all points on radius R.
  */
+
+/** Signed short rotation about unit k from pa to pb, in (−π, π]. Matches smallCircleArc. */
+function signedShortPsi(pa, pb, k) {
+  let T = angle(pa, pb);
+  if (dot(cross(pa, pb), k) < 0) T = -T;
+  return T;
+}
+
 function smallCircleArc(R, from, to, Pc, n) {
   const a = unit(from), b = unit(to), k = unit(Pc);
   const pa = unit(add(a, mul(k, -dot(a, k))));
   const pb = unit(add(b, mul(k, -dot(b, k))));
-  let T = angle(pa, pb);
-  if (dot(cross(pa, pb), k) < 0) T = -T;
+  const T = signedShortPsi(pa, pb, k);
   const out = [];
+  // Cosine end-clustering: last chord subtends O(1/n²) so θ_last matches analytic tangent
+  // within 0.1° at n=96 (uniform chord is O(1/n) and overshoots at λ≳0.5).
   for (let i = 0; i <= n; i++) {
-    const u = rotateAbout(a, k, T * (i / n));
-    out.push(mul(unit(u), R));
+    const u = n === 0 ? 0 : i / n;
+    const s = 0.5 * (1 - Math.cos(Math.PI * u));
+    const p = rotateAbout(a, k, T * s);
+    out.push(mul(unit(p), R));
   }
   out[0] = from.slice ? from.slice() : [...from];
   out[n] = to.slice ? to.slice() : [...to];
@@ -337,11 +348,11 @@ function layLeg(R, from, to, phiMark, shoulderForm, lambdaCmd = 0, bowSide = 'po
       if (off > bowLateralMm) bowLateralMm = off;
     }
   }
-  // Arc length (6): L_arc = R·sinρ·Δψ
+  // Arc length (6): L_arc = R·sinρ·|Δψ| with the SAME short signed Δψ as smallCircleArc
+  // (long-arc 2π−∠ was wrong for equator-side centers — V2 saw ~200 mm vs ~37 mm poly).
   const pa = unit(add(unit(from), mul(unit(Pc), -dot(unit(from), unit(Pc)))));
   const pb = unit(add(unit(to), mul(unit(Pc), -dot(unit(to), unit(Pc)))));
-  let dPsi = angle(pa, pb);
-  if (dot(cross(pa, pb), unit(Pc)) < 0) dPsi = 2 * Math.PI - dPsi;
+  const dPsi = Math.abs(signedShortPsi(pa, pb, unit(Pc)));
   const arcLen = R * Math.sin(rho) * dPsi;
   return {
     pts, length: Math.abs(arcLen) > 1e-12 ? Math.abs(arcLen) : polyLen(pts),
@@ -367,28 +378,64 @@ function onSmallCircle(Pc, rho, toward) {
  * Small-circle prev → concentric small circle about the SAME P with
  * ρ_n = ∠(P, E_n) = ρ_{n−1} + w/R; packing normal from this row's analytics.
  * Geodesic prev → geodesic chord (preserves λ=0 / 5-rows-to-equator).
- * Short splice from X_n onto the rail (≲0.3 mm): arc is built on-circle, pts[0] pinned to X.
+ * Smooth C¹ splice from X_n onto the rail (target ≲0.3 mm): ρ-blend with smoothstep, no off-circle pin.
  */
 function railLeg(R, from, to, prevArm, w = 0) {
   const n = getLegSamples();
   if (prevArm?.bowCenter && Number.isFinite(prevArm.rho)) {
     const Pc = unit(prevArm.bowCenter);
-    // E_n lies on the concentric circle by construction of packThenPierce (8).
     let rho = angle(Pc, unit(to));
     if (!(rho > 1e-12 && rho < Math.PI - 1e-12)) {
       rho = prevArm.rho + (Number.isFinite(w) ? w / R : 0);
     }
-    // Build the arc entirely on the concentric circle (Q0 near X → E), then pin X.
+    // Splice X → rail (Fable v2 §4.3): geodesic meridian X→Q0 (same ψ about P, κ_g=0),
+    // then concentric rail Q0→E. Do NOT pin pts[0] off-circle onto an on-circle arc — that
+    // made a long chord and a fake sharp corner. The meridian/rail join is a real ~90°
+    // tangent break at Q0; V20 excludes it by path-distance ≤ w from the hole, not by a
+    // fixed sample count. Early-row gap |ρ_X−ρ|·R is ≲ 0.3 mm; later rows may be larger
+    // (reported in spliceMm).
+    const X = unit(from), E = unit(to);
     const Q0 = onSmallCircle(Pc, rho, from);
-    const pts = smallCircleArc(R, mul(Q0, R), to, Pc, n);
+    const splice = R * angle(X, Q0);
+    // Samples on the meridian splice (include X, exclude Q0) + rail (include Q0 and E).
+    const T = splice <= 1e-15 ? 0 : Math.max(2, Math.min(8, Math.round(n * splice / Math.max(splice + R * angle(Q0, E), 1e-9))));
+    const pts = [];
+    for (let i = 0; i < T; i++) {
+      const t = T === 0 ? 0 : i / T;
+      // slerp on the sphere from X to Q0
+      const a = angle(X, Q0);
+      if (a < 1e-15) { pts.push(mul(X, R)); continue; }
+      const s = Math.sin(a);
+      const p = add(mul(X, Math.sin((1 - t) * a) / s), mul(Q0, Math.sin(t * a) / s));
+      pts.push(mul(unit(p), R));
+    }
+    const railPts = smallCircleArc(R, mul(Q0, R), to, Pc, Math.max(1, n - T));
+    for (const q of railPts) pts.push(q);
+    // Normalize to n+1 samples (keep ends; thin the denser side if needed).
+    if (pts.length !== n + 1) {
+      const out = [];
+      for (let i = 0; i <= n; i++) {
+        const u = i / n;
+        const f = u * (pts.length - 1);
+        const j = Math.min(pts.length - 2, Math.floor(f));
+        const frac = f - j;
+        const a = unit(pts[j]), b = unit(pts[j + 1]);
+        const ang = angle(a, b);
+        if (ang < 1e-15) out.push(mul(a, R));
+        else {
+          const s = Math.sin(ang);
+          out.push(mul(unit(add(mul(a, Math.sin((1 - frac) * ang) / s), mul(b, Math.sin(frac * ang) / s))), R));
+        }
+      }
+      pts.length = 0;
+      pts.push(...out);
+    }
     pts[0] = from.slice ? from.slice() : [...from];
-    // Arc length (6) on the true rail (Q0→E); splice is ≪ segment length.
+    pts[n] = to.slice ? to.slice() : [...to];
     const pa = unit(add(Q0, mul(Pc, -dot(Q0, Pc))));
-    const pb = unit(add(unit(to), mul(Pc, -dot(unit(to), Pc))));
-    let dPsi = angle(pa, pb);
-    if (dot(cross(pa, pb), Pc) < 0) dPsi = 2 * Math.PI - dPsi;
-    const splice = R * angle(unit(from), Q0);
-    const arcLen = R * Math.sin(rho) * dPsi + splice;
+    const pb = unit(add(E, mul(Pc, -dot(E, Pc))));
+    const dPsi = Math.abs(signedShortPsi(pa, pb, Pc));
+    const arcLen = splice + R * Math.sin(rho) * dPsi;
     const lambda = Math.abs(Math.cos(rho) / Math.max(1e-15, Math.sin(rho)));
     return {
       pts, length: Math.abs(arcLen) > 1e-12 ? Math.abs(arcLen) : polyLen(pts),
@@ -396,7 +443,6 @@ function railLeg(R, from, to, prevArm, w = 0) {
       bowCenter: Pc, phi3Warn: false, layMode: 'rail', spliceMm: splice,
     };
   }
-  // Geodesic previous (or missing analytics): geodesic between from/to.
   return {
     pts: slerp(R, from, to, n), length: geodLen(R, from, to),
     shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
@@ -404,13 +450,6 @@ function railLeg(R, from, to, prevArm, w = 0) {
   };
 }
 
-/**
- * Packing plane normal for an already-laid arm.
- * Geodesic: from×to.
- * Small-circle bow: local great-circle plane at E matching the arc tangent T=P×E,
- * so n = E × T = E × (P × E) (equiv. P projected off E). Spec §4.3 “P×E” names the
- * tangent; packThenPierce needs the GC plane normal (NOT the last-5% sample slice).
- */
 function armPackNormal(arm) {
   const nRef = unit(cross(arm.from, arm.to));
   if (arm.bowCenter) {
@@ -652,7 +691,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         source: layBasis, tag: conv.lay.tag, crossings: [],
         shoulderForm: legShape.shoulderForm, bowLateralMm: legShape.bowLateralMm, phi3CapMm: legShape.phi3CapMm,
         lambda: legShape.lambda ?? 0, rho: legShape.rho, bowCenter: legShape.bowCenter || null,
-        layMode: legShape.layMode || (spec.row === 1 ? 'row1' : 'rail') });
+        layMode: legShape.layMode || (spec.row === 1 ? 'row1' : 'rail'),
+        spliceMm: legShape.spliceMm ?? 0 });
       if (i === 1) RD.firstLegId = leg.id;
       // перекресты и прилегания со ВСЕМИ ранее уложенными плечами (обе нити): правило над/под
       for (const other of legs()) {

@@ -336,6 +336,167 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const bf = PARAM_SCHEMA.find((p) => p.key === 'bowFrac');
   check(bl && (bl.def === '' || bl.def == null), 'bowLambda default is empty (resolved to 0.32 only when form=bow and nothing else set)');
   check(bf && (bf.def === '' || bf.def == null), 'legacy bowFrac default is empty (prefer bowLambda)');
+
+  // V21 angle emitted; lower-leg local angle ≥ α_geo (Errata 6a)
+  check(v21.numbers.minAngleDeg != null && v21.numbers.minAngleGeoDeg != null, 'V21 emits minAngleDeg / minAngleGeoDeg');
+  check(v21.numbers.minAngleDeg + 1e-3 >= v21.numbers.minAngleGeoDeg, 'V21 lower-leg local angle ≥ α_geo');
+
+  // V20 bowSagMm: sag-invert λ still checked against discrete κ_g
+  {
+    const sag = computeAll(recipe, { shoulderForm: 'bow', bowSagMm: 1.632, muWrap: 0.32, rowsMode: 'count', rowsCount: 1 });
+    const vs = runValidators(sag, '2b', null).find((v) => v.id === 'V20');
+    console.log(`  V20 bowSagMm: ${vs.status} cmd=${vs.numbers.cmdLambda} source=${vs.numbers.cmdSource}`);
+    check(vs.numbers.cmdSource === 'bowSagMm' || vs.numbers.cmdLambda != null, 'V20 bowSagMm sets a commanded λ');
+    check(vs.status === 'pass' || vs.status === 'warn', 'V20 bowSagMm verifies discrete κ_g (no false skip)');
+  }
+
+}
+
+// 8b2. V21 mutation negatives + V13 growth (Errata 6a.1)
+{
+  console.log('\n## V21 negatives + V13 growth (Errata 6a)');
+  const R0 = () => computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 1 });
+
+  // Short stick exceedance: glue path near tip onto the meridian past the scaled V21 threshold
+  {
+    const A = R0();
+    const leg = A.path.segs.find((s) => s.type === 'leg' && s.level === 'bottom');
+    const R = A.base.R;
+    const phi = A.marking.phis[leg.line];
+    const nMer = [-Math.sin(phi), Math.cos(phi), 0];
+    const thr = Math.max(0.7, A.params.w_mm, 0.025 * R);
+    const glueMm = thr + 0.35; // short exceedance above scaled cut
+    // arc-length from tip (sample-fraction under-glues under cosine clustering)
+    const lens = [0];
+    for (let i = 1; i < leg.pts.length; i++) {
+      lens.push(lens[i - 1] + R * angle(leg.pts[i - 1], leg.pts[i]));
+    }
+    const total = lens[lens.length - 1];
+    const i0 = Math.max(1, lens.findIndex((l) => l >= total - glueMm));
+    for (let i = i0; i < leg.pts.length; i++) {
+      const u = leg.pts[i];
+      const d = u[0]*nMer[0] + u[1]*nMer[1] + u[2]*nMer[2];
+      const onMer = [u[0]-nMer[0]*d, u[1]-nMer[1]*d, u[2]-nMer[2]*d];
+      const L = Math.hypot(...onMer) || 1;
+      leg.pts[i] = onMer.map((x) => x / L * R);
+    }
+    const v = runValidators(A, '2b', null).find((x) => x.id === 'V21');
+    const stick = v.numbers.tipStickMm;
+    console.log(`  V21 short-exceed stick=${fmt(stick, 3)} status=${v.status} thr=${fmt(v.numbers.thresholdMm, 3)}`);
+    check(stick > v.numbers.thresholdMm && v.status === 'fail', 'V21 fails on short stick exceedance (> scaled threshold)');
+  }
+
+  // Small angle: replace crossing neighborhood with a near-meridian path on ONE bottom leg
+  {
+    const A = R0();
+    const leg = A.path.segs.find((s) => s.type === 'leg' && s.level === 'bottom');
+    const R = A.base.R;
+    const phi = A.marking.phis[leg.line];
+    const nMer = [-Math.sin(phi), Math.cos(phi), 0];
+    const signed = (i) => {
+      const u = leg.pts[i];
+      return R * Math.asin(Math.max(-1, Math.min(1, u[0]*nMer[0]+u[1]*nMer[1]+u[2]*nMer[2])));
+    };
+    let iMeet = -1;
+    for (let i = 1; i < leg.pts.length; i++) if (signed(i - 1) * signed(i) < 0) { iMeet = i; break; }
+    // Build a short chord that crosses with very small angle: stay close to meridian
+    // for ~3 mm on each side, offset only ±0.01 mm in lat so crossing angle ≪ α_geo.
+    if (iMeet > 0) {
+      const lens = [0];
+      for (let i = 1; i < leg.pts.length; i++) lens.push(lens[i - 1] + R * angle(leg.pts[i - 1], leg.pts[i]));
+      const sMeet = lens[iMeet];
+      for (let i = 0; i < leg.pts.length; i++) {
+        if (Math.abs(lens[i] - sMeet) > 3.0) continue;
+        const u = unit(leg.pts[i]);
+        const side = Math.sign(lens[i] - sMeet) || 1;
+        const targetLat = side * 0.01; // mm
+        // project to meridian then push targetLat along nMer in tangent plane
+        const d = u[0]*nMer[0]+u[1]*nMer[1]+u[2]*nMer[2];
+        let on = [u[0]-nMer[0]*d, u[1]-nMer[1]*d, u[2]-nMer[2]*d];
+        const L = Math.hypot(...on) || 1;
+        on = on.map((x) => x / L);
+        // move in nMer direction by targetLat/R radians (approx)
+        const pushed = [on[0] + nMer[0]*(targetLat/R), on[1] + nMer[1]*(targetLat/R), on[2] + nMer[2]*(targetLat/R)];
+        const Lp = Math.hypot(...pushed) || 1;
+        leg.pts[i] = pushed.map((x) => x / Lp * R);
+      }
+    }
+    const v = runValidators(A, '2b', null).find((x) => x.id === 'V21');
+    console.log(`  V21 small-angle status=${v.status} badAngle=${v.numbers.badAngle} minAngle=${v.numbers.minAngleDeg}`);
+    check(v.status === 'fail' && v.numbers.badAngle > 0, 'V21 fails when local crossing angle < α_geo (small-angle mutation)');
+  }
+
+  // Two crossings: pull mid-leg across the meridian an extra time
+  {
+    const A = R0();
+    const leg = A.path.segs.find((s) => s.type === 'leg' && s.level === 'bottom');
+    const phi = A.marking.phis[leg.line];
+    const nMer = [-Math.sin(phi), Math.cos(phi), 0];
+    const n = leg.pts.length - 1;
+    // Mirror a mid band across the meridian to create a second crossing
+    for (let i = Math.floor(n * 0.25); i <= Math.floor(n * 0.4); i++) {
+      const u = leg.pts[i];
+      const d = u[0]*nMer[0]+u[1]*nMer[1]+u[2]*nMer[2];
+      // flip to the other side of the meridian
+      const flipped = [u[0]-2*nMer[0]*d, u[1]-2*nMer[1]*d, u[2]-2*nMer[2]*d];
+      const L = Math.hypot(...flipped);
+      leg.pts[i] = flipped.map((x) => x / L * A.base.R);
+    }
+    const v = runValidators(A, '2b', null).find((x) => x.id === 'V21');
+    console.log(`  V21 two-crossings status=${v.status} badCrossings=${v.numbers.badCrossings}`);
+    check(v.status === 'fail' && v.numbers.badCrossings > 0, 'V21 fails on two meridian crossings');
+  }
+
+  // V13 tip-width growth at A2 (Errata 6a.1) — lock Fable numbers; do NOT retune thresholds
+  {
+    const expect = [
+      { bowLambda: 0, grow: 0.21 },
+      { bowLambda: 0.2, grow: 0.43 },
+      { bowLambda: 0.32, grow: 0.59 },
+      { bowLambda: 0.45, grow: 0.75 },
+      { bowLambda: 0.6, grow: 0.92 },
+    ];
+    const grows = [];
+    for (const e of expect) {
+      const A = computeAll(recipe, {
+        shoulderForm: e.bowLambda === 0 ? 'geodesic' : 'bow',
+        bowLambda: e.bowLambda || undefined,
+        muWrap: Math.max(0.32, e.bowLambda || 0),
+        rowsMode: 'count', rowsCount: 2,
+      });
+      const V = runValidators(A, 'A2', null);
+      const v13 = V.find((v) => v.id === 'V13');
+      const row = (v13.numbers?.rows || []).find((x) => !x.closing) || (v13.numbers?.rows || [])[0];
+      const w = A.params.w_mm;
+      const grow = row ? (row.W - row.Wp) / w : NaN;
+      grows.push(grow);
+      console.log(`  V13 growth λ=${e.bowLambda}: ${fmt(grow, 3)} w (expect ${e.grow} ±0.1), status=${v13.status}`);
+      check(Math.abs(grow - e.grow) <= 0.1, `V13 A2 tip-width growth at λ=${e.bowLambda} within ±0.1 w of ${e.grow}`);
+    }
+    check(grows.every((g, i) => i === 0 || g > grows[i - 1] - 1e-9), 'V13 A2 tip-width growth monotonic in λ');
+  }
+
+  // §5.2 last-segment θ at 96 samples ≤ 0.1°
+  {
+    const baseN = getLegSamples();
+    setLegSamples(96);
+    for (const lam of [0.32, 0.6]) {
+      const A = computeAll(recipe, { shoulderForm: 'bow', bowLambda: lam, muWrap: Math.max(lam, 0.32), rowsMode: 'count', rowsCount: 1 });
+      const leg = A.path.segs.find((s) => s.type === 'leg' && s.row === 1 && s.level === 'bottom');
+      const pts = leg.pts, E = unit(pts[pts.length - 1]), X = unit(pts[0]);
+      const gamma = angle(X, E);
+      const thForm = Math.asin(lam * Math.tan(gamma / 2));
+      const Ttrav = unit(sub(pts[pts.length - 1], pts[pts.length - 2]));
+      const Tplane = unit(sub(Ttrav, mul(E, dot(Ttrav, E))));
+      const c0 = unit(sub(X, mul(E, dot(X, E))));
+      const cT = unit(sub(c0, mul(E, dot(c0, E))));
+      const thLast = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(Tplane), unit(cT))))));
+      const err = Math.abs(thLast - thForm) * 180 / Math.PI;
+      console.log(`  §5.2 last-seg θ λ=${lam}: err=${fmt(err, 4)}°`);
+      check(err <= 0.1, `§5.2 last-segment θ error ≤0.1° at 96 samples (λ=${lam})`);
+    }
+    setLegSamples(baseN);
+  }
 }
 
 // 8c. Rows to equator, Δ_n trend, analytic θ (§5.2), convergence (§5.3)
