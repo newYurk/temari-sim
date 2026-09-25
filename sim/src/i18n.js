@@ -1,3 +1,4 @@
+// @ts-check
 // Bilingual RU/EN UI for the temari simulator.
 // Code/comments: English. Default locale: ru (current UI language).
 // Craft terms in EN: kiku, mari, NP, round/row, set A/B, catch/pickup, hidden start, marking, pins.

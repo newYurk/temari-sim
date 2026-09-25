@@ -1,3 +1,4 @@
+// @ts-check
 // Конвейер слоёв: чистая функция (рецепт + параметры) → слои в порядке зависимостей
 // base → marking → layout → rowPlan → path(обходы в порядке замысла: по ряду / блоками / явный) → validators. Каждый слой несёт штамп: хэш собственных входов
 // и штампы слоёв-родителей. Пересчёт всегда с нуля: никаких кэшей между наборами параметров.
@@ -76,7 +77,12 @@ export function layerPath(recipe, P, base, marking, layout, rowPlan) {
 
 /** Крючок механики (этап 2.4+): слой, который по пути вычислит реальные подъёмы нить-на-нить и формы плеч.
  *  Сейчас его нет — рендер использует условное смещение по порядку стопки (display.js), помеченное как изображение. */
-export function layerMechanics() { return null; }
+/**
+ * Mechanics layer placeholder (not implemented yet); inputs accepted for the pipeline signature.
+ * @param {any} [_recipe] @param {any} [_P] @param {any} [_path]
+ * @returns {null}
+ */
+export function layerMechanics(_recipe, _P, _path) { return null; }
 
 /** Полный пересчёт. raw — сырые параметры (из UI/URL/теста). */
 export function computeAll(recipe, raw) {

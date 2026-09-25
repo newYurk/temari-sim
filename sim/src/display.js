@@ -1,3 +1,4 @@
+// @ts-check
 // Display thread geometry — pure function of the pipeline result (render and validator V14 take it from here).
 // The path model is unchanged: only display conventions live here, each called out.
 //  • visible leg: model is a geodesic on R (thread on the surface); tube axis at R + w/2,

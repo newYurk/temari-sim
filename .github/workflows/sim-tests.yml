@@ -22,3 +22,6 @@ jobs:
       - name: Run sim test suite
         # Paths resolve via import.meta.url; CWD may be repo root.
         run: node sim/test/run.mjs
+      - name: JS type-check (pinned tsc, no build, no deps in repo)
+        # checkJs is off globally; files opt in with `// @ts-check` (see tsconfig.json).
+        run: npx --yes -p typescript@5.9.3 tsc -p tsconfig.json

@@ -1,3 +1,4 @@
+// @ts-check
 // Pure diagnostics from assembled model A (computeAll result). No DOM.
 // Departments report craft/geometry issues linked to parameters — compact summaries,
 // expandable details rendered by main.js.

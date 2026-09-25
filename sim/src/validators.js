@@ -1,3 +1,4 @@
+// @ts-check
 // Validators — pure functions over the pipeline result (or its prefix up to operation k).
 // Each: id, name (English canonical; UI translates via i18n), criterion from criteria.md / basis,
 // status pass|fail|warn|info|n/a, numbers. Work may span several rounds and threads (A1, B1, A2 …).
@@ -379,7 +380,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     }
     const sprB = w * (1 / 0.714), sprT = w * (0.5 / 0.714); // 6a.11(3) was 1/0.5 mm at w0
     const ok = wrongLine === 0 && reach === 0 && spreads.every((x) => x.b <= sprB && x.t <= sprT);
-    const worstB = spreads.reduce((a, x) => (x.b > a.b ? x : a), { b: 0 });
+    const worstB = spreads.reduce((a, x) => (x.b > a.b ? x : a), /** @type {any} */ ({ b: 0 }));
     add({ id: 'V5', name: 'Stitches on their lines and levels', crit: 'K1 (set A: top on even lines; B on odd), K2 (razbros bota ryada ≤ 1 mm [A]), K3 (razbros topa ≤ 0,5 mm [A])',
       status: stitchesDone.length ? (ok ? 'pass' : 'fail') : 'n/a',
       value: `line/level errors ${wrongLine}; s spread by rounds: ${spreads.map((x) => `${x.r} bot ${f(x.b)}, top ${f(x.t)}`).join('; ')} mm; catch reaches neighbour marking: ${reach}` +

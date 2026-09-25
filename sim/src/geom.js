@@ -1,3 +1,4 @@
+// @ts-check
 // Чистая сферическая геометрия (без three.js). Единицы — мм. Центр шара в 0, рабочий полюс NP = +z.
 // p(s, φ) = R(sin(s/R)cos φ, sin(s/R)sin φ, cos(s/R))  — model/spec.md G1, geometry.md.
 
@@ -118,7 +119,9 @@ export function closeZones(A, B, thr) {
   let best = null;
   const zones = [];
   // грубо: для каждого отрезка A — минимум по B
-  let inZone = false, cur = null;
+  let inZone = false;
+  /** @type {any} */
+  let cur = null;
   for (let i = 1; i < A.length; i++) {
     let m = { d: Infinity };
     for (let j = 1; j < B.length; j++) {
