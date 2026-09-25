@@ -1,46 +1,63 @@
-# Temari — stage 1: исследование и декомпозиция одного образца
+# temari-sim
 
-**Образец:** кику S8 — 八重菊 (yaegiku, 8 лепестков = 2 набора × 4) в технике 上掛け千鳥かがり (uwagake chidori kagari),
-параметры TemariKai GT14 (мари 23–25 см, Perle #5, 2 цвета). Японское подтверждение правил стежка — Olympus TM-7 古典菊
-(видео с субтитрами; та же техника на 16 делениях). Эталон совпадает с эталоном существующего проекта
-[newYurk/temari](https://github.com/newYurk/temari) — см. `prior-project/state.md` (issues и доки прочитаны, код — нет).
+Parametric **temari** knowledge base and browser simulator. First vertical slice: **kiku S8** (*yaegiku* / eight-petal chrysanthemum) in *uwagake chidori kagari*, recipe intent aligned with TemariKai GT14 (mari ~23–25 cm, Perle #5, two colours), checked against live needle sources (Karo, Suess) without silently merging contradicting recipes.
 
-Практической проверки (вышивки образца) не было: все утверждения помечены как (a) источник / (b) вывод; (c) — нет.
+Live site (when Pages is green): [newyurk.github.io/temari-sim](https://newyurk.github.io/temari-sim/)
 
-## Структура
+## Language
 
-| Путь | Что |
-|---|---|
-| `sources/sources.md`, `sources/sources.json` | 52 записи (40 открыты мной, 3 — аннотации, 1 каталог, 1 сниппет, 7 не открыты), статусы и что подтверждают |
-| `sources/excerpts/` | короткие дословные выдержки; `sources/img/` — фото для внутреннего изучения (Olympus, TemariKai) |
-| `sources/build_sources.py`, `sources/make_excerpts.py` | генерация списков |
-| `glossary.md` | RU / JA (кандзи, кана, ромадзи) / EN |
-| `craft/overview.md` | обзор ремесла, выбор образца, варианты |
-| `prior-project/state.md` | карта попыток newYurk/temari: установлено / опровергнуто / открыто; GT14 vs Olympus |
-| `samples/kiku-s8/recipe.md` | рецепт по шагам |
-| `samples/kiku-s8/thread-path.md` | путь нити (17 шагов, метки a/b, сверка с prior) |
-| `samples/kiku-s8/ambiguities.md` | 16 неоднозначностей и выбор |
-| `samples/kiku-s8/geometry.md` | геометрия + физические пределы (геодезичность, давление) |
-| `samples/kiku-s8/calc.py` → `calc_output.md/json` | расчёт (`python3 calc.py --json`), включая явный путь нитей `thread_path_north` |
-| `samples/kiku-s8/criteria.md` | 15 проверяемых критериев |
-| `samples/kiku-s8/diagrams/` | 4 схемы SVG+PNG (`make_diagrams.py`, `render.sh`) |
-| `model/spec.md` | спецификация: геометрический слой, **физический слой** (Ф0–Ф5), **текстильная механика** (Т1–Т6), баланс материала |
-| `uncertainties.md` | неопределённости и измерения, которые их снимают |
-| `decisions-log.md` | решения с датами и коммитами |
-| `next-stage.md` | план stage 2 (рецепт → путь одной нити → механика → рендер) |
-| `sim/` | **stage 2a/2b/2c**: браузерный симулятор пути нитей A и B (three.js), обходы A1 → B1 → A2 с выводом уровней ряда 2 из занятости, над/под, валидаторы V1–V18, тесты, скриншоты — см. `sim/README.md` |
+| Where | Language |
+| --- | --- |
+| Owner ↔ assistant chat | Russian OK |
+| This repository (docs, issues, labels, code, comments) | **English** |
+| Simulator UI | Bilingual **RU \| EN** toggle (default RU), so craft terms can be learned in context |
 
-## Ключевые числа (C = 240 мм)
+Japanese craft terms stay with romaji (and kanji where useful). See `CONTRIBUTING.md` and issue [#1](https://github.com/newYurk/temari-sim/issues/1). Remaining Russian prose in older markdown is tracked in [#11](https://github.com/newYurk/temari-sim/issues/11).
 
-R = 38,2 мм; верх 5 мм от NP, низ 40 мм (1/3 от экватора); угол кончика 13°; по правилу «уложи → коли в пересечении»
-4 ряда на набор до экватора (при фиксированном шаге 2 мм — 11, но с нахлёстом по модели); ряд 1 = 313,1 мм нити
-(захваты выведены из ширин нитей, D16; stage 1 — 316 мм); ≈ 3,7 м на цвет (нижняя оценка). Физика: q = T/R; e^{μθ} = 2,7…26 в захвате; допустимый боковой прогиб плеча 1,5–2,4 мм
-при μ хлопка 0,32–0,52 (не Perle #5). Численное натяжение не определено — нужны измерения (uncertainties.md).
+## Principles
 
-## Воспроизведение
+- Every model law rests on **technique (with source), physics, or math**. Owner statements and photos are observations to check, not axioms.
+- Do not silently merge contradicting sources (GT14 alternate vs Suess blocks vs Karo “2 rounds per colour”).
+- Simulator is fully **parametric**: tension, thread size/material, mari size, row intent, and similar controls recompute downstream layers. Needle entry/exit come from occupancy — no stored pickup width.
+- Third-party lesson video and raw dumps stay **out of git** (`sources/video/`, `sources/raw/`, `sources/photos/`). Links and short excerpts are fine.
 
+Related prior project: [newYurk/temari](https://github.com/newYurk/temari) — issues and markdown only; its code is not used here.
+
+## Layout
+
+| Path | Role |
+| --- | --- |
+| `sources/` | Catalog, excerpts, build scripts; `img/` for study stills |
+| `glossary.md` | RU / JA / EN terms |
+| `craft/`, `prior-project/` | Craft overview; map of prior attempts |
+| `samples/kiku-s8/` | Recipe, thread path, geometry, criteria, diagrams |
+| `model/` | Spec: geometry, physics (Ф*), textile mechanics (Т*) |
+| `sim/` | Browser simulator (stages 2a–2c: rounds A1 → B1 → A2) |
+| `decisions-log.md`, `uncertainties.md`, `next-stage.md` | Decisions, open measurements, plan |
+
+## Run the simulator
+
+```bash
+cd sim && python3 -m http.server 8765
+# open http://localhost:8765/
+node test/run.mjs          # from sim/, or: node sim/test/run.mjs from repo root
 ```
+
+UI locale: **RU \| EN** (top right), also `?lang=ru|en`. Params live in the URL. Details: `sim/README.md` (still partly Russian until #11).
+
+## Reproduce stage-1 numbers
+
+```bash
 cd samples/kiku-s8 && python3 calc.py --json && python3 make_diagrams.py && ./render.sh
 cd sources && python3 build_sources.py && python3 make_excerpts.py
 ```
-Нужны python3 + numpy; для PNG — google-chrome (headless).
+
+Needs `python3` + `numpy`; PNG diagrams need a headless Chrome.
+
+## Clone
+
+```bash
+gh repo clone newYurk/temari-sim
+```
+
+Pick any local folder; record the path with the assistant when ready. Do not invent a path.
