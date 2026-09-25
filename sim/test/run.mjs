@@ -1,6 +1,6 @@
 // Безбраузерные тесты: генератор пути + валидаторы. Запуск: node sim/test/run.mjs  (код выхода 0 = всё прошло)
 import { loadRecipe, loadJSON } from '../src/recipe.js';
-import { computeAll } from '../src/layers.js';
+import { computeAll, G, finish } from './harness.mjs'; // memoized computeAll + group gates / parallel runner (#34)
 import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan, geodesicAlphaAt, tipLevelMm } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples } from '../src/path.js';
@@ -52,6 +52,7 @@ console.log(`\n  L(300)/L(240) = ${fmt(ratio, 5)} (чистое подобие �
 check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C как предсказывает геометрия');
 // 2b. Подобие: если масштабировать ВСЕ длины входа (C, w, m, скрытый проход) и задать верх долей Q,
 //     длина ряда должна вырасти ровно в C'/C — чистая математика, без подгонки.
+if (G('2b-2c'))
 {
   const k = 1.25;
   const base = { C_mm: 240, topMode: 'fracQ', sTopFrac: 5 / 60 };
@@ -126,6 +127,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 3. Смена ширины нити сдвигает E/X автоматически (нет параметра «ширина захвата»)
+if (G('3'))
 {
   const A1 = res[JSON.stringify({ C_mm: 240, w_mm: 0.714 })].A, A2 = res[JSON.stringify({ C_mm: 240, w_mm: 1.0 })].A;
   const s1 = A1.path.stitches, s2 = A2.path.stitches;
@@ -144,6 +146,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 4. Чистота конвейера: пересчёт не зависит от предыдущего набора параметров
+if (G('4'))
 {
   const x1 = computeAll(recipe, { C_mm: 240 });
   const y = computeAll(recipe, { C_mm: 300, w_mm: 1.0, N: 16 });
@@ -155,6 +158,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 5. В рецепте и параметрах нет «ширины захвата» (D16)
+if (G('5'))
 {
   const txt = JSON.stringify(recipe);
   check(!/bite|pickupWidth|pickup_width/i.test(txt), 'рецепт не содержит ширины захвата');
@@ -162,6 +166,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 6. Нить не парит (V14) и «крючки» у полюса на скриншоте 03 — проекция, а не отрыв от шара
+if (G('6'))
 {
   const A = computeAll(recipe, {});
   const V = runValidators(A, '2b', ref);
@@ -198,6 +203,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 7. Этап 2c: B1 и A2 — последовательное шитьё, выводы из занятости, над/под, симметрия, баланс по нитям
+if (G('7'))
 {
   const sets2c = [{ C_mm: 240, w_mm: 0.714 }, { C_mm: 300, w_mm: 1.0 }, { C_mm: 240, w_mm: 1.0 }, { C_mm: 300, w_mm: 0.714 }];
   const R2 = {};
@@ -233,6 +239,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 
 
 // 8. Shoulder form (D40): tip-drop Δ derived; geodesic vs small-circle bow (Φ3)
+if (G('8'))
 {
   const tipOf = (A) => A.path.tipDrop;
   const G = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic' });
@@ -274,6 +281,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 
 
 // 8b. V20 friction cone + V21 transversality (Fable v2) + direction / rail checks
+if (G('8b'))
 {
   console.log('\n## V20 / V21 (Fable v2)');
   const ok = computeAll(recipe, { shoulderForm: 'bow', muWrap: 0.32, bowLambda: 0.32, rowsMode: 'count', rowsCount: 2 });
@@ -392,6 +400,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 8b2. V21 mutation negatives + V13 growth (Errata 6a.1)
+if (G('8b2'))
 {
   console.log('\n## V21 negatives + V13 growth (Errata 6a)');
   const R0 = () => computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 1 });
@@ -636,6 +645,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 8c. Rows to equator, Δ_n trend, analytic θ (§5.2), convergence (§5.3)
+if (G('8c-8d0'))
 {
   console.log('\n## Rows to equator / Δ_n / θ / convergence (Fable §5.2–5.6)');
   const countA = (A) => A.path.rounds.filter((r) => r.set === 'A').length;
@@ -847,6 +857,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 8d0a. Path link turns ≤20° over entire leg (excl. exact hole endpoint; 6a.18 allows hole kink)
+if (G('8d0a'))
 {
   console.log('\n## Path max link turn ≤20° (rail T→E direction)');
   const linkTurnsOk = (A, label) => {
@@ -899,6 +910,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 8d0c. Spec v3 §3.2(13) (v2 6a.23, #21) rail exit: tangent root / on-rail E / drain / free geodesic; no throw, no cost pull.
+if (G('8d0c'))
 {
   console.log('\n## v3 §3.2(13) rail exit classes (root / atE / drain / free; fail only on contradiction)');
   for (const lam of [0.32, 0.6]) {
@@ -966,6 +978,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 8d0b. K16b λ=0: per-leg α + per-line Δ → 0 false promises (independent audit match)
+if (G('8d0b'))
 {
   console.log('\n## K16b λ=0 per-leg/line inputs (0 false promises)');
   const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0, rowsMode: 'untilEquator' });
@@ -986,6 +999,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 8d. K16 tip coverage + V8 tipCross (6a.13 / 6a.16)
+if (G('8d-8e'))
 {
   console.log('\n## K16 tip coverage / V8 tipCross (6a.13–6a.16)');
   const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'untilEquator' });
@@ -1079,6 +1093,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 8f. Display 6a.17 lift(d): by distance d, all rows / both sets (review of 51eddd6)
+if (G('8f'))
 {
   console.log('\n## Display stackProfile: lift(d) for all rows / sets (6a.17)');
   const w0 = 0.714;
@@ -1158,6 +1173,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 
 
 // 8g. Display 6a.18 upper dive: short dive after near-edge; lift(d) on samples past dive room
+if (G('8g'))
 {
   console.log('\n## Display 6a.18 upper E/X: dive after clear + lift(d)');
   for (const cfg of [
@@ -1233,6 +1249,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 8h. Rail-parallel ε floor: d ≥ w·(1−ε) → lift 0; no stack×rail; zero rail-attributable height switches
+if (G('8h'))
 {
   console.log('\n## Display 6a.17 rail-parallel ε floor (no chatter)');
   for (const cfg of [
@@ -1273,6 +1290,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 8i. V16 6a.21: upper-hole offenders by whose thread; geo fan-start B4/B6/B8
+if (G('8i'))
 {
   console.log('\n## V16 6a.21 upper holes: own fail / foreign fan U14 / foreign early fail');
   // Early stage A2 must still pass (no late fan yet).
@@ -1306,6 +1324,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 // 9. Material preset (D34) + recipe scaffold (D35): provenance data + same path.ops for step/full
+if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');
   check(!!materialPreset && materialPreset.id === 'dmc-perle-5', 'material preset loads (dmc-perle-5)');
@@ -1349,5 +1368,6 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
     'recompute yields the same ops length / all index (single builder)');
 }
 
+await finish(failures); // parallel worker: report to the orchestrator and exit; --quick: label as not the gate
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : `FAILURES: ${failures}`}`);
 process.exit(failures ? 1 : 0);
