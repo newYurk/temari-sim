@@ -1,20 +1,20 @@
-// Отображаемая геометрия нити — чистая функция от результата конвейера (рендер и валидатор V14 берут её отсюда).
-// Модель (path) не меняется: здесь только условности изображения, каждая помечена.
-//  • видимое плечо: модель — геодезическая на R (нить лежит на поверхности); ось трубки на R + w/2,
-//    трубка круглая диаметра w [D22] ⇒ внешняя точка на R + w.
-//  • нырок в отверстие (6a.18): спуск начинается ЗА краем последней нижележащей нити; длина
-//    min(DIVE_W·w, расстояние до края); край ближе w/4 → отвесный спуск. Крючок 90° у отверстия допустим.
-//  • захват E→X: модель — хорда под поверхностью (глубина ≤ 0,02 мм); показан пунктиром с осью на R − w/2.
-//  • скрытый старт: модель — прямая хорда иглы (35 мм ⇒ до 4,24 мм вглубь). По умолчанию показан СХЕМАТИЧНО
-//    дугой чуть под поверхностью (R − HID_DEPTH_W·w), чтобы не проходить сквозь шар; режим 'chord' — как в модели.
+// Display thread geometry — pure function of the pipeline result (render and validator V14 take it from here).
+// The path model is unchanged: only display conventions live here, each called out.
+//  • visible leg: model is a geodesic on R (thread on the surface); tube axis at R + w/2,
+//    round tube of diameter w [D22] ⇒ outer point at R + w.
+//  • dive into the hole (6a.18): descent starts PAST the outer edge of the last underlying thread; length
+//    min(DIVE_W·w, distance to that edge); edge closer than w/4 → vertical drop. 90° kink at the hole is allowed.
+//  • pickup E→X: model is a sub-surface chord (depth ≤ 0.02 mm); drawn dashed with axis at R − w/2.
+//  • hidden start: model is a straight needle chord (35 mm ⇒ up to 4.24 mm deep). Default display is SCHEMATIC —
+//    an arc just under the surface (R − HID_DEPTH_W·w) so it does not cut through the ball; mode 'chord' = model.
 import { unit, mul, dist, angle } from './geom.js';
 
-export const HID_DEPTH_W = 1.0;      // глубина схематичной дуги скрытого старта, в ширинах нити (условность изображения, не модель)
-//  • стопка (6a.17): lift(d) = DISPLAY_STACK_LIFT_W·√(w²−d²) при d < w, иначе 0 (d = боковое расстояние осей).
-//    rail-parallel (d≈w) → 0; climb → √(2wδ−δ²); перекрёст — шатёр на ±w/sinψ; клин — по c.stack.
-//    Поднимается позже уложенная (c.over), кроме проходов под по рецепту. Крючок: A.mechanics.liftAt.
+export const HID_DEPTH_W = 1.0;      // depth of schematic hidden-start arc, in thread widths (display convention, not model)
+//  • stack (6a.17): lift(d) = DISPLAY_STACK_LIFT_W·√(w²−d²) when d < w, else 0 (d = lateral axis distance).
+//    rail-parallel (d≈w) → 0; climb → √(2wδ−δ²); transversal crossing — tent on ±w/sinψ; wedge — via c.stack.
+//    Later-laid thread rises (c.over), except under-passes per recipe. Hook: A.mechanics.liftAt.
 export const DISPLAY_STACK_LIFT_W = 0.6;
-export const DIVE_W = 1.5;           // длина нырка плеча в отверстие, в ширинах нити (условность изображения)
+export const DIVE_W = 1.5;           // leg dive length into the hole, in thread widths (display convention)
 /** @deprecated 6a.17 general lift(d) supersedes kind skip; kept for tests that assert rail-parallel → 0. */
 export const STACK_LIFT_SKIP_KINDS = new Set(['rail-parallel']);
 const smooth = (e) => { e = Math.max(0, Math.min(1, e)); return e * e * (3 - 2 * e); };
@@ -25,7 +25,7 @@ export function liftFromDist(d, w, k = DISPLAY_STACK_LIFT_W) {
   return k * Math.sqrt(Math.max(0, w * w - d * d));
 }
 
-/** Сгустить полилинию плеча у концов (шаг h на длине zone от каждого конца), значения prof интерполируются. */
+/** Densify the leg polyline near both ends (step h over length zone from each end); interpolate prof. */
 function densifyEnds(pts, prof, zone, h) {
   const cum = [0];
   for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + dist(pts[i - 1], pts[i]));
@@ -44,8 +44,8 @@ function densifyEnds(pts, prof, zone, h) {
 const norm3 = (p) => Math.hypot(p[0], p[1], p[2]);
 
 /**
- * Профиль подъёма стопки вдоль плеча (мм, 6a.17).
- * lift(d)=0.6·√(w²−d²) при d<w; шатёр на перекрёсте; climb по δ; клин — c.stack·0.6·w.
+ * Stack lift profile along the leg (mm, 6a.17).
+ * lift(d)=0.6·√(w²−d²) for d<w; tent at a crossing; climb from δ; wedge — c.stack·0.6·w.
  */
 export function stackProfile(A, seg) {
   const n = seg.pts.length, prof = new Float64Array(n);
@@ -121,7 +121,7 @@ function densifyLine(a, b, h) {
   for (let k = 1; k <= n; k++) out.push(a.map((v, i) => v + (b[i] - v) * k / n));
   return out;
 }
-function arcAtDepth(R, a, b, depth, h) {       // дуга большого круга a→b; радиус R − depth с плавным входом/выходом
+function arcAtDepth(R, a, b, depth, h) {       // great-circle arc a→b; radius R − depth with smooth in/out
   const th = angle(a, b), L = R * th, n = Math.max(2, Math.ceil(L / h));
   const ua = unit(a), ub = unit(b), s = Math.sin(th) || 1, taper = Math.min(1.5, L / 4);
   const out = [];
@@ -134,7 +134,7 @@ function arcAtDepth(R, a, b, depth, h) {       // дуга большого кр
   return out;
 }
 
-/** Для каждого сегмента из segIds (Set или null = все): { seg, pts, radius, hidden, schematic, note }. */
+/** For each segment in segIds (Set, or null = all): { seg, pts, radius, hidden, schematic, note }. */
 /** Distance along leg from end to where axis clears outer edge of underlying threads (d≥w). */
 function clearDistFromEnd(A, seg, fromStart) {
   const w = A.params.w_mm, R = A.base.R, pts = seg.pts;
@@ -191,13 +191,13 @@ export function displayGeometry(A, segIds = null, opts = {}) {
       });
       out.push({ seg: s, pts, radius: w / 2, hidden: false, schematic: false, liftMax, liftSource: mech ? 'mechanics' : 'display', diveMm: [dive0, dive1] });
     } else if (s.type === 'pickup') {
-      out.push({ seg: s, pts: densifyLine(lift(s.from, R - w / 2), lift(s.to, R - w / 2), 0.05), radius: w * 0.3, hidden: true, schematic: false, note: 'канал иглы E→X под всеми нитями (ось на R − w/2)' });
+      out.push({ seg: s, pts: densifyLine(lift(s.from, R - w / 2), lift(s.to, R - w / 2), 0.05), radius: w * 0.3, hidden: true, schematic: false, note: 'needle channel E→X under all threads (axis at R − w/2)' });
     } else if (hidMode === 'chord') {
       const pts = []; for (let i = 1; i < s.pts.length; i++) pts.push(...densifyLine(s.pts[i - 1], s.pts[i], 0.2).slice(i > 1 ? 1 : 0));
-      out.push({ seg: s, pts, radius: w * 0.35, hidden: true, schematic: false, note: 'хорда иглы (модель)' });
+      out.push({ seg: s, pts, radius: w * 0.35, hidden: true, schematic: false, note: 'needle chord (model)' });
     } else {
       out.push({ seg: s, pts: arcAtDepth(R, s.from, s.to, HID_DEPTH_W * w, 0.2), radius: w * 0.35, hidden: true, schematic: true,
-        note: `схема: дуга на ${(HID_DEPTH_W * w).toFixed(2)} мм под поверхностью; в модели — хорда` });
+        note: `schematic: arc ${(HID_DEPTH_W * w).toFixed(2)} mm under the surface; model uses a chord` });
     }
   }
   return out;
