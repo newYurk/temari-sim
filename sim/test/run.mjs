@@ -916,12 +916,53 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
     // Lower end (bottom legs, v3 §3.2(12)): E_n is the packing root on the rail — the thread stays on the rail to E_n.
     const botOff = rail.filter((s) => s.level === 'bottom' && s.exitKind !== 'atE');
     check(botOff.length === 0, `λ=${lam}: bottom legs end on the rail at E_n (atE; off ${botOff.map((s) => s.id).join(',') || 0})`);
+    // Upper end (top legs, v3 §3.2(13)): tangent / drain / free — never 'atE' (#35: the |d_E| band gave a hook).
+    const topAtE = rail.filter((s) => s.level === 'top' && s.exitKind === 'atE');
+    check(topAtE.length === 0, `λ=${lam}: no top leg ends 'atE' (by leg role, #35; got ${topAtE.map((s) => s.id).join(',') || 0})`);
   }
   // No tangent root is not a throw (v3 §3.2(13г)): m=0.5, λ=0.2 used to throw "no co-directional tangency".
   let thrown = null;
   try { computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.2, muWrap: 0.32, rowsMode: 'untilEquator' }); }
   catch (e) { thrown = e.message; }
   check(thrown === null, `m=0.5 λ=0.2 builds without a rail-exit throw (${thrown ? thrown.slice(0, 80) : 'ok'})`);
+}
+
+// 8d0f. Round-off / perturbation stability + raw-polyline turns + T₁ boundary root (#35, #34 item 5)
+{
+  console.log('\n## Stability: inputs ×(1+1e−9), λ+1e−9, ×1.25 similarity → same decisions (#35)');
+  const { perturb, compareBuilds, rawTurns, TOL_CONT, RAW_TURN_MAX_DEG } = await import('./stability.mjs');
+  const { exitCandidates } = await import('../src/path.js');
+  // (13в) window ends are candidates: a tangency at T₁ (no sign change, no interior minimum) must be found.
+  const mk = (f) => (sv) => ({ s: sv, res: f(sv), score: 1 });
+  const fwd = exitCandidates(mk((sv) => 1e-4 + 1e-3 * (sv - 2)), 2, 10, 160).cands;
+  check(fwd.some((c) => c.s === 2), `exit window start T₁ is a tangency candidate (forward; cands at ${fwd.map((c) => c.s.toFixed(3)).join(',')})`);
+  const bwd = exitCandidates(mk((sv) => 1e-4 + 1e-3 * (2 - sv)), 0, 2, 160).cands;
+  check(bwd.some((c) => c.s === 2), `exit window end T₁ is a tangency candidate (backward; cands at ${bwd.map((c) => c.s.toFixed(3)).join(',')})`);
+  const cases = [
+    { label: 'geo m0.5@96', N: 96, modes: ['eps', 'sim'], raw: { shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, m_mm: 0.5 } },
+    { label: 'bow0.32 m0.5@96', N: 96, modes: ['eps', 'sim'], raw: { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, m_mm: 0.5 } },
+    { label: 'bow0.6 m1@96', N: 96, modes: ['eps'], raw: { shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, m_mm: 1 } },
+    { label: 'geo m0.5@384', N: 384, modes: ['eps'], raw: { shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, m_mm: 0.5 } },
+  ];
+  const prevN = getLegSamples();
+  for (const c of cases) {
+    setLegSamples(c.N);
+    const raw = { C_mm: 240, w_mm: 0.714, startRun_mm: 35, rowsMode: 'untilEquator', topMode: 'fracQ', sTopFrac: 5 / 60, ...c.raw };
+    const A = computeAll(recipe, raw);
+    const rt = rawTurns(A);
+    console.log(`  ${c.label}: raw-polyline max turn ${rt.worst.toFixed(2)}° (${rt.at})`);
+    check(rt.bad.length === 0, `${c.label}: raw-polyline turns ≤${RAW_TURN_MAX_DEG}° before resample (bad ${rt.bad.join(',') || 0})`);
+    for (const mode of c.modes) {
+      const { v, k } = perturb(raw, mode);
+      const { discrete, cont } = compareBuilds(A, computeAll(recipe, v), k, runValidators);
+      const worst = Math.max(cont.pts, cont.st, cont.lev, cont.len);
+      console.log(`  ${c.label} ${mode}: discrete ${discrete.length}; pts ${cont.pts.toExponential(1)}·R @${cont.ptsAt}, `
+        + `E/X ${cont.st.toExponential(1)}·R @${cont.stAt}, s ${cont.lev.toExponential(1)}·R, len ${cont.len.toExponential(1)} @${cont.lenAt}`);
+      check(discrete.length === 0, `${c.label} ${mode}: identical discrete decisions (${discrete.slice(0, 4).join('; ') || 'rows, legs, joinMode, exitKind, V-classes'})`);
+      check(worst <= TOL_CONT, `${c.label} ${mode}: continuous outputs agree to ${TOL_CONT} (worst ${worst.toExponential(2)})`);
+    }
+  }
+  setLegSamples(prevN);
 }
 
 // 8d0b. K16b λ=0: per-leg α + per-line Δ → 0 false promises (independent audit match)

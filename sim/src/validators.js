@@ -126,7 +126,7 @@ const TOL_JOIN = 1e-9;        // mm — continuity (numeric tolerance)
 const TOL_LEN = 1e-9;         // mm — length balance (numeric)
 const TOL_REF = 1e-6;         // mm — match calc.py (two independent implementations of the same geometry)
 const TOL_PERP_DEG = 1e-6;    // ° — perpendicularity: model builds it exactly; numeric tolerance
-const TOL_SYM = 1e-9;         // mm — symmetry base; V15 uses max(TOL_SYM, 1e-9·R) for scale invariance
+const TOL_SYM = 1e-9;         // mm — symmetry base (V6 legs); V15 uses 0.01·w (noise vs real asymmetry, #35)
 const TOL_RAD = 1e-9;         // mm — model radial position (numeric)
 const TOL_MESH = 1e-6;        // mm — tube mesh (frame rotation accumulation)
 
@@ -278,12 +278,17 @@ export function runValidators(A, stage = '2b', ref = null) {
   // V2 — length balance + independent length checks: haversine (geodesic) / formula (6) (small-circle)
   {
     let ok = true, hvMax = 0, arcMax = 0, polyMax = 0;
+    // Tolerances relative to R (dimensionless, #35). The absolute arcMax < 1e−6 mm sat on the noise:
+    // formula (6) vs seg.length residual 5.7e−7 mm (1.5e−8·R) became 1.006e−6 mm under ×1.25. Numeric
+    // noise on grids 96–384: arc ≤ 2.1e−8·R, poly ≤ 1e−12·R, haversine ≤ 1e−15·R; a real length error
+    // is ≥ 1e−3 mm (≈ 3e−5·R). Tolerances sit ~50× above the noise and ~30× below a real error.
+    const tolArc = 1e-6 * R, tolPoly = 1e-6 * R, tolHv = 1e-10 * R, tolBal = 1e-10 * R;
     const per = {};
     for (const t of threadIds) {
       const ts = segs.filter((s) => s.thread === t);
       const sum = ts.reduce((a, s) => a + s.length, 0);
       const du = ts[ts.length - 1].u1 - ts[0].u0;
-      if (Math.abs(sum - du) >= TOL_LEN) ok = false;
+      if (Math.abs(sum - du) >= tolBal) ok = false;
       const by = {};
       for (const s of ts) by[s.type] = (by[s.type] || 0) + s.length;
       const rounds = {};
@@ -305,21 +310,21 @@ export function runValidators(A, stage = '2b', ref = null) {
         const nSamp = Math.max(1, (s.pts?.length || 1) - 1);
         let sph = 0;
         if (s.pts) for (let i = 1; i < s.pts.length; i++) sph += R * angle(s.pts[i - 1], s.pts[i]);
-        const tolPoly = Math.max(1e-6, Math.abs(Larc) * (dPsi / nSamp) ** 2 / 12 + splice);
-        polyMax = Math.max(polyMax, Math.abs(sph - Lexpect) - tolPoly);
+        const tolChord = Math.max(tolPoly, Math.abs(Larc) * (dPsi / nSamp) ** 2 / 12 + splice);
+        polyMax = Math.max(polyMax, Math.abs(sph - Lexpect) - tolChord);
       } else {
         nGeo++;
         const a = toSPhi(R, s.from), b = toSPhi(R, s.to);
         hvMax = Math.max(hvMax, Math.abs(haversineLen(R, a.s, a.phi, b.s, b.phi) - s.length));
       }
     }
-    ok = ok && hvMax < 1e-9 && arcMax < 1e-6 && polyMax < 1e-6;
+    ok = ok && hvMax < tolHv && arcMax < tolArc && polyMax < tolPoly;
     add({ id: 'V2', name: 'Length balance per thread: u = Σ segments', crit: 'K13; model/spec.md §5; Fable v2 §5.8 formula (6) for small-circle arcs',
       status: ok ? 'pass' : 'fail',
       value: threadIds.map((t) => { const p = per[t]; return `thread ${t}: Σ = ${f(p.sum)} mm = u ${f(p.du)} (${Object.entries(p.rounds).map(([r, L]) => `${r} ${f(L)}`).join(', ')}; start ${f(p.by['hidden-start'] || 0)}, legs ${f(p.by.leg || 0)}, pickups ${f(p.by.pickup || 0)})`; }).join('; ') +
         `; haversine (geodesic ${nGeo}): ${f(hvMax, 12)} mm` +
         (nArc ? `; arc (6) vs seg.length (n=${nArc}): ${f(arcMax, 12)} mm; poly vs (6) excess ${f(Math.max(0, polyMax), 9)}` : ''),
-      numbers: { per, hvMax, arcMax, polyMax, nGeo, nArc } });
+      numbers: { per, hvMax, arcMax, polyMax, nGeo, nArc, tolArc, tolPoly, tolHv, tolBal } });
   }
   // V3 — soglasie obkhoda A1 s calc.py (mezavisimaya realofatsiya, numpy)
   {
@@ -1026,11 +1031,14 @@ export function runValidators(A, stage = '2b', ref = null) {
     }
     if (!pairs.length || setsIn.length < 2) add({ id: 'V15', name: 'Bn = An rotated by 360°/N', crit: 'TK-GT14 «Enter … Color B on a marking line that has a bottom stitch of Color A … same 5mm»; TK-KIKU (2 seta)', status: 'n/a', value: 'needs completed An and Bn' });
     else {
-      const parts = [];
+      const parts = [], pairNums = [];
       let unexplained = 0, explained = 0;
-      // Similarity: absolute 1e-9 mm fails at ×1.25 (B3 E/X ~4.9e-9); use relative-to-R tol.
-      const tolSym = Math.max(TOL_SYM, 1e-9 * R);
-      const tolLen = Math.max(TOL_LEN, 1e-9 * R);
+      // "Same" = equal to 1 % of the thread width (dimensionless, #35). Rows that are equal by
+      // construction differ only by solver noise that grows with the row (≤ 6e−5 mm on E/X/legs,
+      // ≤ 1.5e−4 mm on the row length, grids 96–384); a real asymmetry (occupancy) is ≥ 1 mm. The old
+      // 1e−9·R tolerance sat inside the noise, so a noise-level stitch flipped fail ↔ warn under 1e−9.
+      const tolSym = 0.01 * w;
+      const tolLen = 0.01 * w;
       for (const [ra, rb] of pairs) {
         const rot = rotZ((rb.startLine - ra.startLine) * 2 * Math.PI / N);
         const sa = ra.stitchIdx.map((i) => path.stitches[i]), sb = rb.stitchIdx.map((i) => path.stitches[i]);
@@ -1050,6 +1058,7 @@ export function runValidators(A, stage = '2b', ref = null) {
           hA.forEach((s2, q) => { dH = Math.max(dH, dist(rot(s2.from), hB[q].from), dist(rot(s2.to), hB[q].to)); });
         }
         const same = dP < tolSym && dL < tolSym && dLen < tolLen && dH < tolSym;
+        pairNums.push({ a: ra.id, b: rb.id, dP, dL, dLen, dH, same });
         // asymmetry explanation: stitch catch contains OTHER-set thread (occupancy, not an error)
         const foreignOf = (st) => [...st.sides.cluster.filter((c) => c.seg !== 'marking' && segById.get(c.seg).set !== st.set).map((c) => `${segById.get(c.seg).round}(${c.kind})`),
           ...(st.sides.squeeze || []).filter((q) => q.seg !== 'marking').map((q) => `${segById.get(q.seg).round}(tight, gap ${f(q.gap, 3)})`)];
@@ -1060,7 +1069,7 @@ export function runValidators(A, stage = '2b', ref = null) {
         parts.push(`${rb.id} vs ${ra.id}: ${same ? 'matches' : `DIFFERS — E/X Δmax ${f(dP, 3)} mm na ${diffSt.length} stezhchkh (${diffSt.map((st) => `L${st.line}`).join(',')}), legs Δmax ${f(dL, 3)} mm, dlina ${f(ra.length)} vs ${f(rb.length)} mm${why.length ? `; prichina — v catche thread drugogo seta: ${why.join(', ')}` : ''}`}`);
       }
       add({ id: 'V15', name: 'Bn = An rotated by 360°/N (per row)', crit: 'TK-GT14 (B on neighboring lines, same distancie ot SP); ravenstvo ozhidaetsya, poch thread drugogo seta ne popadaet v okno igly; otlichie s takoy prichinoy — rezultat zanyatosti (warn), bez prichiny — oshibch (fail)',
-        status: unexplained ? 'fail' : explained ? 'warn' : 'pass', value: parts.join('; ') });
+        status: unexplained ? 'fail' : explained ? 'warn' : 'pass', value: parts.join('; '), numbers: { pairs: pairNums, tolSym, tolLen } });
     }
   }
   // V16 — needle does not pierce thread (6a.21 at upper holes).

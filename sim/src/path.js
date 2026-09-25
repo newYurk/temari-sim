@@ -641,7 +641,44 @@ function pointPolyDistMm(R, p, pts) {
   return d;
 }
 
-function railLeg(R, from, to, prevArm, w = 0) {
+/** Exit tangency candidates over the window [sLo, sHi] (spec v3 §3.2(13в)), sampled at nScan + 1
+ *  points by exitRes(s) → { s, res, score, … }: sign changes of res (bisected), local minima of |res|
+ *  (touching roots) and both window ends. Exported for the T₁-boundary regression test (#35). */
+export function exitCandidates(exitRes, sLo, sHi, nScan) {
+  const samples = [];
+  for (let k = 0; k <= nScan; k++) samples.push(exitRes(sLo + (sHi - sLo) * (k / nScan)));
+  const cands = [];
+  for (let i = 0; i < samples.length - 1; i++) {
+    const a = samples[i], b = samples[i + 1];
+    if (!(a.score > 0 && b.score > 0) || a.res * b.res > 0) continue; // never across reverse
+    let lo = a.s, hi = b.s, flo = a.res;
+    for (let it = 0; it < 48; it++) {
+      const mid = 0.5 * (lo + hi), fm = exitRes(mid);
+      if (flo * fm.res <= 0) hi = mid; else { lo = mid; flo = fm.res; }
+    }
+    cands.push(exitRes(0.5 * (lo + hi)));
+  }
+  // Double (touching) roots have no sign change: refine local minima of |res| too.
+  for (let i = 1; i < samples.length - 1; i++) {
+    const a = samples[i - 1], b = samples[i], c = samples[i + 1];
+    if (!(b.score > 0) || Math.abs(b.res) > Math.abs(a.res) || Math.abs(b.res) > Math.abs(c.res)) continue;
+    let lo = a.s, hi = c.s;
+    for (let it = 0; it < 48; it++) {
+      const m1 = lo + (hi - lo) * 0.382, m2 = lo + (hi - lo) * 0.618;
+      if (Math.abs(exitRes(m1).res) < Math.abs(exitRes(m2).res)) hi = m2; else lo = m1;
+    }
+    cands.push(exitRes(0.5 * (lo + hi)));
+  }
+  // Both window ends are inside the window (§3.2(13в)): a tangency exactly at T₁ or at the rail end
+  // has no sign change or interior minimum to find, so each end sample is a candidate itself (#35:
+  // only the far sample used to be added; with forward travel that left a root at T₁ to drain/free).
+  for (const end of [samples[0], samples[samples.length - 1]]) if (end.score > 0) cands.push(end);
+  return { samples, cands };
+}
+
+/** Row n ≥ 2 leg along the rail of the previous arm. endLevel = level of the hole the leg ends at:
+ *  'bottom' (E_n is the packing root on the rail, spec v3 §3.2(12)) or 'top' (E_n given, §3.2(13)). */
+function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   const n = getLegSamples();
   const prevPts = prevArm?.pts;
   if (!prevPts || prevPts.length < 2) {
@@ -780,14 +817,26 @@ function railLeg(R, from, to, prevArm, w = 0) {
   // distance is along-track, not lateral, and sign(dot(towardX, N)) is the sign of a near-zero
   // quantity (towardX ∥ T): round-off, not geometry — it flipped joinMode across CPUs (x86 vs
   // arm64). There the lateral side is read from the extended rail, which is the true lateral
-  // measure: X counts as outside only if it is off the extension by more than the onRail band.
+  // measure (spec v3 §3.2(8): consumers see the rail's continuation).
   const nCore = corePts.length;
   const coreFootAtEnd = (latCore.i === 0 && latCore.t < 1e-3)
     || (latCore.i >= nCore - 2 && latCore.t > 1 - 1e-3);
+  // X beyond the core end, on the rail's continuation: the continuation is the great circle tangent
+  // to the rail at its end, so the geodesic from X to the core end is a tangency when it meets the
+  // rail tangent with sin ≤ 0.01, the same dimensionless tangency criterion as §3.2(13б) (junction
+  // free → rail is a tangency, §3.2(13д)). sin = |d_ext| / (distance beyond the end). Top legs whose
+  // X_n lies on the continuation (≈4 w beyond the end) have sin ≲ 0.006 on grids 96–384; genuine
+  // exterior / interior entries next to an end have sin ≥ 0.03. The old test (|d_ext| against the
+  // 0.02·w onRail band) sat on the band edge: d_ext = 0.0159 → 0.0113 mm under C·(1 + 1e−9) switched
+  // between the 2.91 mm along-track distance and 0.011 mm (#35).
+  const endSin = coreFootAtEnd ? Math.abs(latExt.signedMm) / Math.max(latCore.distMm, 1e-15) : Infinity;
+  const onExtension = coreFootAtEnd && endSin <= 0.01;
+  // Otherwise X counts as outside only if it is off the extension by more than the onRail band; with
+  // endSin > 0.01 and X ≥ 2 w beyond the end, |d_ext| > 0.02 w, so this is not a sign-of-zero test.
   const coreOutside = coreFootAtEnd ? latExt.signedMm > onRailTol : latCore.signedMm > (w || 0);
   // Only when CORE says clearly OUTSIDE (not a bow tip/climb interior) yet extension
   // claims nearly on-rail — the λ=0 geodesic false-foot pattern.
-  const falseExtFoot = coreOutside
+  const falseExtFoot = !onExtension && coreOutside
     && latCore.distMm > 2 * (w || 0)
     && Math.abs(latExt.signedMm) < 0.5 * (w || 0);
   if (falseExtFoot) {
@@ -803,7 +852,7 @@ function railLeg(R, from, to, prevArm, w = 0) {
 
   let Tpt, splice, joinMode;
   // Scale with w so xk similarity does not flip onRail/climb (absolute 1e-6 mm thresh).
-  if (Math.abs(dLat) < onRailTol) {
+  if (onExtension || Math.abs(dLat) < onRailTol) {
     Tpt = lat.q; splice = 0; joinMode = 'onRail';
   } else if (dLat < 0) {
     // 6a.7(3) climb/merge: M at ℓ_m = max(w, 3δ) forward toward E
@@ -1004,41 +1053,17 @@ function railLeg(R, from, to, prevArm, w = 0) {
   const isTangent = (t) => t.score > cosAccept && (t.sin <= tanSinTol || t.resMm <= tanResTol);
   // Scan at about half the rail vertex spacing (grid-following, dimensionless in the rail).
   const nScan = Math.max(160, Math.min(4000, 2 * railPts.length));
-  const samples = [];
-  for (let k = 0; k <= nScan; k++) samples.push(exitRes(sLo + (sHi - sLo) * (k / nScan)));
-  const cands = [];
-  for (let i = 0; i < samples.length - 1; i++) {
-    const a = samples[i], b = samples[i + 1];
-    if (!(a.score > 0 && b.score > 0) || a.res * b.res > 0) continue; // never across reverse
-    let lo = a.s, hi = b.s, flo = a.res;
-    for (let it = 0; it < 48; it++) {
-      const mid = 0.5 * (lo + hi), fm = exitRes(mid);
-      if (flo * fm.res <= 0) hi = mid; else { lo = mid; flo = fm.res; }
-    }
-    cands.push(exitRes(0.5 * (lo + hi)));
-  }
-  // Double (touching) roots have no sign change: refine local minima of |res| too.
-  for (let i = 1; i < samples.length - 1; i++) {
-    const a = samples[i - 1], b = samples[i], c = samples[i + 1];
-    if (!(b.score > 0) || Math.abs(b.res) > Math.abs(a.res) || Math.abs(b.res) > Math.abs(c.res)) continue;
-    let lo = a.s, hi = c.s;
-    for (let it = 0; it < 48; it++) {
-      const m1 = lo + (hi - lo) * 0.382, m2 = lo + (hi - lo) * 0.618;
-      if (Math.abs(exitRes(m1).res) < Math.abs(exitRes(m2).res)) hi = m2; else lo = m1;
-    }
-    cands.push(exitRes(0.5 * (lo + hi)));
-  }
-  {
-    const last = samples[samples.length - 1];
-    if (last.score > 0) cands.push(last);
-  }
-  // E_n on the rail (|d| within the onRail band): the tangent from E_n is the rail tangent at
-  // E_n's own foot, so the thread stays on the rail up to the hole. Handled explicitly: near a
-  // point of the curve every nearby sample has a round-off-level residual, and picking the
-  // "smallest" of those would depend on float noise (it broke ×k similarity).
+  const { samples, cands } = exitCandidates(exitRes, sLo, sHi, nScan);
+  // Which end construction applies follows from the leg's role, not from a numeric band (#35):
+  // a BOTTOM leg ends at E_n = the packing root on the rail (§3.2(12)), so the thread stays on the
+  // rail up to the hole ('atE'; the tangent at E_n's own foot). E_n measurably off the rail there is
+  // a construction error: reported loudly (exitKind 'offRail', exitFail), not switched to another
+  // branch. A TOP leg ends at a given hole: tangent from a point (13), drain (13г) or free geodesic,
+  // never 'atE' (the |d_E| < 0.02·w band gave top legs a ≈90° hook on a ≈0.013 mm tail).
   const latE = signedLateralToPoly(R, E, railPts, prevArm);
   const dE = latE.signedMm;
-  const eOnRail = Math.abs(dE) < onRailTol;
+  const eOnRail = endLevel === 'bottom';
+  const eOffRail = eOnRail && !(Math.abs(dE) < onRailTol);
   // Smallest tangency residual wins; residuals equal to 1e-9·w → first along travel.
   let best = null;
   if (eOnRail) best = exitRes(sE0);
@@ -1047,7 +1072,7 @@ function railLeg(R, from, to, prevArm, w = 0) {
     if (!best || c.resMm < best.resMm - 1e-9 * wEff
       || (Math.abs(c.resMm - best.resMm) <= 1e-9 * wEff && dirS * (c.s - best.s) < 0)) best = c;
   }
-  let exitKind = eOnRail ? 'atE' : 'root', exitFail = false;
+  let exitKind = eOffRail ? 'offRail' : eOnRail ? 'atE' : 'root', exitFail = eOffRail;
   if (!best) {
     if (dE <= 0) {
       // E_n inside (or on) the rail: drain at the hole, mirror of 6a.7(3): geodesic from the rail
@@ -1094,6 +1119,11 @@ function railLeg(R, from, to, prevArm, w = 0) {
     pts.push(railSlice[i]);
   }
   if (!pts.length) pts.push(...railSlice);
+  // Bottom leg ('atE', §3.2(12)): E_n is the packing root on the rail, so the rail itself ends at E_n.
+  // The packing root and this rail polyline are two representations of one parallel and agree only
+  // to |d_E| < 0.02·w (≈0.006 mm at λ = 0), so the rail's last point (E_n's foot) is replaced by E_n
+  // instead of adding a lateral tail — that tail was a ≈90° hook on the raw polyline (#35).
+  if (exitKind === 'atE' && pts.length >= 2) pts[pts.length - 1] = mul(unit(to), R);
   // Geodesic Tex → E (tangent when exit score is high).
   {
     const last = unit(pts[pts.length - 1]);
@@ -1137,6 +1167,35 @@ function railLeg(R, from, to, prevArm, w = 0) {
     }
   }
 
+  // Largest turn on the constructed polyline BEFORE the uniform resample (#35): resampling to n
+  // points can hide a hook (a ≈90° turn on a 0.013 mm tail read as ≈1.4° at grid 96). Interior
+  // vertices only; the hole endpoints (vertex 0 and the last) carry the allowed hole kinks.
+  // Vertices closer than 1e−5·w (chord) are one point: the construction leaves round-off duplicates
+  // (≈6e−7 mm, the acos floor of angle()), whose "direction" is noise, not geometry.
+  let rawTurnMaxDeg = 0, rawTurnAtMm = 0;
+  {
+    const dupMm = 1e-5 * (w || W0_MM);
+    const q = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i], l = q[q.length - 1];
+      if (Math.hypot(p[0] - l[0], p[1] - l[1], p[2] - l[2]) >= dupMm) q.push(p);
+      else if (i === pts.length - 1 && q.length > 1) q[q.length - 1] = p;
+    }
+    let cum = 0;
+    for (let i = 1; i < q.length - 1; i++) {
+      cum += R * angle(q[i - 1], q[i]);
+      const nrm = unit(q[i]);
+      const pr = (v) => {
+        const u = sub(v, mul(nrm, dot(v, nrm)));
+        const len = Math.hypot(u[0], u[1], u[2]);
+        return len < 1e-15 ? null : mul(u, 1 / len);
+      };
+      const a = pr(sub(q[i], q[i - 1])), b = pr(sub(q[i + 1], q[i]));
+      if (!a || !b) continue;
+      const t = Math.abs(Math.atan2(dot(cross(a, b), nrm), dot(a, b))) * 180 / Math.PI;
+      if (t > rawTurnMaxDeg) { rawTurnMaxDeg = t; rawTurnAtMm = cum; }
+    }
+  }
   if (pts.length !== n + 1) {
     const out = [];
     const lens = [0];
@@ -1196,7 +1255,9 @@ function railLeg(R, from, to, prevArm, w = 0) {
     bowLateralMm: 0, phi3CapMm: 0, lambda, rho,
     bowCenter: Pc, phi3Warn: false, layMode: 'rail',
     spliceMm: splice, lateralMm: dLat, turnAtTDeg,
-    interiorXn: dLat < -1e-6 * (w || W0_MM), // dimensionless: inside by >1e-6·w (not absolute 1e-6 mm)
+    // X inside the rail beyond the onRail band (the climb branch, d ≤ −0.02·w). On-rail X (d ≈ 0 by
+    // construction for top legs) is not interior: the old test d < −1e−6·w took the sign of ≈0 (#35).
+    interiorXn: !onExtension && dLat <= -onRailTol,
     joinMode,
     climbMm: joinMode === 'climb' ? splice : 0,
     deltaMm: delta,
@@ -1204,7 +1265,7 @@ function railLeg(R, from, to, prevArm, w = 0) {
     railKind,
     holeTurnDeg,
     mergeTurnDeg,
-    exitKind, exitFail, exitSin, exitResMm, exitAlongMm,
+    exitKind, exitFail, exitSin, exitResMm, exitAlongMm, rawTurnMaxDeg, rawTurnAtMm,
   };
 }
 
@@ -1516,7 +1577,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           ? W.segs.find((x) => x.round === prevRound.id && x.type === 'leg' && x.stitch === i)
           : null;
         legShape = prevLeg
-          ? railLeg(R, cur, E, prevLeg, w)
+          ? railLeg(R, cur, E, prevLeg, w, level)
           : layLeg(R, cur, E, phiOf(k), 'geodesic', 0, 'pole');
       }
       const legPts = legShape.pts;
@@ -1532,7 +1593,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         spliceMm: legShape.spliceMm ?? 0, lateralMm: legShape.lateralMm ?? 0, turnAtTDeg: legShape.turnAtTDeg ?? 0, interiorXn: !!legShape.interiorXn,
         joinMode: legShape.joinMode || null, climbMm: legShape.climbMm ?? 0, deltaMm: legShape.deltaMm ?? 0, deltaFail: !!legShape.deltaFail,
         railKind: legShape.railKind || null, holeTurnDeg: legShape.holeTurnDeg ?? 0, mergeTurnDeg: legShape.mergeTurnDeg ?? 0,
-        exitKind: legShape.exitKind || null, exitFail: !!legShape.exitFail, exitSin: legShape.exitSin ?? null, exitResMm: legShape.exitResMm ?? null, exitAlongMm: legShape.exitAlongMm ?? null });
+        exitKind: legShape.exitKind || null, exitFail: !!legShape.exitFail, exitSin: legShape.exitSin ?? null, exitResMm: legShape.exitResMm ?? null, exitAlongMm: legShape.exitAlongMm ?? null,
+        rawTurnMaxDeg: legShape.rawTurnMaxDeg ?? null, rawTurnAtMm: legShape.rawTurnAtMm ?? null });
       if (i === 1) RD.firstLegId = leg.id;
       // перекресты и прилегания со ВСЕМИ ранее уложенными плечами (обе нити): правило над/под
       for (const other of legs()) {
