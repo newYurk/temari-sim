@@ -846,6 +846,58 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   }
 }
 
+// 8d0a. Path link turns ≤20° over entire leg (excl. exact hole endpoint; 6a.18 allows hole kink)
+{
+  console.log('\n## Path max link turn ≤20° (rail T→E direction)');
+  const linkTurnsOk = (A, label) => {
+    const R = A.base.R;
+    let bad = 0, worst = 0, where = null;
+    for (const s of A.path.segs.filter((x) => x.type === 'leg')) {
+      const pts = s.pts;
+      if (!pts || pts.length < 3) continue;
+      const cum = [0];
+      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + R * angle(pts[i - 1], pts[i]));
+      const total = cum[cum.length - 1];
+      for (let i = 1; i < pts.length - 1; i++) {
+        const fromEnd = Math.min(cum[i], total - cum[i]);
+        if (fromEnd < 1e-6) continue; // allowed kink at hole itself
+        const nrm = unit(pts[i]);
+        const proj = (v) => {
+          const p = sub(v, mul(nrm, dot(v, nrm)));
+          const len = Math.hypot(p[0], p[1], p[2]);
+          return len < 1e-15 ? null : mul(p, 1 / len);
+        };
+        const tIn = proj(unit(sub(pts[i], pts[i - 1])));
+        const tOut = proj(unit(sub(pts[i + 1], pts[i])));
+        if (!tIn || !tOut) continue;
+        const c = Math.max(-1, Math.min(1, dot(tIn, tOut)));
+        const sn = Math.max(-1, Math.min(1, dot(cross(tIn, tOut), nrm)));
+        const turnDeg = Math.abs(Math.atan2(sn, c) * 180 / Math.PI);
+        if (turnDeg > worst) { worst = turnDeg; where = `${s.id}/${s.round} ${turnDeg.toFixed(1)}° @${fromEnd.toFixed(2)}mm`; }
+        if (turnDeg > 20 + 1e-6) bad++;
+      }
+    }
+    check(bad === 0, `${label}: no link turn >20° excl hole (bad=${bad}, worst ${where || '—'})`);
+    console.log(`  ${label}: bad=${bad} worst=${where || 'none'}`);
+  };
+  for (const cfg of [
+    { label: 'geo0@96', shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0, rowsMode: 'untilEquator' },
+    { label: 'bow0.32@96', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'untilEquator' },
+    { label: 'bow0.6@96', shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, rowsMode: 'untilEquator' },
+  ]) {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, ...cfg });
+    linkTurnsOk(A, cfg.label);
+  }
+  // Spot-check denser grid (384) on bow 0.32 — former A3/s70 foldback site
+  {
+    const prev = getLegSamples();
+    setLegSamples(384);
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'untilEquator' });
+    linkTurnsOk(A, 'bow0.32@384');
+    setLegSamples(prev);
+  }
+}
+
 // 8d0b. K16b λ=0: per-leg α + per-line Δ → 0 false promises (independent audit match)
 {
   console.log('\n## K16b λ=0 per-leg/line inputs (0 false promises)');

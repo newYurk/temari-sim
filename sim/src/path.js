@@ -431,6 +431,20 @@ function polyTangent(pts, i) {
   return unit(add(tangentTo(pts[i - 1], pts[i]), tangentTo(pts[i], pts[i + 1])));
 }
 
+/**
+ * Continuous unit tangent at an arc-length point P={q,i,t} of a polyline: vertex tangents
+ * of i and i+1 blended by t and projected onto the tangent plane at q. Unlike the
+ * piecewise-constant polyTangent(pts, P.i), this has no jumps at vertices, so tangency
+ * residuals have only genuine roots (no facet-boundary pseudo-roots whose selection
+ * would depend on float round-off, scale or sample count).
+ */
+function polyTangentAt(pts, P) {
+  const q = unit(P.q);
+  const j = Math.min(P.i + 1, pts.length - 1);
+  const v = add(mul(polyTangent(pts, P.i), 1 - P.t), mul(polyTangent(pts, j), P.t));
+  return unit(sub(v, mul(q, dot(v, q))));
+}
+
 /** Outward unit normal in the tangent plane at p for polyline tangent T.
  *  Always equatorward (increasing bottom-s): next packed tip lies toward the equator.
  *  Using “away from bowCenter” is wrong for equator-side bows (P equatorward ⇒ radial is poleward). */
@@ -566,34 +580,30 @@ function pointAtArcMm(R, pts, sMm) {
   return { q: unit(pts[pts.length - 1]), i: pts.length - 2, t: 1 };
 }
 
-/** Resampled slice of polyline from (i0,t0) toward `to` (nSeg segments). */
+/**
+ * Resampled slice of polyline from (i0,t0) toward `to` (nSeg segments).
+ * Walks along arc-length in the direction of the projection of `to` — forward OR
+ * backward — so T₁…T₂ is never traversed against travel (avoids ~180° foldbacks).
+ */
 function polySliceToward(R, pts, i0, t0, to, nSeg) {
-  const a0 = unit(pts[i0]), b0 = unit(pts[Math.min(i0 + 1, pts.length - 1)]);
-  const om0 = angle(a0, b0);
-  const start = om0 < 1e-15 ? mul(a0, R)
-    : mul(unit(add(mul(a0, Math.sin((1 - t0) * om0) / Math.sin(om0)), mul(b0, Math.sin(t0 * om0) / Math.sin(om0)))), R);
-  let iEnd = i0;
-  let best = Infinity;
-  for (let i = i0; i < pts.length; i++) {
-    const d = angle(unit(pts[i]), unit(to));
-    if (d < best) { best = d; iEnd = i; }
+  const s0 = polyArcMm(R, pts, i0, t0);
+  const hitTo = closestOnPoly(R, to, pts);
+  const sTo = polyArcMm(R, pts, hitTo.i, hitTo.t);
+  const forward = sTo >= s0 - 1e-12;
+  const start = pointAtArcMm(R, pts, s0).q;
+  const end = pointAtArcMm(R, pts, sTo).q;
+  const chunk = [mul(unit(start), R)];
+  if (forward) {
+    for (let i = i0 + 1; i <= hitTo.i; i++) chunk.push(pts[i]);
+    chunk.push(mul(unit(end), R));
+  } else {
+    for (let i = i0; i > hitTo.i; i--) chunk.push(pts[i]);
+    chunk.push(mul(unit(end), R));
   }
-  if (iEnd <= i0) iEnd = Math.min(pts.length - 1, i0 + 1);
-  const chunk = [start];
-  for (let i = i0 + 1; i <= iEnd; i++) chunk.push(pts[i]);
-  // Prefer ending at projection of `to` onto last segment if closer
-  const hitE = closestOnPoly(R, to, pts);
-  if (hitE.i >= i0) {
-    const a = unit(pts[hitE.i]), b = unit(pts[Math.min(hitE.i + 1, pts.length - 1)]);
-    const om = angle(a, b);
-    const qE = om < 1e-15 ? mul(a, R)
-      : mul(unit(add(mul(a, Math.sin((1 - hitE.t) * om) / Math.sin(om)), mul(b, Math.sin(hitE.t * om) / Math.sin(om)))), R);
-    // Rebuild chunk to hitE
-    chunk.length = 0;
-    chunk.push(start);
-    for (let i = i0 + 1; i <= hitE.i; i++) chunk.push(pts[i]);
-    chunk.push(qE);
+  for (let i = chunk.length - 1; i > 0; i--) {
+    if (R * angle(chunk[i], chunk[i - 1]) < 1e-12) chunk.splice(i, 1);
   }
+  if (chunk.length < 2) chunk.push(mul(unit(end), R));
   const n = Math.max(1, nSeg);
   const lens = [0];
   for (let i = 1; i < chunk.length; i++) lens.push(lens[i - 1] + R * angle(chunk[i - 1], chunk[i]));
@@ -808,12 +818,16 @@ function railLeg(R, from, to, prevArm, w = 0) {
     const sLo = Math.max(0, s0 - 0.5 * span);
     const sHi = Math.max(sLo + 1e-9, s0 + towardE * span);
     const spliceCap = Math.max(span, 20 * (w || 0));
+    const cos1 = Math.cos(Math.PI / 180);
     const tangRes = (s) => {
       const P = pointAtArcMm(R, railPts, s);
       const q = unit(P.q);
       const Ta = polyTangent(railPts, P.i);
       const spl = R * angle(X, q);
-      return { q, Ta, P, res: dot(X, cross(q, Ta)), score: Math.abs(dot(tangentTo(q, X), Ta)), spl };
+      // Co-directional arrival∥rail along travel toward E (no abs — abs accepted ~180° reverse).
+      const Tdir = towardE > 0 ? Ta : mul(Ta, -1);
+      const arrive = mul(tangentTo(q, X), -1); // inbound at q from X
+      return { q, Ta, P, res: dot(X, cross(q, Tdir)), score: dot(arrive, Tdir), spl };
     };
     let best = null;
     const nScan = 160;
@@ -822,12 +836,13 @@ function railLeg(R, from, to, prevArm, w = 0) {
       const s = sLo + sSpan * (k / nScan);
       const t = tangRes(s);
       if (t.spl > spliceCap + 1e-9) continue;
-      // score≈1 (arrival∥rail) + residual≈0; mild pull toward predicted L_j.
+      if (!(t.score > cos1)) continue; // co-directional within 1°
+      // residual≈0 + mild pull toward predicted L_j.
       const cost = Math.abs(t.res) * R + (1 - t.score) * 2 * (w || 1) + Math.abs(t.spl - Lj) * 0.05;
       if (!best || cost < best.cost) best = { s, score: t.score, cost, res: t.res };
     }
     if (!best) {
-      // Fallback: nearest foot with short geodesic (still better than a 50 mm false T).
+      // No co-directional entrance in window — climb/merge path below (not a reverse tangent).
       best = { s: s0, score: 0, cost: Infinity, res: 0 };
     }
     // Bracket a sign-change of residual near the best score and bisect
@@ -895,7 +910,8 @@ function railLeg(R, from, to, prevArm, w = 0) {
           };
           const a = pr(Tarr), b = pr(Trail2);
           if (!a || !b) return 180;
-          return Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(a, b))))) * 180 / Math.PI;
+          // Co-directional merge angle (no abs — reverse would read as ~0°).
+          return Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * 180 / Math.PI;
         };
         let sM = Math.max(0, sFoot + dir * Lm);
         let aM = angAt(sM);
@@ -927,31 +943,102 @@ function railLeg(R, from, to, prevArm, w = 0) {
     pts.push(mul(unit(add(mul(X, Math.sin((1 - tt) * a) / s), mul(Tpt, Math.sin(tt * a) / s))), R));
   }
   const hitT = closestOnPoly(R, Tpt, railPts);
-  // 6a.15 tangent exit: leave rail at Tex where geodesic Tex→E ∥ rail tangent,
-  // avoiding lateral tip-snap knees that grow with sample count (B.8).
-  let exitQ = hitE.q;
-  {
-    const sT0 = polyArcMm(R, railPts, hitT.i, hitT.t);
-    const sE0 = polyArcMm(R, railPts, hitE.i, hitE.t);
-    const span = Math.max(Math.abs(sE0 - sT0), mmAtW(2, w || W0_MM));
-    const sLo = Math.max(0, Math.min(sT0, sE0) - 0.15 * span);
-    const sHi = Math.max(sLo + 1e-9, Math.max(sT0, sE0) + 0.15 * span);
-    const exitRes = (s) => {
-      const P = pointAtArcMm(R, railPts, s);
-      const q = unit(P.q);
-      const Ta = polyTangent(railPts, P.i);
-      const towardE = tangentTo(q, E);
-      return { q, score: Math.abs(dot(towardE, Ta)), res: dot(E, cross(q, Ta)) };
-    };
-    let best = null;
-    for (let k = 0; k <= 100; k++) {
-      const s = sLo + (sHi - sLo) * (k / 100);
-      const t = exitRes(s);
-      const cost = (1 - t.score) * 2 * (w || 1) + Math.abs(t.res) * R + 0.02 * Math.abs(s - sE0);
-      if (!best || cost < best.cost) best = { q: t.q, score: t.score, cost };
-    }
-    if (best && best.score > 0.85) exitQ = best.q;
+  // 6a.15 tangent exit: leave rail at Tex where geodesic Tex→E is co-directional with
+  // the rail tangent along travel T→E. Require dot > cos(1°) — NEVER abs(dot), which
+  // accepted near-backward exits (dot≈−1 → ~180° reversal at leg end).
+  const sT0 = polyArcMm(R, railPts, hitT.i, hitT.t);
+  const sE0 = polyArcMm(R, railPts, hitE.i, hitE.t);
+  const forward = sE0 >= sT0;
+  const span = Math.max(Math.abs(sE0 - sT0), mmAtW(2, w || W0_MM));
+  // Directed T→E window (small pads for discrete rail); still require co-directionality.
+  const sLo = Math.max(0, (forward ? sT0 : sE0) - 0.05 * span);
+  const sHi = Math.max(sLo + 1e-9, (forward ? sE0 : sT0) + 0.05 * span);
+  // Ideal co-directionality: dot > cos(1°). Faceted rails often peak near ~2°; accept
+  // up to cos(5°) as co-directional (faceted rail; still rejects reverse). NEVER abs(dot) — that accepted ~180° reverse exits.
+  const cos1 = Math.cos(Math.PI / 180);
+  const cosAccept = Math.cos(5 * Math.PI / 180); // faceted-rail slack; ideal remains cos1
+  const exitRes = (s) => {
+    const P = pointAtArcMm(R, railPts, s);
+    const q = unit(P.q);
+    const Ta = polyTangentAt(railPts, P);
+    const Tdir = forward ? Ta : mul(Ta, -1);
+    const towardE = tangentTo(q, E);
+    return { q, score: dot(towardE, Tdir), res: dot(E, cross(q, Tdir)), s };
+  };
+  // One cost for every candidate kind (scan sample, score peak, tangency root): residual,
+  // co-directionality, and a pull toward E along the rail. All terms are lengths (mm) built
+  // from R, w and rail arc length, so the choice is invariant under uniform scaling. The
+  // pull also breaks ties between several genuine tangency roots deterministically
+  // (keep the thread on the rail as long as possible), instead of by float round-off.
+  const exitCost = (t) => Math.abs(t.res) * R + (1 - t.score) * 2 * (w || 1)
+    + 0.02 * Math.abs(t.s - sE0) + (t.score > cos1 ? 0 : 0.01 * (w || 1));
+  // Scan for co-directional candidates; prefer a true tangency root (res sign change).
+  let best = null;
+  let bestAny = null; // max directed score (for refine)
+  const nScan = 120;
+  const samples = [];
+  for (let k = 0; k <= nScan; k++) {
+    const s = sLo + (sHi - sLo) * (k / nScan);
+    const t = exitRes(s);
+    samples.push(t);
+    if (!bestAny || t.score > bestAny.score) bestAny = t;
+    if (!(t.score > cosAccept)) continue;
+    const cost = exitCost(t); // prefers ≤1° when available
+    if (!best || cost < best.cost) best = { ...t, cost };
   }
+  // Golden-section polish on directed score around the peak.
+  if (bestAny) {
+    let a = Math.max(sLo, bestAny.s - (sHi - sLo) / nScan * 4);
+    let b = Math.min(sHi, bestAny.s + (sHi - sLo) / nScan * 4);
+    for (let it = 0; it < 28; it++) {
+      const m1 = a + (b - a) * 0.382, m2 = a + (b - a) * 0.618;
+      if (exitRes(m1).score < exitRes(m2).score) a = m1; else b = m2;
+    }
+    const peak = exitRes(0.5 * (a + b));
+    if (!bestAny || peak.score > bestAny.score) bestAny = peak;
+    if (peak.score > cosAccept) {
+      const cost = exitCost(peak);
+      if (!best || cost < best.cost) best = { ...peak, cost };
+    }
+  }
+  // Bisect a residual sign-change among co-directional samples (true tangency root).
+  {
+    let root = null;
+    for (let i = 0; i < samples.length - 1; i++) {
+      const a = samples[i], b = samples[i + 1];
+      if (!(a.score > 0 && b.score > 0)) continue; // never across reverse
+      if (a.res * b.res > 0) continue;
+      let lo = a.s, hi = b.s, flo = a.res;
+      for (let it = 0; it < 40; it++) {
+        const mid = 0.5 * (lo + hi), fm = exitRes(mid);
+        if (!(fm.score > 0)) break;
+        if (flo * fm.res <= 0) hi = mid; else { lo = mid; flo = fm.res; }
+      }
+      const mid = exitRes(0.5 * (lo + hi));
+      if (mid.score > cosAccept) {
+        const cost = exitCost(mid);
+        if (!root || cost < root.cost) root = { ...mid, cost };
+      }
+    }
+    if (root) best = root;
+  }
+  // hitE.q only if co-directional within accept gate — never silent reverse/orthogonal fallback.
+  if (!best) {
+    const atE = exitRes(sE0);
+    if (atE.score > cosAccept) best = { ...atE, cost: Math.abs(atE.res) * R };
+  }
+  if (!best && bestAny && bestAny.score > cosAccept) {
+    best = { ...bestAny, cost: Math.abs(bestAny.res) * R };
+  }
+  if (!best || !(best.score > cosAccept)) {
+    const sc = bestAny ? bestAny.score : NaN;
+    throw new Error(
+      `rail exit: no co-directional tangency (dot>cos5°, target cos1°) on T→E `
+      + `(sT=${sT0.toFixed(3)}, sE=${sE0.toFixed(3)}, forward=${forward}, peakScore=${Number.isFinite(sc) ? sc.toFixed(6) : 'na'}); `
+      + `refusing reverse/silent hitE fallback`,
+    );
+  }
+  const exitQ = best.q;
   const railSlice = polySliceToward(R, railPts, hitT.i, hitT.t, exitQ, Math.max(1, n - Tcount));
   for (let i = 0; i < railSlice.length; i++) {
     if (Tcount > 0 && i === 0) continue;
