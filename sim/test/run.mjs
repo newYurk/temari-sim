@@ -577,9 +577,22 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const B32 = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'untilEquator' });
   const B60 = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, rowsMode: 'untilEquator' });
   const n0 = countA(Geq), n00 = countA(B0eq), n32 = countA(B32), n60 = countA(B60);
+  const lastTip = (A) => {
+    const b = bottomsA(A);
+    return b.length ? b[b.length - 1].s : NaN;
+  };
+  const d20 = dSseries(Geq)[0], d200 = dSseries(B0eq)[0];
+  const tip0 = lastTip(Geq), tip00 = lastTip(B0eq);
   console.log(`  rows to equator: λ=0 geo ${n0}, bowλ=0 ${n00}, λ=0.32 ${n32}, λ=0.6 ${n60}`);
+  console.log(`  Δ₂: geo ${fmt(d20, 5)}, bowλ=0 ${fmt(d200, 5)}; last tip (K12): geo ${fmt(tip0, 3)}, bowλ=0 ${fmt(tip00, 3)}`);
   console.log(`  tip next: geo ${fmt(Geq.path.stopped?.A?.sTip ?? NaN, 3)}, λ0.32 ${fmt(B32.path.stopped?.A?.sTip ?? NaN, 3)}, λ0.6 ${fmt(B60.path.stopped?.A?.sTip ?? NaN, 3)}`);
+  // Full-path packing regression (§5.1 / Errata 6a.7): must reach equator with correct Δ₂ —
+  // a w-tube packThenPierce false-positive stops early (~49 mm) with ~26–28 channel-like rows.
+  check(Math.abs(d20 - 4.968) < 0.02, `λ=0 geo Δ₂ ≈ 4.968 (±0.02) got ${fmt(d20, 5)}`);
+  check(Math.abs(d200 - 4.968) < 0.02, `λ=0 bow Δ₂ ≈ 4.968 (±0.02) got ${fmt(d200, 5)}`);
   check(n0 === 5 && n00 === 5, 'λ=0: 5 rows to equator (geo and bowλ=0)');
+  check(tip0 >= 58 && tip0 <= 60 && tip00 >= 58 && tip00 <= 60,
+    `λ=0 last tip (K12) in 58–60 mm (got geo ${fmt(tip0, 3)}, bow ${fmt(tip00, 3)})`);
   check(n32 >= 11 && n32 <= 12, `λ=0.32: 11–12 rows (got ${n32})`);
   check(n60 >= 16 && n60 <= 17, `λ=0.6: 16–17 rows (got ${n60})`);
   check(n0 < n32 && n32 < n60, 'row count monotonic in λ');

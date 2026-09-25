@@ -438,13 +438,24 @@ function extendPolyEnds(R, pts, extMm) {
   return [...pre, ...pts, ...post];
 }
 
-/** True iff prev arm samples lie on a small circle about bowCenter (concentric special case). */
+/** True iff rail-borne samples of prev arm lie on a small circle about bowCenter.
+ *  Climb/tangent geodesic prefixes (spliceMm) leave the circle and must be skipped — otherwise
+ *  packing for n≥3 falsely rejects the concentric special case and falls into the w-tube path. */
 function isSmallCircleArm(prevArm, tolMm = 0.02) {
   if (!prevArm?.bowCenter || !Number.isFinite(prevArm.rho) || !prevArm.pts || prevArm.pts.length < 3) return false;
   const Pc = unit(prevArm.bowCenter);
   const R = Math.hypot(prevArm.pts[0][0], prevArm.pts[0][1], prevArm.pts[0][2]);
-  for (let i = 0; i < prevArm.pts.length; i += Math.max(1, Math.floor(prevArm.pts.length / 12))) {
-    if (Math.abs(R * (angle(Pc, unit(prevArm.pts[i])) - prevArm.rho)) > tolMm) return false;
+  const skipMm = Math.max(prevArm.climbMm || 0, prevArm.spliceMm || 0);
+  let cum = 0;
+  const samples = [];
+  for (let i = 0; i < prevArm.pts.length; i++) {
+    if (i > 0) cum += R * angle(prevArm.pts[i - 1], prevArm.pts[i]);
+    if (cum + 1e-9 >= skipMm) samples.push(prevArm.pts[i]);
+  }
+  if (samples.length < 3) return false;
+  const step = Math.max(1, Math.floor(samples.length / 12));
+  for (let i = 0; i < samples.length; i += step) {
+    if (Math.abs(R * (angle(Pc, unit(samples[i])) - prevArm.rho)) > tolMm) return false;
   }
   return true;
 }
@@ -616,7 +627,7 @@ function railLeg(R, from, to, prevArm, w = 0) {
     splice = R * angle(X, Tpt);
     joinMode = 'climb';
   } else {
-    // 6a.7(2) exterior tangent: scan rail for geodesic ⊥ rail-tangent
+    // 6a.7(2) exterior tangent: scan rail for geodesic ∥ rail-tangent (max |cos|)
     const s0 = polyArcMm(R, railPts, lat.i, lat.t);
     const sE = polyArcMm(R, railPts, hitE.i, hitE.t);
     const sLo = Math.min(s0, sE), sHi = Math.max(s0, sE);
@@ -627,9 +638,11 @@ function railLeg(R, from, to, prevArm, w = 0) {
       const q = P.q;
       const Ta = polyTangent(railPts, P.i);
       const towardX = tangentTo(q, X);
+      // Tangency = directions align → maximize |cos| = |towardX · Ta|.
+      // (Minimizing |dot| picks a nearly perpendicular meeting — the 11.8° regress.)
       const score = Math.abs(dot(towardX, Ta));
       const cost = R * angle(X, q) + Math.abs(sE - s);
-      if (!best || score < best.score - 1e-7 || (Math.abs(score - best.score) < 1e-7 && cost < best.cost)) {
+      if (!best || score > best.score + 1e-7 || (Math.abs(score - best.score) < 1e-7 && cost < best.cost)) {
         best = { q, score, cost };
       }
     }
@@ -769,8 +782,10 @@ function armPackNormal(arm) {
  *  sidesAt(s) → needleSides at level s. */
 function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
   const h = w / 10;
-  // --- Fable v2 (8): concentric only when prev arm IS a small circle (6a.7 special case) ---
-  if (isSmallCircleArm(prevArm)) {
+  // --- Fable v2 (8): concentric packing when prev retains bowCenter+ρ (6a.7 special case).
+  // Prefer analytics over isSmallCircleArm purity so climb/tangent prefixes do not force the
+  // broken w-tube path below (meridian ∩ tube-of-radius-w ≈ tip + w, looks like channelBinding).
+  if (prevArm?.bowCenter && Number.isFinite(prevArm.rho)) {
     const Pc = unit(prevArm.bowCenter);
     const target = prevArm.rho + w / R;
     const g = (s) => angle(Pc, unit(perpPt(R, s, phiK, sidesAt(s).eOff))) - target;
@@ -788,28 +803,7 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
     const s = (lo + hi) / 2;
     return { s, sPrevCross: null, sLaidCross: s, sigma: 1, method: 'fable8' };
   }
-  // --- 6a.7(1) / 6a.9: place E at geodesic distance +w outward from the ACTUAL prev polyline ---
-  if (prevArm.pts && prevArm.pts.length >= 2) {
-    const prevPts = prevArm.pts;
-    const g = (s) => {
-      const E = unit(perpPt(R, s, phiK, sidesAt(s).eOff));
-      return signedLateralToPoly(R, E, prevPts, prevArm).signedMm - w;
-    };
-    let lo = sInside, glo = g(lo), hi = null;
-    for (let s = sInside + h; s <= sMax; s += h) {
-      const gs = g(s);
-      if (glo * gs <= 0) { hi = s; break; }
-      lo = s; glo = gs;
-    }
-    if (hi === null) return null;
-    for (let it = 0; it < 60; it++) {
-      const mid = (lo + hi) / 2, gm = g(mid);
-      if (glo * gm <= 0) hi = mid; else { lo = mid; glo = gm; }
-    }
-    const s = (lo + hi) / 2;
-    return { s, sPrevCross: null, sLaidCross: s, sigma: 1, method: 'polyParallel' };
-  }
-  // --- geodesic / rail without small-circle analytics: packing-plane parallel at distance w ---
+  // --- geodesic / GC packing-plane parallel at distance w (no polyline w-tube) ---
   // Orient normal toward the pole so "outward" is equatorward. Do NOT derive sigma from
   // point(R,sInside) — when sInside = s_prev that point can lie on the equator side of the
   // arm plane and flip the sign (misses the root below the previous stitch).

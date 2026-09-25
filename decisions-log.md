@@ -208,3 +208,22 @@ Rail = parallel of actual row n−1 polyline +w out (concentric = small-circle s
 - Row 2: δ max ≈ 0.173 mm (6 ok ≤0.15, 2 diag ≤w/2, 0 fail); holeTurn max ≈12°, climbTurn max ≈1.7°
 - Later rows still show δ > w/2 on some legs after parallel switch — **reported, not fitted** (G3 vs rail curve mismatch / flat-model limit). Coordinator may ask Fable.
 
+
+## D45 — Packing regression fix (2026-09-25): restore §5.1 Δ₂/rows + exterior tangency
+
+### What broke on 44c5a84
+`packThenPierce` added a `polyParallel` branch: meridian ∩ {points at geodesic distance *w* from prev polyline}. That is a **tube of radius w**, not the parallel curve. First hit ≈ tip + *w* → Δ ≈ *w* every row after the special case fails (channelBinding lookalike). Climb/tangent geodesic prefixes also made `isSmallCircleArm` reject concentric rails for n≥3, so bow packing fell into the same tube. Exterior tangency search **minimized** |direction · railTangent| → nearly perpendicular meeting (splice ≈0.09 mm vs ~4.7 mm analytic; turn ≈11.8°).
+
+### Fix
+1. Packing: `bowCenter+ρ` → Fable (8) concentric; else GC-plane parallel. **Removed** the w-tube branch.
+2. `isSmallCircleArm`: skip climb/splice prefix before circle test (rail construction stays concentric).
+3. Exterior T: **maximize** |cos| (align), not minimize.
+4. Full-path suite: λ=0 → Δ₂≈4.968 + 5 rows + last tip (K12) in 58–60 mm; λ=0.32 → 11±1; λ=0.6 → 16±1.
+
+### Remeasured (C=240, w=0.714)
+- λ=0 geo/bow: Δ₂=4.96776, **5 rows**, last tip ≈58.93 mm; stop = next tip >60 (equator), not packing miss.
+- λ=0.32: **11 rows**, Δ₂=2.23575 kept; exterior splice ≈4.31 mm, turn ≈0.07–0.25°.
+- λ=0.6: **16 rows**, Δ₂=1.54369 kept; some late-row δ > w/2 (r14–15) — report only, no invent.
+
+Do **not** ask Fable about δ until packing was restored (now restored); remaining δ>w/2 near equator still per 6a.9.3 bands.
+
