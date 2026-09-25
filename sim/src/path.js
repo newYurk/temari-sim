@@ -774,13 +774,24 @@ function railLeg(R, from, to, prevArm, w = 0) {
   const latExt = signedLateralToPoly(R, X, railPts, prevArm);
   const latCore = signedLateralToPoly(R, X, corePts, prevArm);
   let lat, dLat;
+  // onRail band: |d| < 0.02·w (dimensionless, so ×k similarity cannot flip it).
+  const onRailTol = 0.02 * Math.max(w || W0_MM, 1e-9);
+  // When the core foot is clamped at a core END (X lies beyond the core along-track), the core
+  // distance is along-track, not lateral, and sign(dot(towardX, N)) is the sign of a near-zero
+  // quantity (towardX ∥ T): round-off, not geometry — it flipped joinMode across CPUs (x86 vs
+  // arm64). There the lateral side is read from the extended rail, which is the true lateral
+  // measure: X counts as outside only if it is off the extension by more than the onRail band.
+  const nCore = corePts.length;
+  const coreFootAtEnd = (latCore.i === 0 && latCore.t < 1e-3)
+    || (latCore.i >= nCore - 2 && latCore.t > 1 - 1e-3);
+  const coreOutside = coreFootAtEnd ? latExt.signedMm > onRailTol : latCore.signedMm > (w || 0);
   // Only when CORE says clearly OUTSIDE (not a bow tip/climb interior) yet extension
   // claims nearly on-rail — the λ=0 geodesic false-foot pattern.
-  const falseExtFoot = latCore.signedMm > (w || 0)
+  const falseExtFoot = coreOutside
     && latCore.distMm > 2 * (w || 0)
     && Math.abs(latExt.signedMm) < 0.5 * (w || 0);
   if (falseExtFoot) {
-    dLat = latCore.signedMm;
+    dLat = latCore.distMm; // outside ⇒ positive; magnitude only (sign may be round-off at an end)
     lat = closestOnPoly(R, latCore.q, railPts);
     lat.signedMm = dLat;
   } else {
@@ -792,7 +803,7 @@ function railLeg(R, from, to, prevArm, w = 0) {
 
   let Tpt, splice, joinMode;
   // Scale with w so xk similarity does not flip onRail/climb (absolute 1e-6 mm thresh).
-  if (Math.abs(dLat) < 0.02 * Math.max(w || W0_MM, 1e-9)) {
+  if (Math.abs(dLat) < onRailTol) {
     Tpt = lat.q; splice = 0; joinMode = 'onRail';
   } else if (dLat < 0) {
     // 6a.7(3) climb/merge: M at ℓ_m = max(w, 3δ) forward toward E

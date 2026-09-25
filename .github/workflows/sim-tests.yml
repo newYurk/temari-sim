@@ -9,11 +9,16 @@ on:
 jobs:
   sim-tests:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 24]
+    name: sim-tests (node ${{ matrix.node }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
       - name: Run sim test suite
         # Paths resolve via import.meta.url; CWD may be repo root.
         run: node sim/test/run.mjs
