@@ -19,13 +19,11 @@
       "basis": "Catalog: 25 m / 5 g (DMC / Olympus / Cosmo #5) → 200 tex",
       "status": "source"
     },
-    "mu": {
-      "value": 0.32,
-      "basis": "PHYS-COTTON-MU: cotton yarn order of magnitude; NOT Perle #5",
-      "status": "analogue"
-    },
     "mu_range": {
-      "value": [0.32, 0.52],
+      "value": [
+        0.32,
+        0.52
+      ],
       "basis": "PHYS-COTTON-MU published band for cotton yarn (annotation); order of magnitude only",
       "status": "analogue"
     },
@@ -33,6 +31,16 @@
       "value": "unknown",
       "basis": "model/spec.md T3/T4 — analogue compression laws only; no #5 numbers",
       "status": "unknown"
+    },
+    "muWrap": {
+      "value": 0.32,
+      "basis": "PHYS-COTTON-MU: cotton yarn vs wrap order of magnitude; NOT Perle #5; Φ3 / P2",
+      "status": "analogue"
+    },
+    "muThread": {
+      "value": 0.32,
+      "basis": "PHYS-COTTON-MU: cotton yarn–yarn order of magnitude; NOT Perle #5; P1",
+      "status": "analogue"
     }
   },
   "provisionalLift": {
@@ -41,7 +49,10 @@
     "delta_h_mm": {
       "value": 0.28,
       "at_N": 1,
-      "range": [0.2, 0.35],
+      "range": [
+        0.2,
+        0.35
+      ],
       "basis": "Prior thread-over-thread synthesis (~1 N crossing rise); uncertainties P5",
       "status": "estimate"
     },
@@ -55,8 +66,9 @@
     "w_mm": 0.714,
     "hw": 0.65,
     "tex": 200,
-    "mu": 0.32,
-    "compress": "unknown"
+    "compress": "unknown",
+    "muWrap": 0.32,
+    "muThread": 0.32
   },
   "replaceWhen": "Owner photographs Perle #5 with scale (laid width) and, if possible, microscope / side shot for height h."
 }

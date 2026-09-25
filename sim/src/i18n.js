@@ -134,8 +134,10 @@ const ru = {
   'param.hw.used': 'только диагностика «длина по оси нити»',
   'param.tex.label': 'Линейная плотность, текс',
   'param.tex.used': 'масса нити (диагностика)',
-  'param.mu.label': 'μ нить–нить',
-  'param.mu.used': 'геометрия: предел бокового прогиба Φ3 при shoulderForm=bowToMarking',
+  'param.muWrap.label': 'μ нить–обмотка (Φ3)',
+  'param.muWrap.used': 'геометрия: конус трения λ≤μWrap при shoulderForm=bow',
+  'param.muThread.label': 'μ нить–нить (P1)',
+  'param.muThread.used': 'диагностика / будущий контакт; пока не задаёт форму плеча',
   'param.compress.label': 'Сжимаемость сечения',
   'param.compress.used': 'не используется',
   'param.tension_N.label': 'Натяжение T, Н',
@@ -179,9 +181,11 @@ const ru = {
   'param.pitch_mm.label': 'Фикс. шаг низа, мм',
   'param.pitch_mm.used': 'если «фиксированный»',
   'param.shoulderForm.label': 'Форма плеча у кончика',
-  'param.shoulderForm.used': 'путь: форма плеча у кончика; packThenPierce по уложенной полилинии',
+  'param.shoulderForm.used': 'путь: геодезическая или малый круг; packThenPierce по нормали дуги в E',
   'param.shoulderForm.option.geodesic': 'геодезическая (идеализация)',
-  'param.shoulderForm.option.bowToMarking': 'прогиб к разметке (предел Φ3)',
+  'param.shoulderForm.option.bow': 'дуга малого круга (λ = bowFrac·μWrap)',
+  'param.bowFrac.label': 'Доля прогиба λ/μWrap',
+  'param.bowFrac.used': 'путь: λ = bowFrac·μWrap при shoulderForm=bow',
 
   // Param validation errors
   'err.notNumber': '{key}: не число',
@@ -263,7 +267,8 @@ const ru = {
   'path.level.belowPrev': '; уровень = канал ряда {prev} ({sPrev}) + w',
   'path.level.packThenPierce': '; уровень — где нить, уложенная вплотную к {prevArm}, пересекает линию (на {dS} мм ниже кончика ряда {prev})',
   'path.form.geodesic': 'геодезическое',
-  'path.form.bowToMarking': 'прогиб к разметке, Φ3',
+  'path.form.bow': 'дуга малого круга, Φ3',
+  'path.form.bowToMarking': 'дуга малого круга, Φ3',
   'path.park': '{round}: парковка нити {thread} у X{N} (игла с нитью оставлена снаружи; следующий ряд — той же нитью)',
 
   // Validator names (ids stay V1…)
@@ -287,6 +292,8 @@ const ru = {
   'validator.V17.name': 'Игла под всеми прежними рядами у верха (uwagake)',
   'validator.V18.name': 'Над/под по правилу; переплетение наборов',
   'validator.V19.name': 'Место для иглы между нитями (сжатие в тесных местах)',
+  'validator.V20.name': 'Конус трения Φ3 (λ ≤ μWrap)',
+  'validator.V21.name': 'Нет прилипания плеча к меридиану',
 };
 
 const en = {
@@ -394,8 +401,10 @@ const en = {
   'param.hw.used': 'diagnostics only (“length along thread axis”)',
   'param.tex.label': 'Linear density, tex',
   'param.tex.used': 'thread mass (diagnostics)',
-  'param.mu.label': 'μ thread–thread',
-  'param.mu.used': 'geometry: Φ3 lateral cap when shoulderForm=bowToMarking',
+  'param.muWrap.label': 'μ thread–wrap (Φ3)',
+  'param.muWrap.used': 'geometry: friction cone λ≤μWrap when shoulderForm=bow',
+  'param.muThread.label': 'μ thread–thread (P1)',
+  'param.muThread.used': 'diagnostics / future contact; not used by shoulder lay yet',
   'param.compress.label': 'Cross-section compressibility',
   'param.compress.used': 'unused',
   'param.tension_N.label': 'Tension T, N',
@@ -439,9 +448,11 @@ const en = {
   'param.pitch_mm.label': 'Fixed bottom pitch, mm',
   'param.pitch_mm.used': 'if “fixed”',
   'param.shoulderForm.label': 'Arm tip / shoulder form',
-  'param.shoulderForm.used': 'path: leg shape near tip; packThenPierce uses laid polyline',
+  'param.shoulderForm.used': 'path: geodesic or small-circle leg; packThenPierce uses arc normal at E',
   'param.shoulderForm.option.geodesic': 'geodesic (idealization)',
-  'param.shoulderForm.option.bowToMarking': 'bow toward marking (Φ3-capped)',
+  'param.shoulderForm.option.bow': 'small-circle bow (λ = bowFrac·μWrap)',
+  'param.bowFrac.label': 'Bow fraction λ/μWrap',
+  'param.bowFrac.used': 'path: λ = bowFrac·μWrap when shoulderForm=bow',
 
   'err.notNumber': '{key}: not a number',
   'err.outOfRange': '{key}={v} outside [{min}, {max}]',
@@ -519,7 +530,8 @@ const en = {
   'path.level.belowPrev': '; level = row {prev} channel ({sPrev}) + w',
   'path.level.packThenPierce': '; level — where the thread laid flush to {prevArm} meets the line ({dS} mm below row {prev} tip)',
   'path.form.geodesic': 'geodesic',
-  'path.form.bowToMarking': 'bow-to-marking Φ3',
+  'path.form.bow': 'small-circle bow Φ3',
+  'path.form.bowToMarking': 'small-circle bow Φ3',
   'path.park': '{round}: park thread {thread} at X{N} (needle with thread left outside; next row — same thread)',
 
   'validator.V1.name': 'Each thread is continuous',
@@ -542,6 +554,8 @@ const en = {
   'validator.V17.name': 'Needle under all previous rows at top (uwagake)',
   'validator.V18.name': 'Over/under by rule; set interweave',
   'validator.V19.name': 'Room for needle between threads (compression in tight spots)',
+  'validator.V20.name': 'Friction cone Φ3 (λ ≤ μWrap)',
+  'validator.V21.name': 'No stick-to-axis on shoulder',
 };
 
 export const LOCALES = { ru, en };

@@ -8,11 +8,29 @@
   "note": "Kiku S8 is one editable recipe preset, not the whole system. Technique (needle-action conventions) lives in techniqueRef; this file is the editable Recipe surface (marking, sizes, row order, materials, colors). Execution result (where threads actually lie) is computed by the path builder from params + occupancy — never stored here as free coordinates.",
   "editable": {
     "sizes": {
-      "paramKeys": ["C_mm", "N", "m_mm", "topMode", "sTop_mm", "sTopFrac", "bottomFromEq"],
+      "paramKeys": [
+        "C_mm",
+        "N",
+        "m_mm",
+        "topMode",
+        "sTop_mm",
+        "sTopFrac",
+        "bottomFromEq"
+      ],
       "note": "Reuse PARAM_SCHEMA / UI params — do not duplicate numeric stores here."
     },
     "rows": {
-      "paramKeys": ["rowsMode", "rowsCount", "order", "blockSize", "sequence", "spacingMode", "pitch_mm", "shoulderForm"],
+      "paramKeys": [
+        "rowsMode",
+        "rowsCount",
+        "order",
+        "blockSize",
+        "sequence",
+        "spacingMode",
+        "pitch_mm",
+        "shoulderForm",
+        "bowFrac"
+      ],
       "note": "Row count / order / packing intent are recipe; fill forecast is calculated from occupancy, not a free knob."
     },
     "packingDensityIntent": {
@@ -22,8 +40,16 @@
     },
     "colors": {
       "sets": {
-        "A": { "hex": "#1f5fbf", "label": "Color A", "basis": "GT14 Color A (display default)" },
-        "B": { "hex": "#c2185b", "label": "Color B", "basis": "GT14 Color B (display default)" }
+        "A": {
+          "hex": "#1f5fbf",
+          "label": "Color A",
+          "basis": "GT14 Color A (display default)"
+        },
+        "B": {
+          "hex": "#c2185b",
+          "label": "Color B",
+          "basis": "GT14 Color B (display default)"
+        }
       },
       "rows": {},
       "note": "Editable color ribbon (GT14-style color plan). Per-row overrides optional; empty = inherit set color. Affects render when color mode is set (and legend); path geometry unchanged."
@@ -31,7 +57,15 @@
     "materialRef": {
       "id": "dmc-perle-5",
       "path": "../materials/dmc-perle-5.json",
-      "paramKeys": ["w_mm", "hw", "tex", "mu", "compress", "materialPreset"]
+      "paramKeys": [
+        "w_mm",
+        "hw",
+        "tex",
+        "muWrap",
+        "muThread",
+        "compress",
+        "materialPreset"
+      ]
     }
   },
   "sameOps": {
@@ -39,7 +73,20 @@
     "stageEndVia": "layers.layerPath → stageLastOp(recipe.stages[stage].throughOp)"
   },
   "coreVsRecipe": {
-    "core": ["occupancy / E·X derivation", "packThenPierce / belowPrevChannel", "laterOver crossing", "validators", "geodesic / Φ3 shoulderForm math"],
-    "recipe": ["N / pins / arcs", "rowsMode / order", "set colors", "material preset id", "startRule choice", "chidori / upper-row growth as occupancy consequence of this preset — not hard-coded as universal core laws"]
+    "core": [
+      "occupancy / E·X derivation",
+      "packThenPierce / belowPrevChannel",
+      "laterOver crossing",
+      "validators",
+      "geodesic / Φ3 shoulderForm math"
+    ],
+    "recipe": [
+      "N / pins / arcs",
+      "rowsMode / order",
+      "set colors",
+      "material preset id",
+      "startRule choice",
+      "chidori / upper-row growth as occupancy consequence of this preset — not hard-coded as universal core laws"
+    ]
   }
 }

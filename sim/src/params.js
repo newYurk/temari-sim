@@ -39,9 +39,12 @@ export const PARAM_SCHEMA = [
     used: 'diagnostics only (“length along thread axis”)' },
   { key: 'tex', group: 'thread', label: 'Linear density, tex', type: 'number', def: 200, min: 20, max: 1000, step: 1,
     basis: 'PRIOR-THREAD: 25 m / 5 g (DMC/Olympus/Cosmo #5)', status: 'default', used: 'thread mass (diagnostics)' },
-  { key: 'mu', group: 'thread', label: 'μ thread–thread', type: 'number', def: 0.32, min: 0, max: 1.5, step: 0.01,
-    basis: 'PHYS-COTTON-MU 0.32–0.52 — cotton yarn, NOT #5 (order of magnitude only)', status: 'default',
-    used: 'geometry: Φ3 lateral cap when shoulderForm=bowToMarking' },
+  { key: 'muWrap', group: 'thread', label: 'μ thread–wrap (Φ3)', type: 'number', def: 0.32, min: 0, max: 1.5, step: 0.01,
+    basis: 'PHYS-COTTON-MU 0.32–0.52 — cotton yarn vs wrap, NOT #5 (order of magnitude only); Φ3 / P2', status: 'default',
+    used: 'geometry: friction cone λ≤μWrap for shoulderForm=bow' },
+  { key: 'muThread', group: 'thread', label: 'μ thread–thread (P1)', type: 'number', def: 0.32, min: 0, max: 1.5, step: 0.01,
+    basis: 'PHYS-COTTON-MU 0.32–0.52 — cotton yarn–yarn, NOT #5 (order of magnitude only); P1', status: 'default',
+    used: 'diagnostics / future contact; not used by shoulder lay yet' },
   { key: 'compress', group: 'thread', label: 'Cross-section compressibility', type: 'text', def: 'unknown',
     basis: 'model/spec.md T3/T4 — analogue laws only, no #5 numbers', status: 'stored', used: 'unused' },
 
@@ -76,13 +79,16 @@ export const PARAM_SCHEMA = [
   { key: 'sequence', group: 'intent', label: 'Sequence (if “explicit”)', type: 'text', def: 'AAAAABBBBB',
     basis: 'intent: letter = next row of that set (A or B); letter count per set = its row count', status: 'intent', used: 'if “explicit”' },
   { key: 'shoulderForm', group: 'intent', label: 'Arm tip / shoulder form', type: 'select', def: 'geodesic',
-    options: ['geodesic', 'bowToMarking'],
+    options: ['geodesic', 'bow'],
     optionLabels: {
       geodesic: 'geodesic (idealization)',
-      bowToMarking: 'bow toward marking (Φ3-capped)',
+      bow: 'small-circle bow (λ = bowFrac·μWrap, pole-side center)',
     },
-    basis: 'tip-drop-diagnosis §5; model/spec.md Φ3 — input is shoulder form; tip Δ is a derived result, not a free Δ=2 mm knob',
-    status: 'intent', used: 'path: leg shape near tip; packThenPierce uses laid polyline' },
+    basis: 'samples/kiku-s8/leg-shape-spec.md; model/spec.md Φ3 — input is shoulder form; tip Δ is derived, not a free Δ=2 mm knob. Alias bowToMarking→bow for old recipes.',
+    status: 'intent', used: 'path: small-circle or geodesic leg; packThenPierce uses arc normal at E' },
+  { key: 'bowFrac', group: 'intent', label: 'Bow fraction λ/μWrap', type: 'number', def: 1, min: 0, max: 2, step: 0.01,
+    basis: 'leg-shape-spec §4: master intent how round the petal; craft range [0,1], max 2 so V20 can catch overshoot',
+    status: 'intent', used: 'path: λ = bowFrac·μWrap when shoulderForm=bow; unused for geodesic' },
   { key: 'spacingMode', group: 'intent', label: 'Bottom spacing between rows', type: 'select', def: 'laidClose', options: ['laidClose', 'fixedPitch'],
     optionLabels: { laidClose: 'lay close → stitch at intersection', fixedPitch: 'fixed pitch' },
     basis: 'TK-STRETCH, OLY-TM7-V «自然に交わる所» / TK-UWA “about 2mm”', status: 'intent', used: 'row plan' },
@@ -128,10 +134,15 @@ export function defaults() {
 
 /** Normalize and validate inputs. Returns a NEW frozen object (no refs to old sets). */
 export function normalizeParams(raw = {}) {
+  const src = { ...raw };
+  // Temporary aliases so old recipes / URLs keep working (D40).
+  if (src.shoulderForm === 'bowToMarking') src.shoulderForm = 'bow';
+  if (src.mu !== undefined && src.muWrap === undefined) src.muWrap = src.mu;
+  if (src.mu !== undefined && src.muThread === undefined) src.muThread = src.mu;
   const out = {};
   const errors = [];
   for (const p of PARAM_SCHEMA) {
-    let v = raw[p.key] !== undefined ? raw[p.key] : p.def;
+    let v = src[p.key] !== undefined ? src[p.key] : p.def;
     if (p.type === 'number') {
       if (v === '' || v === null) { v = p.optional ? null : p.def; }
       else {
@@ -172,6 +183,9 @@ export function paramsFromQuery(search) {
   const q = new URLSearchParams(search);
   const raw = {};
   for (const p of PARAM_SCHEMA) if (q.has(p.key)) raw[p.key] = q.get(p.key);
+  // Legacy query keys (normalized in normalizeParams).
+  if (q.has('mu') && raw.muWrap === undefined) raw.muWrap = q.get('mu');
+  if (q.get('shoulderForm') === 'bowToMarking') raw.shoulderForm = 'bow';
   return raw;
 }
 

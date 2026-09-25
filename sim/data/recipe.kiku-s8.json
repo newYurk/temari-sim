@@ -42,8 +42,8 @@
     },
     "shoulderForm": {
       "value": "geodesic",
-      "text": "Arm tip / shoulder form: geodesic | bowToMarking. bowToMarking pulls the visible leg toward the destination marking meridian with a tip-weighted envelope, lateral offset capped by Φ3 (λ≤μ). Tip-drop Δ = s_B(row2)−s_B(row1) is a derived packThenPierce result on the laid polyline — never a free Δ=2 mm input (do not merge GT14 fixed 2 mm as the geometric law).",
-      "basis": "model/spec.md Φ3; samples/kiku-s8/tip-drop-diagnosis.md §5; D26",
+      "text": "Arm tip / shoulder form: geodesic | bow (alias bowToMarking→bow). bow = small-circle arc λ=bowFrac·μWrap with curvature center on the pole side (bulge away from pole). Tip-drop Δ = s_B(row2)−s_B(row1) is a derived packThenPierce result — never a free Δ=2 mm input (D40; do not merge GT14 fixed 2 mm as the geometric law).",
+      "basis": "model/spec.md Φ3; samples/kiku-s8/leg-shape-spec.md; D40 (supersedes D33); D26",
       "tag": "b"
     },
     "crossing": {

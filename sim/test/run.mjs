@@ -249,8 +249,8 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
     check(String(d[k]) === String(v), `param default ${k}=${v} matches material preset`);
   }
   check(d.materialPreset === 'dmc-perle-5', 'materialPreset param defaults to dmc-perle-5');
-  check(materialPreset.fields?.mu?.status === 'analogue' && materialPreset.fields?.hw?.status === 'analogue',
-    'μ and hw marked analogue (not measured on #5)');
+  check(materialPreset.fields?.muWrap?.status === 'analogue' && materialPreset.fields?.muThread?.status === 'analogue' && materialPreset.fields?.hw?.status === 'analogue',
+    'μWrap/μThread and hw marked analogue (not measured on #5)');
   check(materialPreset.fields?.compress?.status === 'unknown', 'compress status unknown');
   check(materialPreset.provisionalLift?.status === 'estimate', 'provisional lift marked estimate (not a law)');
 
