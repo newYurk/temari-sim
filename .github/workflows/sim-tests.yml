@@ -1,0 +1,19 @@
+name: Sim tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  sim-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Run sim test suite
+        # Paths resolve via import.meta.url; CWD may be repo root.
+        run: node sim/test/run.mjs
