@@ -7,7 +7,7 @@ import { parseSequence } from './params.js';
 import { t, fmtNum } from './i18n.js';
 import {
   point, offsetPt, slerp, lineSeg, geodLen, dist, rotateToward, toSPhi, wrapPi, tangentTo, ePole, dot,
-  closeZones, angle, unit, sub, cross, eEast, perpPt, segSegDist,
+  closeZones, angle, unit, sub, mul, cross, eEast, perpPt, segSegDist, polyLen,
 } from './geom.js';
 
 const LEG_SAMPLES = 96;
@@ -213,14 +213,76 @@ function legZones(A, B, w) {
   return zones;
 }
 
-/** Уровень низа ряда n ≥ 2: «уложи вплотную → коли в пересечении». Уложенная нить идёт снаружи плеча предыдущего
- *  ряда того же набора, ось на расстоянии w (малый круг, параллельный большому кругу плеча). Игла входит там, где
- *  уложенная нить проходит вплотную справа от нити разметки: точка E = perpPt(s, eOff(s)) лежит на уложенной нити,
- *  eOff(s) — из занятости на этом уровне. Свободных чисел нет: только m, w и уже уложенное плечо.
- *  sidesAt(s) → needleSides на уровне s. */
+/** Φ3 lateral sagitta cap (mm): constant-κ_g bow L²·μ/(8R) on shoulder length L (spec Φ3). */
+function phi3LateralCapMm(R, L, mu) {
+  return (L * L * Math.max(0, mu)) / (8 * R);
+}
+
+/** Tip-weighted envelope on [0,1] with peak 1 near arrival (t·sin(πt) normalized). */
+const TIP_ENV_NORM = 0.5792303272991085;
+function tipEnv(t) {
+  return (t * Math.sin(Math.PI * t)) / TIP_ENV_NORM;
+}
+
+/**
+ * Visible leg polyline: geodesic (slerp) or bowToMarking — pull interior samples toward the destination
+ * marking meridian with a tip-weighted envelope, clamped to Φ3 δ_max(μ). Endpoints stay fixed; points stay on R.
+ * Tip-drop Δ is NOT an input here — only shoulder form + μ.
+ */
+function layLeg(R, from, to, phiMark, shoulderForm, mu) {
+  const geoLen = geodLen(R, from, to);
+  const phi3CapMm = phi3LateralCapMm(R, geoLen, mu);
+  if (shoulderForm !== 'bowToMarking' || phi3CapMm < 1e-12) {
+    return {
+      pts: slerp(R, from, to, LEG_SAMPLES), length: geoLen,
+      shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm, phi3Warn: false,
+    };
+  }
+  const nMer = [-Math.sin(phiMark), Math.cos(phiMark), 0];
+  const n = LEG_SAMPLES;
+  const geo = slerp(R, from, to, n);
+  let bowLateralMm = 0;
+  const pts = geo.map((p, i) => {
+    if (i === 0 || i === n) return p;
+    const t = i / n;
+    const u = unit(p);
+    const onMer = unit(sub(u, mul(nMer, dot(u, nMer))));
+    const lat = R * angle(u, onMer);
+    if (lat < 1e-12) return p;
+    const move = Math.min(tipEnv(t) * phi3CapMm, lat);
+    bowLateralMm = Math.max(bowLateralMm, move);
+    return rotateToward(R, p, mul(onMer, R), move / R);
+  });
+  return {
+    pts, length: polyLen(pts), shoulderForm: 'bowToMarking',
+    bowLateralMm, phi3CapMm, phi3Warn: false,
+  };
+}
+
+/**
+ * Packing plane normal for an already-laid arm.
+ * Geodesic arms: from×to (all samples coplanar).
+ * Bowed arms: tip-region GC through the last ~5% of the polyline → endpoint, so packThenPierce
+ * sees the local approach angle after Φ3 tip bow (chord distance to the polyline falsely roots at Δ≈w).
+ */
+function armPackNormal(arm) {
+  const nRef = unit(cross(arm.from, arm.to));
+  const pts = arm.pts;
+  if (!pts || pts.length < 4) return nRef;
+  const i0 = Math.max(0, Math.floor((pts.length - 1) * 0.95));
+  let nTip = unit(cross(pts[i0], pts[pts.length - 1]));
+  if (dot(nTip, nRef) < 0) nTip = nTip.map((v) => -v);
+  return nTip;
+}
+
+/** Bottom level of row n≥2: lay flush → pierce at intersection.
+ *  Uses tip-region great-circle of the laid prev arm (equals from×to when geodesic) so a Φ3 tip bow
+ *  changes where the next row pierces → derived tip Δ. No free Δ tip input.
+ *  sidesAt(s) → needleSides at level s. */
 function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
-  const n = unit(cross(prevArm.from, prevArm.to));
-  const sigma = -Math.sign(dot(n, unit(point(R, sInside, phiK))));   // снаружи = с другой стороны, чем тело лепестка
+  const nRef = unit(cross(prevArm.from, prevArm.to));
+  const n = armPackNormal(prevArm);
+  const sigma = -Math.sign(dot(nRef, unit(point(R, sInside, phiK))));   // outside = opposite side from petal body
   const target = sigma * Math.sin(w / R);
   const g = (s) => dot(n, unit(perpPt(R, s, phiK, sidesAt(s).eOff))) - target;
   const h = w / 10;
@@ -229,7 +291,7 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
   if (hi === null) return null;
   for (let it = 0; it < 60; it++) { const mid = (lo + hi) / 2, gm = g(mid); if (glo * gm <= 0) hi = mid; else { lo = mid; glo = gm; } }
   const s = (lo + hi) / 2;
-  // для справки: где ось линии пересекают само плечо предыдущего ряда и уложенная нить
+  // reference: where the marking axis meets the packing GC and the laid parallel
   const axisCross = (tg) => {
     const f = (t) => dot(n, unit(point(R, t, phiK))) - tg;
     let a = sInside, fa = f(a);
@@ -269,8 +331,12 @@ export function roundSequence(recipe, P) {
 export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   const R = base.R, N = marking.N, w = P.w_mm, m = P.m_mm, Q = base.Q;
   const T = recipe.kagari, conv = recipe.conventions, LV = recipe.levels;
+  // Shoulder form: param overrides recipe convention; tip-drop Δ is always derived (never a free input).
+  const shoulderForm = P.shoulderForm || conv.shoulderForm?.value || conv.lay?.value || 'geodesic';
+  const mu = P.mu ?? 0;
   const limit = rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? Q - 7 : Q);
-  const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [] };
+  const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [],
+    shoulderForm, tipDrop: null };
   const lineIdx = (k) => ((k % N) + N) % N;
   const phiOf = (k) => marking.phis[lineIdx(k)];
   const legList = [], laidList = [];          // уложенные плечи; всё уложенное (плечи, каналы, скрытый старт)
@@ -288,7 +354,9 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     const sChan = Math.max(...W.stitches.filter((st) => st.line === k && st.level === 'bottom').map((st) => st.s)) + w;
     const s = Math.max(pp.s, sChan);
     return { s, levelInfo: { rule: 'packThenPierce', sPrev: prevSt.s, sPrevCross: pp.sPrevCross, sLaidCross: pp.sLaidCross, sPack: pp.s, sChan,
-      channelBinding: sChan > pp.s, dS: s - prevSt.s, prevArm: prevArm.id, basis: LV.bottom.next.basis } };
+      channelBinding: sChan > pp.s, dS: s - prevSt.s, prevArm: prevArm.id, basis: LV.bottom.next.basis,
+      shoulderForm: prevArm.shoulderForm || 'geodesic',
+      bowLateralMm: prevArm.bowLateralMm || 0, phi3CapMm: prevArm.phi3CapMm || 0 } };
   };
 
   const seq = roundSequence(recipe, P);
@@ -384,10 +452,15 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       const E = perpPt(R, s, phiOf(k), sides.eOff);
       const X = perpPt(R, s, phiOf(k), sides.xOff);
       for (const q of sides.squeeze) W.squeezes.push({ hole: q.side === 'E' ? E : X, set: spec.set, round: RD.id, line: k, i, ...q });
-      // (в) уложить нить: геодезическое плечо cur → E
-      const legPts = slerp(R, cur, E, LEG_SAMPLES);
-      const leg = addSeg({ type: 'leg', from: cur, to: E, pts: legPts, length: geodLen(R, cur, E), stitch: i, line: k, level,
-        source: conv.lay.basis, tag: conv.lay.tag, crossings: [] });
+      // (в) lay thread: geodesic or Φ3-capped bow toward destination marking (shoulderForm)
+      const legShape = layLeg(R, cur, E, phiOf(k), shoulderForm, mu);
+      const legPts = legShape.pts;
+      const layBasis = shoulderForm === 'bowToMarking'
+        ? (conv.shoulderForm?.basis || conv.lay.basis)
+        : conv.lay.basis;
+      const leg = addSeg({ type: 'leg', from: cur, to: E, pts: legPts, length: legShape.length, stitch: i, line: k, level,
+        source: layBasis, tag: conv.lay.tag, crossings: [],
+        shoulderForm: legShape.shoulderForm, bowLateralMm: legShape.bowLateralMm, phi3CapMm: legShape.phi3CapMm });
       if (i === 1) RD.firstLegId = leg.id;
       // перекресты и прилегания со ВСЕМИ ранее уложенными плечами (обе нити): правило над/под
       for (const other of legs()) {
@@ -425,10 +498,11 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           round: RD.id, thread: th.id, line: k,
           level: level === 'top' ? t('path.level.top') : t('path.level.bottom'),
           row: spec.row, closing: closing ? t('path.closing') : '',
+          form: t('path.form.' + legShape.shoulderForm, {}, legShape.shoulderForm),
           len: fmt(leg.length),
           cross: (crossTxt ? `; ${crossTxt}` : '') + (closing ? t('path.lay.closingUnder') : ''),
         }),
-        source: closing ? `${T.closing.basis}; ${conv.closingUnder.basis}` : `${conv.lay.basis}; ${T.patternBasis}; ${conv.crossing.basis}` });
+        source: closing ? `${T.closing.basis}; ${conv.closingUnder.basis}` : `${layBasis}; ${T.patternBasis}; ${conv.crossing.basis}` });
       // (г) стежок: прямой канал E → X под нитью разметки и всем кластером
       const pk = addSeg({ type: 'pickup', from: E, to: X, pts: lineSeg(E, X, 12), length: dist(E, X), stitch: i, line: k, level,
         eOff: sides.eOff, xOff: sides.xOff, under: sides.cluster.map((c) => c.seg), cluster: sides.cluster,
@@ -468,6 +542,28 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   // уровни стопки в перекрестах — топология (кто над кем), не высота; высоты — механика (этап 2.4)
   stackLevels(W, w);
   for (const t of Object.values(W.threads)) t.uEnd = t.u;
+  // Derived tip drop Δ = s_bottom(A2) − s_bottom(A1) for set A (first bottoms). Result only — never a free input.
+  {
+    const a1 = W.stitches.find((st) => st.round === 'A1' && st.level === 'bottom' && st.i === 1);
+    const a2 = W.stitches.find((st) => st.round === 'A2' && st.level === 'bottom' && st.i === 1);
+    if (a1 && a2) {
+      const prevLeg = W.segs.find((x) => x.id === a1.legId);
+      const tipDrop_mm = a2.s - a1.s;
+      const phi3CapMm = prevLeg?.phi3CapMm ?? 0;
+      const bowLateralMm = prevLeg?.bowLateralMm ?? 0;
+      // Craft guide band ~1.5–2.5 mm (GT14/TK-UWA); if bowToMarking cannot reach it within Φ3, warn — do not force 2 mm.
+      const aimHi = 2.5;
+      const phi3Warn = shoulderForm === 'bowToMarking' && tipDrop_mm > aimHi + 1e-6;
+      W.tipDrop = {
+        set: 'A', rowFrom: 1, rowTo: 2,
+        sBottom1: a1.s, sBottom2: a2.s, tipDrop_mm,
+        shoulderForm, bowLateralMm, phi3CapMm, mu, phi3Warn,
+        warn: phi3Warn
+          ? `derived tipDrop ${tipDrop_mm.toFixed(3)} mm exceeds ~${aimHi} mm craft band; Φ3 cap ${phi3CapMm.toFixed(3)} mm at μ=${mu} — do not force 2 mm past friction cone`
+          : null,
+      };
+    }
+  }
   return W;
 }
 
@@ -499,7 +595,8 @@ function stackLevels(W, w) {
   }
 }
 
-/** Индекс последней операции этапа по описанию в рецепте ('2a', '2b', 'B1', 'A2', 'all') или по id обхода (A3, B5 …). */
+/** Last op index for a stage — prefix into the SAME path.ops array (step slider and stage buttons share ops; full run only uses a later index).
+ *  Stages from recipe.stages ('2a'|'2b'|'B1'|'A2'|'all') use throughOp; bare round ids (A3, B5 …) end at that round's park. */
 export function stageLastOp(recipe, ops, stage) {
   const st = recipe.stages[stage];
   if (!st) {                                   // id обхода: до его парковки включительно

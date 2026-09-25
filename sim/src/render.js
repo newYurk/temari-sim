@@ -11,7 +11,25 @@ import { displayGeometry } from './display.js';
 import { t } from './i18n.js';
 
 const COLORS = { leg: 0x2f6bd6, pickup: 0xd6336c, 'hidden-start': 0x7a7a7a, current: 0xff8c00 };
-export const SET_COLORS = { A: 0x1f5fbf, B: 0xc2185b };   // набор A — синий, набор B — малиновый (цвета условные)
+export const SET_COLORS = { A: 0x1f5fbf, B: 0xc2185b };   // set A blue, set B magenta (display defaults; recipe ribbon may override)
+/** Parse #rrggbb or number → 0xRRGGBB. */
+export function parseHexColor(c) {
+  if (typeof c === 'number' && Number.isFinite(c)) return c >>> 0;
+  const s = String(c || '').trim().replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(s)) return null;
+  return parseInt(s, 16);
+}
+/** Apply recipe set colors (mutable display map). Returns applied {A,B} hex strings. */
+export function applySetColors(map = {}) {
+  const out = {};
+  for (const k of ['A', 'B']) {
+    const raw = map[k]?.hex ?? map[k];
+    const n = parseHexColor(raw);
+    if (n != null) { SET_COLORS[k] = n; out[k] = '#' + n.toString(16).padStart(6, '0'); }
+    else out[k] = '#' + SET_COLORS[k].toString(16).padStart(6, '0');
+  }
+  return out;
+}
 // окраска «по обходу» (по умолчанию): каждый обход в порядке работы — свой контрастный цвет; без жёлтого/золотого (разметка)
 // и без оранжевого (подсветка текущей операции); 12 цветов, дальше по кругу
 export const ROUND_COLORS = [0x1d4ed8, 0xc2185b, 0x16a34a, 0x7c3aed, 0x0891b2, 0xdc2626, 0x7c4a1e, 0x334155, 0x65a30d, 0xf472b6, 0x60a5fa, 0x115e59];

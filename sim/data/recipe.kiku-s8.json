@@ -36,8 +36,14 @@
     },
     "lay": {
       "value": "geodesic",
-      "text": "видимое плечо — дуга большого круга (натянутая нить, идеализация)",
-      "basis": "model/spec.md Ф3; geometry.md §7",
+      "text": "Default visible-arm idealization: great-circle geodesic (taut thread). Overridden near the tip by conventions.shoulderForm / param shoulderForm.",
+      "basis": "model/spec.md Φ3; geometry.md §7",
+      "tag": "b"
+    },
+    "shoulderForm": {
+      "value": "geodesic",
+      "text": "Arm tip / shoulder form: geodesic | bowToMarking. bowToMarking pulls the visible leg toward the destination marking meridian with a tip-weighted envelope, lateral offset capped by Φ3 (λ≤μ). Tip-drop Δ = s_B(row2)−s_B(row1) is a derived packThenPierce result on the laid polyline — never a free Δ=2 mm input (do not merge GT14 fixed 2 mm as the geometric law).",
+      "basis": "model/spec.md Φ3; samples/kiku-s8/tip-drop-diagnosis.md §5; D26",
       "tag": "b"
     },
     "crossing": {

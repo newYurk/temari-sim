@@ -91,7 +91,11 @@ export function runValidators(A, stage = '2b', ref = null) {
       for (const s of ts) rounds[s.round] = (rounds[s.round] || 0) + s.length;
       per[t] = { sum, du, by, rounds };
     }
+    let nGeo = 0, nBow = 0;
     for (const s of segs.filter((s) => s.type === 'leg')) {
+      // Haversine checks great-circle length; bowed legs use polyLen (Φ3 tip bow) — skip those.
+      if ((s.bowLateralMm || 0) > 1e-6 || s.shoulderForm === 'bowToMarking') { nBow++; continue; }
+      nGeo++;
       const a = toSPhi(R, s.from), b = toSPhi(R, s.to);
       hvMax = Math.max(hvMax, Math.abs(haversineLen(R, a.s, a.phi, b.s, b.phi) - s.length));
     }
@@ -99,8 +103,8 @@ export function runValidators(A, stage = '2b', ref = null) {
     add({ id: 'V2', name: 'Length balance per thread: u = Σ segments', crit: 'K13; model/spec.md §5; одна нить — один баланс (#112)',
       status: ok ? 'pass' : 'fail',
       value: threadIds.map((t) => { const p = per[t]; return `нить ${t}: Σ = ${f(p.sum)} мм = u ${f(p.du)} (${Object.entries(p.rounds).map(([r, L]) => `${r} ${f(L)}`).join(', ')}; старт ${f(p.by['hidden-start'] || 0)}, плечи ${f(p.by.leg || 0)}, захваты ${f(p.by.pickup || 0)})`; }).join('; ') +
-        `; гаверсинус vs вектор: ${f(hvMax, 12)} мм`,
-      numbers: { per } });
+        `; гаверсинус vs вектор (geodesic legs ${nGeo}): ${f(hvMax, 12)} мм` + (nBow ? `; bowed legs ${nBow} use polyLen` : ''),
+      numbers: { per, hvMax, nGeo, nBow } });
   }
   // V3 — согласие обхода A1 с calc.py (независимая реализация, numpy)
   {

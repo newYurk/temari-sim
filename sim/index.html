@@ -72,6 +72,23 @@
       <ul id="validators" class="vlist"></ul>
     </section>
 
+    <section id="recipe-section">
+      <h2 data-i18n="section.recipe">Recipe</h2>
+      <div id="recipe-meta" class="note"></div>
+      <div class="note" data-i18n="recipe.note">Editable preset surface (colors). Sizes and row order stay in Parameters below — same ops for step and full run.</div>
+      <div class="row wrap" id="color-ribbon" aria-label="Color plan">
+        <span data-i18n="recipe.colors">Colors:</span>
+        <label class="swatch-lab"><span data-i18n="recipe.colorA">A</span>
+          <input type="color" id="colorA" value="#1f5fbf" title="Set A">
+        </label>
+        <label class="swatch-lab"><span data-i18n="recipe.colorB">B</span>
+          <input type="color" id="colorB" value="#c2185b" title="Set B">
+        </label>
+        <button type="button" id="colorReset" data-i18n="recipe.colorReset">Reset colors</button>
+      </div>
+      <div class="note" data-i18n="recipe.colorHint">Changes apply when color mode is “by set”. Path geometry is unchanged.</div>
+    </section>
+
     <section>
       <h2 data-i18n="section.params">Параметры</h2>
       <div class="note" data-i18n="params.note">Все входы — органы управления. Изменение любого входа пересчитывает все слои по порядку:

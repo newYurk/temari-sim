@@ -45,6 +45,8 @@
 | M3 | Сверка расхода | L | 99DA04 ~9,1 м/цвет — другой узор | не калибровка |
 | M4 | Гейдж vs «сплошной» диаметр | M | 0,714 мм укладка vs ~0,40–0,53 мм по плотности/Пирсу (prior) | ширина полосы + масса |
 
+**Material preset (English):** working estimate catalog for these numbers → `sim/data/materials/dmc-perle-5.json` (D34). Replace w (and h if side-shot) when photographed with scale; do not treat preset values as measured-on-#5.
+
 ## Что точно известно без измерений
 
 Геометрия (G1–G9) при заданных параметрах; соотношения Ф0–Ф3 как законы; то, что κ_g ≤ μκ_n не зависит от T; то, что натяжение уложенных плеч может отличаться от силы протяжки в e^{μθ} раз (гистерезис затяжки).

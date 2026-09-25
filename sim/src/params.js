@@ -27,8 +27,12 @@ export const PARAM_SCHEMA = [
     basis: 'TK-GAUGE “Rainbow Gallery Nordic Gold – 1 strand = 1mm” (only gold-metallic gauge in sources; marking often thinner → upper estimate)',
     status: 'default', used: 'geometry: E/X position' },
 
+  // Thread defaults match sim/data/materials/dmc-perle-5.json (estimate/analogue provenance; not measured-on-#5).
+  { key: 'materialPreset', group: 'thread', label: 'Material preset id', type: 'text', def: 'dmc-perle-5',
+    basis: 'sim/data/materials/dmc-perle-5.json — documents provenance of w/hw/tex/μ; geometry still reads numeric params',
+    status: 'stored', used: 'provenance only (UI / export); does not override numbers yet' },
   { key: 'w_mm', group: 'thread', label: 'Laid thread width w, mm', type: 'number', def: 0.714, min: 0.2, max: 2, step: 0.001,
-    basis: 'TK-GAUGE “DMC Perle 5 – 7 threads = 0.5cm” (same page: 10 rows ≈ 7.5 mm → 0.75)',
+    basis: 'TK-GAUGE “DMC Perle 5 – 7 threads = 0.5cm” (same page: 10 rows ≈ 7.5 mm → 0.75); see materials/dmc-perle-5.json',
     status: 'default', used: 'geometry: E/X, row plan; render (tube diameter)' },
   { key: 'hw', group: 'thread', label: 'Cross-section h/w', type: 'number', def: 0.65, min: 0.2, max: 1, step: 0.01,
     basis: 'prior analogue 0.71×0.46 mm (not Perle #5, docs_thread-over-thread)', status: 'stored',
@@ -36,7 +40,8 @@ export const PARAM_SCHEMA = [
   { key: 'tex', group: 'thread', label: 'Linear density, tex', type: 'number', def: 200, min: 20, max: 1000, step: 1,
     basis: 'PRIOR-THREAD: 25 m / 5 g (DMC/Olympus/Cosmo #5)', status: 'default', used: 'thread mass (diagnostics)' },
   { key: 'mu', group: 'thread', label: 'μ thread–thread', type: 'number', def: 0.32, min: 0, max: 1.5, step: 0.01,
-    basis: 'PHYS-COTTON-MU 0.32–0.52 — cotton yarn, NOT #5 (order of magnitude only)', status: 'stored', used: 'unused (no mechanics)' },
+    basis: 'PHYS-COTTON-MU 0.32–0.52 — cotton yarn, NOT #5 (order of magnitude only)', status: 'default',
+    used: 'geometry: Φ3 lateral cap when shoulderForm=bowToMarking' },
   { key: 'compress', group: 'thread', label: 'Cross-section compressibility', type: 'text', def: 'unknown',
     basis: 'model/spec.md T3/T4 — analogue laws only, no #5 numbers', status: 'stored', used: 'unused' },
 
@@ -70,6 +75,14 @@ export const PARAM_SCHEMA = [
     basis: 'SUESS-2014: 5', status: 'intent', used: 'if “blocks”' },
   { key: 'sequence', group: 'intent', label: 'Sequence (if “explicit”)', type: 'text', def: 'AAAAABBBBB',
     basis: 'intent: letter = next row of that set (A or B); letter count per set = its row count', status: 'intent', used: 'if “explicit”' },
+  { key: 'shoulderForm', group: 'intent', label: 'Arm tip / shoulder form', type: 'select', def: 'geodesic',
+    options: ['geodesic', 'bowToMarking'],
+    optionLabels: {
+      geodesic: 'geodesic (idealization)',
+      bowToMarking: 'bow toward marking (Φ3-capped)',
+    },
+    basis: 'tip-drop-diagnosis §5; model/spec.md Φ3 — input is shoulder form; tip Δ is a derived result, not a free Δ=2 mm knob',
+    status: 'intent', used: 'path: leg shape near tip; packThenPierce uses laid polyline' },
   { key: 'spacingMode', group: 'intent', label: 'Bottom spacing between rows', type: 'select', def: 'laidClose', options: ['laidClose', 'fixedPitch'],
     optionLabels: { laidClose: 'lay close → stitch at intersection', fixedPitch: 'fixed pitch' },
     basis: 'TK-STRETCH, OLY-TM7-V «自然に交わる所» / TK-UWA “about 2mm”', status: 'intent', used: 'row plan' },

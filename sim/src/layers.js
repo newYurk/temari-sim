@@ -63,7 +63,7 @@ export function layerRowPlan(recipe, P, base, marking, layout) {
 }
 
 export function layerPath(recipe, P, base, marking, layout, rowPlan) {
-  const inputs = pick(P, ['w_mm', 'm_mm', 'startRule', 'startRun_mm', 'order', 'blockSize', 'sequence', 'rowsMode', 'rowsCount']);
+  const inputs = pick(P, ['w_mm', 'm_mm', 'startRule', 'startRun_mm', 'order', 'blockSize', 'sequence', 'rowsMode', 'rowsCount', 'shoulderForm', 'mu']);
   const parents = [base.stamp, marking.stamp, layout.stamp, rowPlan.stamp];
   const res = buildWork(recipe, P, base, marking, layout, rowPlan);
   const order = res.rounds.map((r) => r.id);

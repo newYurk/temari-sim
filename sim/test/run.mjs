@@ -2,12 +2,15 @@
 import { loadRecipe, loadJSON } from '../src/recipe.js';
 import { computeAll } from '../src/layers.js';
 import { runValidators, summary, refKey } from '../src/validators.js';
-import { PARAM_SCHEMA } from '../src/params.js';
+import { PARAM_SCHEMA, defaults } from '../src/params.js';
+import { stageLastOp } from '../src/path.js';
 import { displayGeometry } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
 import { norm, unit, mul, sub, dot } from '../src/geom.js';
 
 const recipe = await loadRecipe();
+const recipePreset = await loadJSON('../data/recipes/kiku-s8.json');
+const materialPreset = await loadJSON('../data/materials/dmc-perle-5.json');
 const ref = await loadJSON('../data/calc_reference.json');
 let failures = 0;
 const check = (cond, msg) => { console.log(`${cond ? '  ok ' : '  FAIL'} ${msg}`); if (!cond) failures++; };
@@ -177,6 +180,85 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   check(st(bw, 2).eOff !== st(aw, 2).eOff && st(bw, 1).s !== st(aw, 1).s, 'E верха и уровень низа A2 следуют за w');
   const lv = JSON.stringify(recipe.levels);
   check(!/\d+(\.\d+)?\s*(mm|мм)"/.test(lv) && typeof recipe.levels.top.next.value === 'string' && typeof recipe.levels.bottom.next.value === 'string', 'в рецепте уровни ряда n ≥ 2 — правила, не числа');
+}
+
+
+// 8. Shoulder form experiment: tip-drop Δ is derived (never a free input); geodesic vs bowToMarking (Φ3)
+{
+  const tipOf = (A) => A.path.tipDrop;
+  const G = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic' });
+  const B = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bowToMarking', mu: 0.32 });
+  const tg = tipOf(G), tb = tipOf(B);
+  console.log(`\n  tipDrop geodesic: ${fmt(tg.tipDrop_mm, 3)} mm (bow ${fmt(tg.bowLateralMm, 3)} / Φ3 ${fmt(tg.phi3CapMm, 3)})`);
+  console.log(`  tipDrop bowToMarking μ=0.32: ${fmt(tb.tipDrop_mm, 3)} mm (bow ${fmt(tb.bowLateralMm, 3)} / Φ3 ${fmt(tb.phi3CapMm, 3)}) warn=${tb.phi3Warn}`);
+  check(tg.tipDrop_mm > 4.5 && tg.tipDrop_mm < 5.5, `geodesic tipDrop in 4.5–5.5 mm (got ${fmt(tg.tipDrop_mm, 3)})`);
+  check(Math.abs(tg.tipDrop_mm - 4.968) < 0.02, 'geodesic tipDrop ≈ 4.97 mm at default C/w');
+  check(tg.shoulderForm === 'geodesic' && tg.bowLateralMm === 0, 'geodesic mode stores zero bow');
+  check(tb.shoulderForm === 'bowToMarking' && tb.bowLateralMm > 0 && tb.bowLateralMm <= tb.phi3CapMm + 1e-9,
+    'bowToMarking: lateral bow > 0 and ≤ Φ3 cap');
+  // Craft band ~1.5–2.5 mm if reachable within Φ3; else document actual Δ and warn (do not force 2 mm)
+  if (tb.phi3Warn) {
+    console.log(`  WARN: ${tb.warn}`);
+    check(tb.tipDrop_mm < tg.tipDrop_mm, 'even when 2 mm unreachable, bow still reduces tipDrop vs geodesic');
+  } else {
+    check(tb.tipDrop_mm >= 1.5 && tb.tipDrop_mm <= 2.5,
+      `bowToMarking tipDrop in 1.5–2.5 mm when Φ3 allows (got ${fmt(tb.tipDrop_mm, 3)})`);
+  }
+  check(!PARAM_SCHEMA.some((p) => /tipDrop|delta_mm|dS_mm/i.test(p.key)),
+    'no tipDrop/delta_mm user input in PARAM_SCHEMA (Δ is derived only)');
+  // packThenPierce must see laid bowed polyline: A2 first bottom dS matches tipDrop
+  const a2 = B.path.stitches.find((st) => st.round === 'A2' && st.level === 'bottom' && st.i === 1);
+  check(a2 && Math.abs(a2.levelInfo.dS - tb.tipDrop_mm) < 1e-9, 'A2 levelInfo.dS equals reported tipDrop');
+  check(a2.levelInfo.shoulderForm === 'bowToMarking' && a2.levelInfo.bowLateralMm > 0, 'levelInfo carries shoulderForm/bow from prev arm');
+  // V2 must still pass with bowed polyLen legs (haversine only on geodesic)
+  const Vb = runValidators(B, 'A2', null);
+  check(Vb.find((v) => v.id === 'V2').status === 'pass', 'V2 passes with bowToMarking (polyLen legs)');
+  check(summary(runValidators(G, 'A2', ref)).fail === 0, 'geodesic A2: no validator fail');
+}
+
+
+// 9. Material preset (D34) + recipe scaffold (D35): provenance data + same path.ops for step/full
+{
+  console.log('\n## Material preset + recipe scaffold');
+  check(!!materialPreset && materialPreset.id === 'dmc-perle-5', 'material preset loads (dmc-perle-5)');
+  check(materialPreset.status === 'estimate', 'material preset status = estimate');
+  const d = defaults();
+  for (const [k, v] of Object.entries(materialPreset.paramDefaults || {})) {
+    check(String(d[k]) === String(v), `param default ${k}=${v} matches material preset`);
+  }
+  check(d.materialPreset === 'dmc-perle-5', 'materialPreset param defaults to dmc-perle-5');
+  check(materialPreset.fields?.mu?.status === 'analogue' && materialPreset.fields?.hw?.status === 'analogue',
+    'μ and hw marked analogue (not measured on #5)');
+  check(materialPreset.fields?.compress?.status === 'unknown', 'compress status unknown');
+  check(materialPreset.provisionalLift?.status === 'estimate', 'provisional lift marked estimate (not a law)');
+
+  check(!!recipePreset && recipePreset.id === 'kiku-s8', 'recipe preset loads (kiku-s8)');
+  check(recipePreset.materialPreset === 'dmc-perle-5', 'recipe preset references material');
+  check(recipePreset.editable?.colors?.sets?.A?.hex && recipePreset.editable?.colors?.sets?.B?.hex,
+    'editable color ribbon has set A/B hex');
+  check(Array.isArray(recipePreset.editable?.sizes?.paramKeys) && recipePreset.editable.sizes.paramKeys.includes('C_mm'),
+    'editable sizes list reuses param keys (no duplicate stores)');
+
+  const A = computeAll(recipe, {});
+  const ops = A.path.ops;
+  const stages = ['2a', '2b', 'B1', 'A2', 'all'];
+  const ends = stages.map((s) => A.path.stageEnd[s]);
+  console.log(`  stageEnd: ${stages.map((s, i) => `${s}=${ends[i]}`).join(', ')} (ops.length=${ops.length})`);
+  check(ends.every((e) => Number.isInteger(e) && e >= 0 && e < ops.length), 'every stageEnd is a valid ops index');
+  check(ends[0] < ends[1] && ends[1] < ends[2] && ends[2] <= ends[3] && ends[3] <= ends[4],
+    'stageEnds are nested prefixes of the same ops array');
+  check(ends[4] === ops.length - 1, 'stage "all" ends at last op');
+  // stageLastOp must agree with path.stageEnd (same helper)
+  for (const s of stages) {
+    check(stageLastOp(recipe, ops, s) === A.path.stageEnd[s], `stageLastOp(${s}) === path.stageEnd`);
+  }
+  // Prefix property: ops[0..stageEnd[2b]] is a prefix of ops[0..stageEnd[A2]] — same array identity
+  check(ops === A.path.ops && A.path.stageEnd['2b'] < A.path.stageEnd['A2'],
+    'step (2b) and fuller stage (A2) share one ops array; fuller is a longer prefix');
+  // Recompute does not invent a second builder for "full"
+  const B = computeAll(recipe, {});
+  check(B.path.ops.length === ops.length && B.path.stageEnd.all === A.path.stageEnd.all,
+    'recompute yields the same ops length / all index (single builder)');
 }
 
 console.log(`\n${failures === 0 ? 'ВСЕ ТЕСТЫ ПРОШЛИ' : `ПРОВАЛОВ: ${failures}`}`);

@@ -3,7 +3,7 @@ import { loadRecipe, loadJSON } from './recipe.js';
 import { computeAll } from './layers.js';
 import { runValidators, summary, refKey } from './validators.js';
 import { PARAM_SCHEMA, defaults, paramsFromQuery, groupLabel, paramLabel, paramUsed, statusLabel, optionLabel } from './params.js';
-import { Renderer, viridis, warm, SET_COLORS, roundColor } from './render.js';
+import { Renderer, viridis, warm, SET_COLORS, roundColor, applySetColors } from './render.js';
 import { t, fmtNum, applyDomI18n, getLocale, setLocale, onLocaleChange, validatorName } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
@@ -20,7 +20,18 @@ const state = {
   zoom: q.has('zoom') ? Number(q.get('zoom')) : 1,
 };
 const recipe = await loadRecipe();
+const recipePreset = await loadJSON('../data/recipes/kiku-s8.json');
+const materialPreset = await loadJSON('../data/materials/dmc-perle-5.json');
 const ref = await loadJSON('../data/calc_reference.json');
+const DEFAULT_SET_COLORS = {
+  A: recipePreset?.editable?.colors?.sets?.A?.hex || '#1f5fbf',
+  B: recipePreset?.editable?.colors?.sets?.B?.hex || '#c2185b',
+};
+state.colors = {
+  A: q.get('colorA') || DEFAULT_SET_COLORS.A,
+  B: q.get('colorB') || DEFAULT_SET_COLORS.B,
+};
+applySetColors(state.colors);
 const R3 = new Renderer($('view'));
 R3.opts.transparent = q.get('t') === '1';
 R3.opts.hidden = q.get('h') !== '0';
@@ -42,6 +53,27 @@ function syncLangToggle() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
+}
+
+
+function renderRecipeMeta() {
+  const meta = $('recipe-meta');
+  if (!meta) return;
+  const id = recipePreset?.id || recipe.id;
+  const title = recipePreset?.title || recipe.title || id;
+  const mat = recipePreset?.materialPreset || state.raw.materialPreset || '—';
+  const matStatus = materialPreset?.status || '—';
+  meta.textContent = t('recipe.meta', { id, title, mat, matStatus });
+}
+
+function syncColorInputs() {
+  if ($('colorA')) $('colorA').value = state.colors.A;
+  if ($('colorB')) $('colorB').value = state.colors.B;
+}
+
+function applyRecipeColors() {
+  applySetColors(state.colors);
+  syncColorInputs();
 }
 
 function buildForm() {
@@ -92,6 +124,8 @@ function syncURL() {
   if (R3.opts.transparent) u.set('t', '1'); if (!R3.opts.hidden) u.set('h', '0');
   if (!R3.opts.labels) u.set('lab', '0'); if (!R3.opts.pins) u.set('pins', '0'); if (R3.opts.color !== 'round') u.set('color', R3.opts.color);
   if (R3.opts.hidMode === 'chord') u.set('hid', 'chord');
+  if (state.colors.A.toLowerCase() !== DEFAULT_SET_COLORS.A.toLowerCase()) u.set('colorA', state.colors.A);
+  if (state.colors.B.toLowerCase() !== DEFAULT_SET_COLORS.B.toLowerCase()) u.set('colorB', state.colors.B);
   history.replaceState(null, '', '?' + u.toString());
 }
 
@@ -137,6 +171,9 @@ function update() {
   window.__sim.k = state.k; window.__sim.stage = state.stage;
   window.__sim.summary = summary(V);
   window.__sim.locale = getLocale();
+  window.__sim.recipePreset = recipePreset;
+  window.__sim.materialPreset = materialPreset;
+  window.__sim.colors = { ...state.colors };
 }
 
 function renderCaption() {
@@ -145,10 +182,18 @@ function renderCaption() {
   const sts = r.stitchIdx.map((i) => A.path.stitches[i]);
   const top = sts.find((st) => st.level === 'top'), bot = sts.find((st) => st.level === 'bottom'), cl = sts[sts.length - 1];
   const uB = A.path.threads.B ? t('caption.threadB', { uB: f(A.path.threads.B.uEnd, 1) }) : '';
+  const td = A.path.tipDrop;
+  const tipLine = td
+    ? '<br>' + t('caption.tipDrop', {
+        dS: f(td.tipDrop_mm, 3), form: td.shoulderForm,
+        bow: f(td.bowLateralMm, 3), cap: f(td.phi3CapMm, 3), mu: f(td.mu, 2),
+        warn: td.phi3Warn ? t('caption.tipDropWarn') : '',
+      })
+    : '';
   $('caption').innerHTML =
     t('caption.line1', { C: f(P.C_mm, 0), R: f(A.base.R, 2), N: P.N, w: f(P.w_mm, 3), m: f(P.m_mm, 2), stage: state.stage, k: state.k }) + '<br>' +
     t('caption.line2', { round: r.id, thread: r.thread, row: r.row, sTop: f(top.s, 3), eTop: f(top.eOff, 3), xCl: f(cl.xOff, 3), sBot: f(bot.s, 3), eBot: f(bot.eOff, 3) }) + '<br>' +
-    t('caption.line3', { rLen: f(r.length, 2), uA: f(A.path.threads.A.uEnd, 1), uB });
+    t('caption.line3', { rLen: f(r.length, 2), uA: f(A.path.threads.A.uEnd, 1), uB }) + tipLine;
 }
 
 function renderLengths() {
@@ -180,6 +225,11 @@ function renderLengths() {
   const hw = A.params.hw, w = A.params.w_mm, R = A.base.R;
   const legs = segs.filter((s) => s.type === 'leg').reduce((a, s) => a + s.length, 0);
   html += `<tr><td>${t('len.diag', { hw: f(hw, 2) })}</td><td class="n">+${f(legs * hw * w / 2 / R, 2)} ${getLocale() === 'ru' ? 'мм' : 'mm'}</td></tr>`;
+  if (A.path.tipDrop) {
+    const td = A.path.tipDrop;
+    const unit = getLocale() === 'ru' ? 'мм' : 'mm';
+    html += `<tr class="${td.phi3Warn ? 'warn' : 'ok'}"><td>${t('len.tipDrop')} · ${td.shoulderForm}</td><td class="n"><b>${f(td.tipDrop_mm, 3)}</b> ${unit}</td></tr>`;
+  }
   $('lengths').innerHTML = html;
 }
 
@@ -214,6 +264,8 @@ function renderLegend() {
 function refreshI18nUI() {
   applyDomI18n(document);
   syncLangToggle();
+  renderRecipeMeta();
+  syncColorInputs();
   const keepK = state.k;
   buildForm();
   if (A) {
@@ -243,7 +295,26 @@ document.querySelectorAll('.lang-btn').forEach((b) => b.addEventListener('click'
 }));
 onLocaleChange(() => refreshI18nUI());
 
+function onColorInput(which, hex) {
+  state.colors[which] = hex;
+  applySetColors(state.colors);
+  if (R3.opts.color !== 'set') {
+    const radio = document.querySelector('input[name=color][value=set]');
+    if (radio) { radio.checked = true; R3.opts.color = 'set'; }
+  }
+  update();
+}
+$('colorA').addEventListener('input', (e) => onColorInput('A', e.target.value));
+$('colorB').addEventListener('input', (e) => onColorInput('B', e.target.value));
+$('colorReset').addEventListener('click', () => {
+  state.colors = { A: DEFAULT_SET_COLORS.A, B: DEFAULT_SET_COLORS.B };
+  applyRecipeColors();
+  update();
+});
+
 applyDomI18n(document);
 syncLangToggle();
+renderRecipeMeta();
+syncColorInputs();
 buildForm();
 recompute(true);

@@ -44,7 +44,7 @@
 | Ball | C, R = C/2π, основа: жёсткость обмотки (неизвестна) | TK-SIZE (a); §3 Ф4 |
 | Marking | N меридианов L_k (φ_k = 2πk/N), полюса, экватор; нить разметки ширины m (вход) | TK-SIMPLE (a); m — TK-GAUGE [A] |
 | Pin | линия, s | TK-GT14 (a) |
-| Material | tex = 200 (25 м/5 г), w = 0,714 мм (гейдж), крутка 2-ply; μ_тт, μ_то, EA, B, закон сжатия — **неизвестны** | PRIOR-THREAD, TK-GAUGE (a); §3–4 |
+| Material | tex = 200 (25 м/5 г), w = 0,714 мм (гейдж), крутка 2-ply; μ_тт, μ_то, EA, B, закон сжатия — **неизвестны**. Draft preset (estimates): `sim/data/materials/dmc-perle-5.json` (D34) | PRIOR-THREAD, TK-GAUGE (a); §3–4 |
 | WorkingThread | id (A, B), цвет, состояние active/parked/finished, текущая точка выхода, u | TK-GT14 (a); [=prior #36 lifecycle] |
 | Operation | start(run, backtrack) · lay(to) · stitch(line, s, bite, E, X, over=[ветви]) · park · resume(at=X_prev) · transfer(hidden, по рецепту) · finish(run) | TK-ANCHOR, TK-GT14, TK-UWA (a) [=prior] |
 

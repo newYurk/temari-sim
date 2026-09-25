@@ -131,6 +131,9 @@ Implementation matches G12; Δ_tip ≈ \(w/\sin\alpha\); scales sanely with C an
 
 ---
 
+
+
+
 ## 6. Confidence tags (overall)
 
 | Claim | Confidence |
@@ -148,4 +151,33 @@ Implementation matches G12; Δ_tip ≈ \(w/\sin\alpha\); scales sanely with C an
 - Spec: G4, G11–G12, Φ3; decisions D5, D25–D26, D28, D31  
 - Ambiguities A1, A8, A22, A23; uncertainties U1, U3, U5, U13, U15  
 - Sim: `sim/src/path.js` `packThenPierce` / `bottomLevel`; validators V12, V13  
-- Issue: https://github.com/newYurk/temari-sim/issues/4  
+- Issue: https://github.com/newYurk/temari-sim/issues/4
+
+---
+
+## 8. Experiment result: `shoulderForm` (2026-09-24)
+
+**Implemented (parametric):** param / recipe `shoulderForm` = `geodesic` | `bowToMarking`. Input is **shoulder form**; tip-drop **Δ is only a derived result** of packThenPierce on the laid arm. Do **not** merge GT14 fixed 2 mm as the geometric law (D26).
+
+### Mechanics
+
+1. **`geodesic`** — unchanged: legs = slerp; packing plane = from×to great circle.
+2. **`bowToMarking`** — tip-weighted envelope pulls interior samples toward the destination marking meridian; lateral arc capped by Φ3 sagitta \(L^2\mu/(8R)\) (spec Φ3). Endpoints fixed; points stay on radius R.
+3. **packThenPierce** uses the **tip-region** great circle of the laid prev arm (last ~5% of samples → endpoint). For geodesic arms this equals from×to (Δ unchanged). For bowed arms it sees the steeper local approach angle → smaller derived Δ. (Chord distance to the polyline falsely roots near Δ≈w and must not be used.)
+
+### Measured at C=240, w=0.714
+
+| Mode | μ | Φ3 cap mm | bow lateral mm | **Δ_tip mm** | Notes |
+|---|---|---|---|---|---|
+| geodesic | 0.32 | 1.46 | 0 | **4.968** | matches §2 |
+| bowToMarking | 0.32 | 1.46 | 1.42 | **2.170** | in ~1.5–2.5 craft band; Φ3 not exceeded |
+| bowToMarking | 0.40 | 1.82 | 1.67 | **1.926** | in band |
+| bowToMarking | 0.52 | 2.37 | 1.96 | **1.759** | in band; V8 may fail (tighter contacts) |
+
+At default μ=0.32, **~2 mm is reachable within Φ3** — no need to force Δ=2 past μ. UI shows derived Δ in caption / lengths; schema has no `tipDrop_mm` input.
+
+### Convention reminder
+
+- Recipe `conventions.shoulderForm` documents the control; `conventions.lay` remains the geodesic idealization note.
+- Changing w / C / μ / shoulderForm recomputes downstream (including Δ).
+
