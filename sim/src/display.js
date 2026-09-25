@@ -11,9 +11,12 @@ import { unit, mul, dist, angle } from './geom.js';
 export const HID_DEPTH_W = 1.0;      // глубина схематичной дуги скрытого старта, в ширинах нити (условность изображения, не модель)
 //  • перекрест/клин: верхняя (по правилу над/под) нить приподнята на DISPLAY_STACK_LIFT_W·w на каждый уровень стопки
 //    с плавным спадом — ТОЛЬКО чтобы на экране была видна верхняя нить. Это не высота стопки: подъём нить-на-нить,
-//    сжатие и изгиб — механика (этап 2.4). Крючок: если A.mechanics.liftAt(segId, i) есть — берётся он.
+//    сжатие и изгиб — механика (этап 2.4). rail-parallel (flush beside prev at ≈w) does not lift.
+//    Крючок: если A.mechanics.liftAt(segId, i) есть — берётся он.
 export const DISPLAY_STACK_LIFT_W = 0.6;
 export const DIVE_W = 1.5;           // длина нырка плеча в отверстие, в ширинах нити (условность изображения)
+// Flush parallel of prev row at distance ≈w — not a stack crossing; lifting it makes top-view ladder waves.
+export const STACK_LIFT_SKIP_KINDS = new Set(['rail-parallel']);
 const smooth = (e) => { e = Math.max(0, Math.min(1, e)); return e * e * (3 - 2 * e); };
 
 /** Сгустить полилинию плеча у концов (шаг h на длине zone от каждого конца), значения prof интерполируются. */
@@ -40,6 +43,7 @@ export function stackProfile(A, seg) {
   const step = seg.length / (n - 1);
   for (const c of A.path.crossings) {
     if (c.over !== seg.id) continue;
+    if (c.kind && STACK_LIFT_SKIP_KINDS.has(c.kind)) continue;
     const ic = c.over === c.a ? c.iA : c.iB;
     const half = c.halfMm, taper = Math.max(A.params.w_mm, half);
     for (let i = 0; i < n; i++) {

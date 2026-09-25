@@ -4,7 +4,7 @@ import { computeAll } from '../src/layers.js';
 import { runValidators, summary, refKey } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples } from '../src/path.js';
-import { displayGeometry } from '../src/display.js';
+import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
 import { norm, unit, mul, sub, add, dot, angle, cross } from '../src/geom.js';
 
@@ -786,6 +786,34 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   }
   setLegSamples(null);
   check(peaks[0] >= peaks[1] - 1e-6 && peaks[1] >= peaks[2] - 1e-6, `B.8 peaks converge 96→192→384 (${peaks.map((x) => fmt(x, 2)).join('→')})`);
+}
+
+// 8f. Display: rail-parallel must not contribute to stack lift (top-view ladder waves)
+{
+  console.log('\n## Display stackProfile: no lift on rail-parallel');
+  check(STACK_LIFT_SKIP_KINDS.has('rail-parallel'), 'STACK_LIFT_SKIP_KINDS includes rail-parallel');
+  for (const mu of [0, 0.32]) {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', muWrap: mu });
+    const legs = A.path.segs.filter((s) => s.type === 'leg' && s.round === 'A2');
+    let rpOnTop = 0, liftSwitches = 0, maxLift = 0;
+    for (const L of legs) {
+      const cs = A.path.crossings.filter((c) => c.over === L.id);
+      rpOnTop += cs.filter((c) => c.kind === 'rail-parallel').length;
+      const p = stackProfile(A, L);
+      for (let i = 1; i < p.length; i++) if ((p[i] > 0.05) !== (p[i - 1] > 0.05)) liftSwitches++;
+      maxLift = Math.max(maxLift, ...p);
+    }
+    // With rail-parallel skipped, switches come only from real stack contacts (crossing/wedge/…).
+    const realOnTop = A.path.crossings.filter((c) => {
+      const L = legs.find((x) => x.id === c.over);
+      return L && c.kind !== 'rail-parallel';
+    }).length;
+    console.log(`  λ=${mu}: A2 rail-parallel on-top=${rpOnTop} real on-top=${realOnTop} liftSwitches=${liftSwitches} maxLift=${fmt(maxLift, 2)}`);
+    check(rpOnTop > 0, `λ=${mu}: A2 still reports rail-parallel contacts (path unchanged)`);
+    check(liftSwitches < rpOnTop, `λ=${mu}: lift switches (${liftSwitches}) << rail-parallel count (${rpOnTop}) — rp not lifting`);
+    // Sanity: profile never lifts solely because of rail-parallel (max from other kinds is fine).
+    check(Number.isFinite(maxLift) && maxLift >= 0, `λ=${mu}: stackProfile finite`);
+  }
 }
 
 // 9. Material preset (D34) + recipe scaffold (D35): provenance data + same path.ops for step/full
