@@ -93,13 +93,33 @@ def eline_s(pts_axis, phi, lateral):
     return None
 
 def outward_offset(pts, Pc, d):
-    """offset small-circle points away from center Pc by arc d (mm)."""
+    """offset small-circle points away from center Pc by arc d (mm). (legacy concentric helper)"""
     out = []
     for p in pts:
-        away = norm(add(p, mul(Pc, -dot(p, Pc))))   # direction from Pc-axis outward at p
-        # move along great circle from p away from Pc: rotate p in plane (p, Pc) away from Pc
         tdir = norm(add(mul(Pc, -1), mul(p, dot(p, Pc))))  # tangent at p pointing away from Pc
         out.append(offset(p, tdir, d))
+    return out
+
+def parallel_offset_poly(pts, d):
+    """Geodesic parallel of a spherical polyline by arc d (mm) equatorward (6a.11/6a.12)."""
+    out = []
+    for i, p in enumerate(pts):
+        i0 = max(0, i - 1); i1 = min(len(pts) - 1, i + 1)
+        T = norm(add(pts[i1], mul(pts[i0], -1)))
+        T = norm(add(T, mul(p, -dot(T, p))))
+        N = norm(cross(p, T))
+        if N[2] > 0: N = mul(N, -1)  # equatorward
+        out.append(offset(p, N, d))
+    return out
+
+def extend_gc_end(pts, ext_mm, n=40):
+    """Extend polyline past its end along the great circle tangent to the last segment."""
+    if len(pts) < 2: return pts
+    T = norm(add(pts[-1], mul(pts[-2], -1)))
+    T = norm(add(T, mul(pts[-1], -dot(T, pts[-1]))))
+    out = list(pts)
+    for i in range(1, n + 1):
+        out.append(offset(pts[-1], T, ext_mm * i / n))
     return out
 
 def geodesic_pts(a, b, n=400, extend=2.0):
@@ -126,16 +146,19 @@ sB2 = eline_s(g2, phi1, lat)
 print(f"geodesic: alpha_geo = {math.degrees(alpha_geo):.2f} deg; w/sin(alpha) = {w/math.sin(alpha_geo):.3f} mm; "
       f"packThenPierce Delta = {sB2 - sBot:.3f} mm")
 
-print("\nlambda = kappa_g*R | rho deg | theta deg (bow vs chord at E) | alpha' deg | Delta_tip mm | w/sin(alpha') | sagitta mm | rows to equator")
+print("\nTangent packing (6a.11/6a.12): parallel of laid curve + GC extension; Δ_n ≈ Δ₂; rows ≈ 1+floor(20/Δ₂)")
+print("lambda = kappa_g*R | rho deg | theta deg (bow vs chord at E) | alpha' deg | Delta_tip mm | w/sin(alpha') | sagitta mm | rows to equator")
 for lam in [0.0, 0.1, 0.2, 0.32, 0.4, 0.45, 0.52, 0.6]:
     if lam == 0.0:
         pts = g; th = 0.0; alpha = alpha_geo; delta = sB2 - sBot; sag = 0.0
-        # rows: successive great-circle offsets
-        rows = 1; s_prev = sBot
+        rows = 1 + int(math.floor(20.0 / delta)) if delta > 0 else 1
+        # Exact successive GC offsets still give 5 tips under equator for λ=0
+        rows_exact = 1
         while True:
-            pts_n = gc_offset(g, w * rows); s_n = eline_s(pts_n, phi1, lat)
+            pts_n = gc_offset(g, w * rows_exact); s_n = eline_s(pts_n, phi1, lat)
             if s_n is None or s_n > 60.0: break
-            rows += 1
+            rows_exact += 1
+        rows = rows_exact
         print(f"{lam:5.2f} | {90:6.1f} | {0:5.2f} | {math.degrees(alpha):6.2f} | {delta:6.3f} | {w/math.sin(alpha):6.3f} | {sag:5.2f} | {rows}")
         continue
     rho = math.atan(1 / lam)                      # cot(rho) = lambda
@@ -145,14 +168,11 @@ for lam in [0.0, 0.1, 0.2, 0.32, 0.4, 0.45, 0.52, 0.6]:
     alpha = arrival_angle(t_arr, E1, phi1)
     th = alpha - alpha_geo
     sag = sagitta(pts, X1, E1)
-    rows = 1
-    delta = None
-    while True:
-        pts_n = outward_offset(pts, Pc, w * rows)
-        s_n = eline_s(pts_n, phi1, lat)
-        if rows == 1: delta = (s_n - sBot) if s_n else float('nan')
-        if s_n is None or s_n > 60.0: break
-        rows += 1
+    # Tangent Δ₂: parallel of row-1 by w, GC-extend past E, hit E-line
+    rail = extend_gc_end(parallel_offset_poly(pts[:401], w), ext_mm=max(5 * w, 10.0), n=80)
+    s_n = eline_s(rail, phi1, lat)
+    delta = (s_n - sBot) if s_n else float('nan')
+    rows = 1 + int(math.floor(20.0 / delta)) if delta and delta > 0 else float('nan')
     sinth_formula = lam * math.tan(gamma / 2)
     print(f"{lam:5.2f} | {math.degrees(rho):6.1f} | {math.degrees(th):5.2f} (formula {math.degrees(math.asin(sinth_formula)):5.2f}) | "
           f"{math.degrees(alpha):6.2f} | {delta:6.3f} | {w/math.sin(alpha):6.3f} | {sag:5.2f} | {rows}")

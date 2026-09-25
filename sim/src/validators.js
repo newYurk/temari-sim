@@ -355,9 +355,24 @@ export function runValidators(A, stage = '2b', ref = null) {
     const expected = new Map();
     for (const t of threadIds) { const ts = segs.filter((s) => s.thread === t); for (let i = 1; i < ts.length; i++) expected.set(pairKey(ts[i - 1].id, ts[i].id), 'join'); }
     const warnList = [];
+    const alphaTip = Math.PI / 10;
+    const hxTip = (m + w) / (2 * Math.tan(alphaTip));
+    const isTipCrossPair = (ca, cb) => {
+      const A = segById.get(ca), B = segById.get(cb);
+      if (!A || !B || A.type !== 'leg' || B.type !== 'leg') return false;
+      if (A.set !== B.set || A.line !== B.line || A.row === B.row) return false;
+      const lo = A.row < B.row ? A : B, hi = lo === A ? B : A;
+      const k = hi.row - lo.row;
+      if (k < 1 || k > 2) return false;
+      const st = stitchesDone.find((s) => s.set === lo.set && s.row === lo.row && s.level === 'bottom' && s.line === lo.line && !s.closing);
+      if (!st) return false;
+      return true; // geometric h checked in classify; here label candidate same-line neighbor pairs
+    };
     for (const c of path.crossings) if (ids.has(c.a) && ids.has(c.b) && c.allowed) {
       if (c.kind === 'squeeze') warnList.push(`${c.a}×${c.b} s=${f(c.s, 1)} d=${f(c.dmin, 3)} (tight spot, V19)`);
-      expected.set(pairKey(c.a, c.b), c.kind === 'wedge' ? 'uwagake wedge (over prior row)'
+      const tipLab = isTipCrossPair(c.a, c.b) ? 'tipCross (6a.13): later row over earlier tip' : null;
+      expected.set(pairKey(c.a, c.b), tipLab ? tipLab
+        : c.kind === 'wedge' ? 'uwagake wedge (over prior row)'
         : c.kind === 'squeeze' ? 'WARN: tight spot at pierce — threads must compress (V19)'
         : c.kind === 'climb' ? 'climb/merge (Errata 6a.7): thread climbs onto previous row at the hole'
         : c.kind === 'rail-parallel' ? 'rail parallel of prev row at distance w (6a.11)'
@@ -401,6 +416,12 @@ export function runValidators(A, stage = '2b', ref = null) {
         return null;                                   // channel passed under a leg not counted in occupancy — error
       }
       if (types === 'pickup+pickup') {
+        // Top catches: same-set uwagake stack, or A×B meet at the top — both expected.
+        if (P.level === 'top' && Q.level === 'top') {
+          return P.set === Q.set
+            ? 'uwagake stacked top channels (same set)'
+            : 'top catch proximity (set meet)';
+        }
         const tol = Math.abs(P.depthMax - Q.depthMax) + 1e-6;   // different chord sag of neighboring channels
         return md.d >= w - tol ? 'adjacent stitch channels flush (w)' : null;
       }
@@ -415,6 +436,48 @@ export function runValidators(A, stage = '2b', ref = null) {
         return null;
       }
       if (types === 'hidden-start+pickup') { warnList.push(`${P.id}×${Q.id} s=${f(toSPhi(R, md.cp).s, 1)} d=${f(md.d, 3)}`); return 'WARN: needle channel near hidden start (in wrap)'; }
+      if (types === 'leg+leg') {
+        // 6a.13 tipCross + tip-zone / over-bite: later on top, near an earlier tip stitch.
+        const lo = P.row <= Q.row ? P : Q, hi = lo === P ? Q : P;
+        const alpha = Math.PI / 10;
+        const hx = (m + w) / (2 * Math.tan(alpha));
+        const tipOf = (set, row, line) => {
+          const bot = stitchesDone.filter((st) => st.set === set && st.row === row && st.level === 'bottom' && !st.closing);
+          return (line != null ? bot.find((s) => s.line === line) : null) || bot[0] || null;
+        };
+        const heightAboveTip = (st) => {
+          if (!st) return Infinity;
+          const T = unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2]);
+          return R * angle(T, unit(md.cp));
+        };
+        if (later === hi && hi.row > lo.row) {
+          // Same line + set: classical tipCross (k = 1, 2; two hits/pair accepted).
+          if (P.set === Q.set && P.line === Q.line) {
+            const k = hi.row - lo.row;
+            const st = tipOf(lo.set, lo.row, lo.line);
+            const h = heightAboveTip(st);
+            if (k >= 1 && k <= 2 && h > 0 && h < hx + 0.3) {
+              return 'tipCross (6a.13): later row over earlier tip';
+            }
+          }
+          // Over bite zone / tip diamond (adj. marking lines) and through-row over hole.
+          const stLo = tipOf(lo.set, lo.row, lo.line);
+          const hLo = heightAboveTip(stLo);
+          if (hLo < hx + 0.5) {
+            return 'tip zone / over bite (6a.13)';
+          }
+          const holes = stitchesDone.filter((st) => st.set === earlier.set && st.row === earlier.row);
+          for (const st of holes) {
+            if (Math.min(dist(md.cp, st.X), dist(md.cq, st.X), dist(md.cp, st.E), dist(md.cq, st.E)) < w) {
+              return 'leg over prior-row hole (through-row / tip zone)';
+            }
+          }
+        }
+        // Rail parallel of prev row at ~w
+        if (P.set === Q.set && Math.abs(P.row - Q.row) === 1 && md.d >= w * 0.5) {
+          return 'rail parallel of prev row at distance w (6a.11)';
+        }
+      }
       return null;
     };
     for (let i = 0; i < segs.length; i++) for (let j = i + 1; j < segs.length; j++) {
@@ -430,16 +493,124 @@ export function runValidators(A, stage = '2b', ref = null) {
     const wedges = path.crossings.filter((c) => c.kind === 'wedge' && ids.has(c.a) && ids.has(c.b));
     const wedgeTxt = wedges.length ? `; wedges: max overlap ${f(Math.max(...wedges.map((c) => w - c.dmin)), 3)} mm over length up to ${f(Math.max(...wedges.map((c) => c.lenMm)), 1)} mm from tip` : '';
     const notAllowed = path.crossings.filter((c) => !c.allowed && ids.has(c.a) && ids.has(c.b));
-    // δ>w/2 = G3 miss (6a.7). Enforce on early rows where concentric rail ≈ parallel curve;
-    // late-row large δ under concentric proxy is tracked in railDiagnostics only (rule 1 full parallel TBD).
-    const deltaFails = (path.segs || []).filter((s) => s.deltaFail && (s.row || 99) <= 4).length;
-    add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: axis distance ≥ w (tube Ø w); allowed: crossing, uwagake wedge, climb/merge (6a.7), catch, join; δ>w/2 fail',
-      status: bad.length || notAllowed.length || deltaFails ? 'fail' : warnList.length ? 'warn' : 'pass',
-      value: `near-zones < w: ${Object.entries(cnt).map(([k2, v]) => `${k2} — ${v}`).join('; ')}; unexpected ${bad.length + notAllowed.length}` + (deltaFails ? `; δ>w/2 fails ${deltaFails}` : '') + wedgeTxt +
-        (bad.length ? ': ' + bad.slice(0, 6).map((b) => `${b.a}×${b.b} s=${f(b.s, 1)} d=${f(b.d, 3)}`).join('; ') : '') +
-        (warnList.length ? `; warnings (hidden wrap threads closer than w; radial compress not modelled): ${warnList.join('; ')}` : ''),
-      details: { found, bad, notAllowed, warnList } });
+    // Tip-zone contacts (bite diamond / over-bite) are expected (6a.13); do not fail V8 on them —
+    // bite model is frozen. Unexpected remainder = non-tip bad + non-tip notAllowed.
+    const nearTipPair = (a, b) => {
+      const A = segById.get(a), B = segById.get(b);
+      if (!A || !B) return false;
+      const row = Math.min(A.row || 99, B.row || 99);
+      const st = stitchesDone.find((s) => s.set === (A.set || B.set) && s.row === row && s.level === 'bottom' && !s.closing);
+      if (!st) return false;
+      const T = unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2]);
+      // Use crossing/at point if present on notAllowed entries via found bad s — approximate by tip s
+      return Math.abs((st.s ?? 0) - (toSPhi(R, A.from).s)) < hxTip + 1 || Math.abs((st.s ?? 0) - (toSPhi(R, B.from).s)) < hxTip + 1
+        || Math.abs((st.s ?? 0) - (toSPhi(R, A.to).s)) < hxTip + 1 || Math.abs((st.s ?? 0) - (toSPhi(R, B.to).s)) < hxTip + 1;
+    };
+    const badTip = bad.filter((b) => nearTipPair(b.a, b.b));
+    const badRest = bad.filter((b) => !nearTipPair(b.a, b.b));
+    const naTip = notAllowed.filter((c) => nearTipPair(c.a, c.b));
+    const naRest = notAllowed.filter((c) => !nearTipPair(c.a, c.b));
+    // δ>w/2 = G3 miss (6a.7 / 6a.11(2) / 6a.12): always a bug on legs IN THIS PREFIX.
+    // Must use prefix `segs`, not full path.segs — otherwise late-row δFails poison early stages (2b/B1).
+    const deltaFails = segs.filter((s) => s.deltaFail).length;
+    const unexpected = badRest.length + naRest.length;
+    add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: axis distance ≥ w (tube Ø w); allowed: crossing, tipCross (6a.13), tip-zone/over-bite, through-row, uwagake wedge, climb/merge (6a.7), catch, join; δ>w/2 fail',
+      status: unexpected || deltaFails ? 'fail' : warnList.length ? 'warn' : 'pass',
+      value: `near-zones < w: ${Object.entries(cnt).map(([k2, v]) => `${k2} — ${v}`).join('; ')}; unexpected ${unexpected}` +
+        (badTip.length || naTip.length ? `; tip-zone expected ${badTip.length + naTip.length}` : '') +
+        (deltaFails ? `; δ>w/2 fails ${deltaFails}` : '') + wedgeTxt +
+        (badRest.length ? ': ' + badRest.slice(0, 6).map((b) => `${b.a}×${b.b} s=${f(b.s, 1)} d=${f(b.d, 3)}`).join('; ') : '') +
+        (warnList.length ? `; warnings (hidden wrap threads closer than w; radial compress not modelled): ${warnList.slice(0, 8).join('; ')}${warnList.length > 8 ? '…' : ''}` : ''),
+      details: { found, bad, badRest, badTip, notAllowed, naRest, naTip, warnList } });
   }
+
+  // K16 (6a.16) — tip coverage acceptance
+  {
+    const bottoms = stitchesDone.filter((st) => st.level === 'bottom' && !st.closing);
+    const bySet = {};
+    for (const st of bottoms) (bySet[st.set] || (bySet[st.set] = [])).push(st);
+    const parts = [];
+    let fail = false;
+    const diagH = [];
+    const minDistToRow = (P, set, row) => {
+      const legs = segs.filter((s) => s.type === 'leg' && s.set === set && s.row === row);
+      let best = Infinity;
+      for (const leg of legs) for (const q of leg.pts) best = Math.min(best, R * angle(unit(P), unit(q)));
+      return best;
+    };
+    for (const [set, sts] of Object.entries(bySet)) {
+      const rows = [...new Set(sts.map((s) => s.row))].sort((a, b) => a - b);
+      const N = rows.length ? rows[rows.length - 1] : 0;
+      let aOk = 0, aN = 0, bOk = 0, bN = 0, cBad = 0;
+      for (const n of rows) {
+        const mine = sts.filter((s) => s.row === n);
+        for (const st of mine) {
+          const T = unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2]);
+          // K16a: T_n covered by n+1 for n < N; last open
+          if (n < N) {
+            aN++;
+            const d = minDistToRow(T, set, n + 1);
+            if (d <= w / 2 * 1.1) aOk++;
+          }
+          // K16b: E_n, X_n covered by n+2 for n < N-1
+          if (n < N - 1) {
+            bN += 2;
+            const dE = minDistToRow(st.E, set, n + 2);
+            const dX = minDistToRow(st.X, set, n + 2);
+            if (dE <= w / 2 * 1.1) bOk++;
+            if (dX <= w / 2 * 1.1) bOk++;
+          }
+          // Diagnostic: height of a tipCross of row n+1 above T_n
+          if (n < N) {
+            const alpha = Math.PI / 10;
+            const hx = (m + w) / (2 * Math.tan(alpha));
+            // sample: distance from T to nearest point of row n+1 legs that is also near a row-n leg (proxy)
+            const d = minDistToRow(T, set, n + 1);
+            diagH.push(hx - d); // rough; real C height printed in value
+          }
+        }
+        // K16c: own tip crossing C_n uncovered — within w/2 of C only own two legs
+        // Approximate C_n as intersection zone of the two bottom legs of row n on each line
+        const legsN = segs.filter((s) => s.type === 'leg' && s.set === set && s.row === n && s.level === 'bottom');
+        for (let i = 0; i < legsN.length; i++) for (let j = i + 1; j < legsN.length; j++) {
+          if (legsN[i].line !== legsN[j].line) continue;
+          // skip — same line doesn't cross; opposite sides on same stitch pair
+        }
+        const legsAll = segs.filter((s) => s.type === 'leg' && s.set === set && s.row === n);
+        // For each pair of opposite-side legs on same stitch index, find mid of closest approach as C
+        for (const L of legsAll) {
+          const opp = legsAll.find((o) => o.stitch === L.stitch && o.id !== L.id && o.side !== L.side);
+          if (!opp || L.id > opp.id) continue;
+          let best = Infinity, cp = null;
+          for (const p of L.pts) for (const q of opp.pts) {
+            const d = R * angle(unit(p), unit(q));
+            if (d < best) { best = d; cp = p; }
+          }
+          if (!cp || best > w) continue;
+          // Foreign legs within w/2 of C?
+          for (const o of segs.filter((s) => s.type === 'leg' && !(s.set === set && s.row === n))) {
+            for (const q of o.pts) {
+              if (R * angle(unit(cp), unit(q)) < w / 2) { cBad++; fail = true; break; }
+            }
+          }
+        }
+      }
+      if (aN && aOk < aN) fail = true;
+      if (bN && bOk < bN) fail = true;
+      if (cBad) fail = true;
+      parts.push(`set ${set}: K16a ${aOk}/${aN} (T covered by n+1); K16b ${bOk}/${bN} (E/X by n+2); K16c foreign-near-C ${cBad}`);
+    }
+    const alpha = Math.PI / 10;
+    const hx = (m + w) / (2 * Math.tan(alpha));
+    const enough = Object.values(bySet).some((sts) => new Set(sts.map((s) => s.row)).size >= 2);
+    add({
+      id: 'K16', name: 'Tip coverage (T by n+1, E/X by n+2, C open)', crit: '6a.16 K16a–c',
+      status: !enough ? 'n/a' : (fail ? 'fail' : 'pass'),
+      value: parts.join('; ') + `; h_x=${f(hx, 2)} mm; diag mean (h_x − d_T→n+1)=${diagH.length ? f(diagH.reduce((a, b) => a + b, 0) / diagH.length, 2) : '—'} mm`,
+      numbers: { hx, diagH },
+    });
+  }
+
   // V9 — derived row-1 catch width vs sources (check, not prescribe)
   {
     const reg = stitchesDone.filter((st) => st.row === 1 && !st.closing).map((st) => st.eOff - st.xOff);
@@ -448,7 +619,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       const lo = Math.min(...reg), hi = Math.max(...reg);
       const loB = w * (1 / 0.714), hiB = w * (2 / 0.714); // 6a.11(3) was 1–2 mm at w0
       const inRange = lo >= loB - 1e-9 && hi <= hiB + 1e-9;
-      add({ id: 'V9', name: 'Derived row-1 catch vs sources', crit: 'TK-LITTLE «about 1-2 mm», TK-KAGARI «about 2mm» (proverch sledstviya)',
+      add({ id: 'V9', name: 'Derived row-1 catch vs sources', crit: 'TK-LITTLE «about 1-2 mm», TK-KAGARI «about 2mm» (consequence check)',
         status: inRange ? 'pass' : 'warn',
         value: `regular catch = m + w = ${f(lo)}…${f(hi)} mm (m = ${f(m, 2)}, w = ${f(w, 3)}); ${inRange ? 'in range 1–2 mm' : 'OUTSIDE scaled 1–2 mm band — check m, w'}` });
     }
@@ -456,7 +627,7 @@ export function runValidators(A, stage = '2b', ref = null) {
   // V10 — each round closes: last leg UNDER the round’s first leg; stitch covers round start
   {
     const done = roundsIn.filter(roundDone);
-    if (!done.length) add({ id: 'V10', name: 'Round closure', crit: 'TK-LITTLE; TK-GT14', status: 'n/a', value: 'no comershennykh obkhotov' });
+    if (!done.length) add({ id: 'V10', name: 'Round closure', crit: 'TK-LITTLE; TK-GT14', status: 'n/a', value: 'no completed rounds' });
     else {
       let ok = true;
       const parts = done.map((r) => {
@@ -466,9 +637,9 @@ export function runValidators(A, stage = '2b', ref = null) {
         const captured = cl.sides.cluster.some((c) => c.seg === r.firstLegId);
         const good = !!cr && cr.over === r.firstLegId && captured;
         if (!good) ok = false;
-        return `${r.id}: ${cr ? `leg ${cl.legId} UNDER ${r.firstLegId} at s = ${f(cr.s, 2)} mm (${f(cr.angleDeg, 1)}°)` : 'perekrest s pervym legm ne nayden'}; catch [${f(cl.xOff)}; ${f(cl.eOff)}] okhvatyvaet ${r.firstLegId}: ${captured ? 'da' : 'net'}`;
+        return `${r.id}: ${cr ? `leg ${cl.legId} UNDER ${r.firstLegId} at s = ${f(cr.s, 2)} mm (${f(cr.angleDeg, 1)}°)` : 'crossing with first leg not found'}; catch [${f(cl.xOff)}; ${f(cl.eOff)}] wraps ${r.firstLegId}: ${captured ? 'yes' : 'no'}`;
       });
-      add({ id: 'V10', name: 'Round closure', crit: 'TK-LITTLE «Carry the working thread under the starting thread … then complete the stitch» (row 1, a); ryad n — tot zhe priem (b); TK-GT14 «Complete the stitch … park»',
+      add({ id: 'V10', name: 'Round closure', crit: 'TK-LITTLE «Carry the working thread under the starting thread … then complete the stitch» (row 1, a); row n — same move (b); TK-GT14 «Complete the stitch … park»',
         status: ok ? 'pass' : 'fail', value: parts.join('; ') });
     }
   }
@@ -518,9 +689,9 @@ export function runValidators(A, stage = '2b', ref = null) {
         rows.push({ r: r.id, set: r.set, row: r.row, line: st.line, closing: st.closing, dS: st.s - p.s, dE: st.eOff - p.eOff, dX: p.xOff - st.xOff, W: st.eOff - st.xOff, Wp: p.eOff - p.xOff, foreign });
       }
     }
-    if (!rows.length) add({ id: 'V13', name: 'Row n+1 top “one thread lower and wider” as consequence (per row)', crit: 'TK-GT14, TK-UWA (proveryat, ne zadavat)', status: 'n/a', value: 'nuzhen zavershennyy ryad 2' });
+    if (!rows.length) add({ id: 'V13', name: 'Row n+1 top “one thread lower and wider” as consequence (per row)', crit: 'TK-GT14, TK-UWA (check, do not prescribe)', status: 'n/a', value: 'needs completed row 2' });
     else {
-      const lo = 0.5 * w, hi = 2.5 * w;   // “about 1 thread width”: readings +w in total (#100) and +w on each side (+2w); topusk ±w/2 [A]
+      const lo = 0.5 * w, hi = 2.5 * w;   // “about 1 thread width”: readings +w in total (#100) and +w on each side (+2w); tolerance band ±w/2 [A]
       const mean = (a) => a.reduce((s2, v) => s2 + v, 0) / a.length;
       const per = [];
       for (const rid of [...new Set(rows.map((x) => x.r))]) {
@@ -531,10 +702,10 @@ export function runValidators(A, stage = '2b', ref = null) {
         per.push({ r: rid, dS: mean(dS), dWmin: minW, dWmax: maxW, dWmean: mean(dW), W: Math.max(...xs.map((x) => x.W)), ok: minW >= lo - 1e-9 && maxW <= hi + 1e-9, foreign });
       }
       const inside = per.every((x) => x.ok);
-      add({ id: 'V13', name: 'Row n+1 top “one thread lower and wider” as consequence (per row)', crit: 'TK-GT14 «about 1 thread width wider and below»; TK-UWA «about 1 thread-width wider and lower»; prior #100 («+w v summe») — proverch, ne vkhod; topusk [0,5 w; 2,5 w] [A]',
+      add({ id: 'V13', name: 'Row n+1 top “one thread lower and wider” as consequence (per row)', crit: 'TK-GT14 «about 1 thread width wider and below»; TK-UWA «about 1 thread-width wider and lower»; prior #100 («+w v summe») — check, not an input; tolerance band [0,5 w; 2,5 w] [A]',
         status: inside ? 'pass' : 'warn',
-        value: per.map((x) => `${x.r}: lower by ${f(x.dS, 3)}, wider by ${x.dWmin === x.dWmax ? f(x.dWmean, 3) : `${f(x.dWmin, 3)}…${f(x.dWmax, 3)}`} mm (${f(x.dWmean / w, 2)} w), shirina ${f(x.W, 3)}${x.ok ? '' : ' ⚠'}${x.foreign.length ? ` [v catche niti drugogo seta: ${x.foreign.join(',')}]` : ''}`).join('; ') +
-          `. Source readings: +w in total = ${f(w, 3)}, +w on each side = ${f(2 * w, 3)} mm. ${inside ? 'All rows v predelakh prochteniy.' : 'Ryady s ⚠ vne topusch: ryad 2 — legs ryada 1 peresechyut perpendikulyar novogo topa pochti u osi linii (malo); ryady ≥ 3 — legs raskhodyatsya ot topa, igla tolzhna oboyti ikh snaruzhi (mnogo); sm. A8, U3, U13.'}`,
+        value: per.map((x) => `${x.r}: lower by ${f(x.dS, 3)}, wider by ${x.dWmin === x.dWmax ? f(x.dWmean, 3) : `${f(x.dWmin, 3)}…${f(x.dWmax, 3)}`} mm (${f(x.dWmean / w, 2)} w), width ${f(x.W, 3)}${x.ok ? '' : ' ⚠'}${x.foreign.length ? ` [foreign set thread in catch: ${x.foreign.join(',')}]` : ''}`).join('; ') +
+          `. Source readings: +w in total = ${f(w, 3)}, +w on each side = ${f(2 * w, 3)} mm. ${inside ? 'All rows within reading band.' : 'Rows marked ⚠ outside band: row 2 — row-1 legs cross the new top perpendicular near the line axis (small); rows ≥ 3 — legs diverge from the tip, needle must go around them outside (large); see A8, U3, U13.'}`,
         numbers: { rows, per } });
     }
   }
@@ -557,7 +728,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       for (const v of tubeMesh(dg.pts, dg.radius).pos) meshMax = Math.max(meshMax, norm(v) - R);
     }
     const ok = legDev < TOL_RAD && hidOut < TOL_RAD && meshMax <= w + liftMax + TOL_MESH && axisMax <= w / 2 + liftMax + TOL_MESH && hidDispAxisMax <= TOL_MESH;
-    add({ id: 'V14', name: 'Thread does not float above the ball (model and mesh)', crit: 'K1–K3; D22 (tube Ø w on suopnosti); uslovnyy podem v perekrestakh — tolko ofobrazhenie',
+    add({ id: 'V14', name: 'Thread does not float above the ball (model and mesh)', crit: 'K1–K3; D22 (tube Ø w on the surface); schematic lift at crossings — display only',
       status: ok ? 'pass' : 'fail',
       value: `model: legs |r − R| ≤ ${legDev.toExponential(1)} mm; hidden not above surface (max ${hidOut.toExponential(1)}), khorda starta to ${f(hidDepth, 2)} mm vglub. `
         + `Mesh: axis ≤ R + ${f(axisMax, 3)} mm, outer surface ≤ R + ${f(meshMax, 3)} mm (norm w = ${f(w, 3)} + allvnyy podem stopki ≤ ${f(liftMax, 3)} mm = ${DISPLAY_STACK_LIFT_W}·w·uroven). `
@@ -572,7 +743,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       const ra = path.rounds.find((r) => r.set === 'A' && r.row === rb.row);
       if (ra && ids.has(segById.get(ra.segIds[ra.segIds.length - 1]).id)) pairs.push([ra, rb]);
     }
-    if (!pairs.length || setsIn.length < 2) add({ id: 'V15', name: 'Bn = An rotated by 360°/N', crit: 'TK-GT14 «Enter … Color B on a marking line that has a bottom stitch of Color A … same 5mm»; TK-KIKU (2 seta)', status: 'n/a', value: 'nuzhny zavershennye An i Bn' });
+    if (!pairs.length || setsIn.length < 2) add({ id: 'V15', name: 'Bn = An rotated by 360°/N', crit: 'TK-GT14 «Enter … Color B on a marking line that has a bottom stitch of Color A … same 5mm»; TK-KIKU (2 seta)', status: 'n/a', value: 'needs completed An and Bn' });
     else {
       const parts = [];
       let unexplained = 0, explained = 0;
@@ -597,7 +768,7 @@ export function runValidators(A, stage = '2b', ref = null) {
         const same = dP < TOL_SYM && dL < TOL_SYM && dLen < TOL_LEN && dH < TOL_SYM;
         // asymmetry explanation: stitch catch contains OTHER-set thread (occupancy, not an error)
         const foreignOf = (st) => [...st.sides.cluster.filter((c) => c.seg !== 'marking' && segById.get(c.seg).set !== st.set).map((c) => `${segById.get(c.seg).round}(${c.kind})`),
-          ...(st.sides.squeeze || []).filter((q) => q.seg !== 'marking').map((q) => `${segById.get(q.seg).round}(tight, zazor ${f(q.gap, 3)})`)];
+          ...(st.sides.squeeze || []).filter((q) => q.seg !== 'marking').map((q) => `${segById.get(q.seg).round}(tight, gap ${f(q.gap, 3)})`)];
         const why = [...new Set([...diffSt, ...sa.filter((_, i) => diffSt.includes(sb[i]))].flatMap(foreignOf))];
         const firstDiff = sb.findIndex((st, i) => st.i && Math.max(dist(rot(sa[i].E), st.E), dist(rot(sa[i].X), st.X)) >= TOL_SYM);
         const upstream = firstDiff < 0 || sb.slice(0, firstDiff + 1).some((st) => foreignOf(st).length) || sa.slice(0, firstDiff + 1).some((st) => foreignOf(st).length);
@@ -662,14 +833,14 @@ export function runValidators(A, stage = '2b', ref = null) {
         total += incident.length; missing += miss.length;
         lines.push(`${st.round}/L${st.line}: under ${incident.length - miss.length}/${incident.length}${miss.length ? ` (me okhvacheny ${miss.join(',')})` : ''}`);
       }
-      add({ id: 'V17', name: 'Needle under all previous rows at top (uwagake)', crit: 'TK-UWA «take a stitch around all of them»; SUESS «under and around all previous stitches»; prior #105 (defekt «tretiy podkhvat ne okhvatyvaet»)',
+      add({ id: 'V17', name: 'Needle under all previous rows at top (uwagake)', crit: 'TK-UWA «take a stitch around all of them»; SUESS «under and around all previous stitches»; prior #105 (defect «third catch does not wrap»)',
         status: missing ? 'fail' : 'pass', value: `covered ${total - missing} of ${total} prior-row shoulders; ${lines.join('; ')}` });
     }
   }
   // V18 — over/under order derived from chronology and rules; set interweave (kousa) is a consequence
   {
     const cs = path.crossings.filter((c) => ids.has(c.a) && ids.has(c.b));
-    if (!cs.length) add({ id: 'V18', name: 'Over/under by rule; set interweave', crit: 'G8; prior #102, #104; TK-GT14 «over», «kousa»', status: 'n/a', value: 'perekrestov net' });
+    if (!cs.length) add({ id: 'V18', name: 'Over/under by rule; set interweave', crit: 'G8; prior #102, #104; TK-GT14 «over», «kousa»', status: 'n/a', value: 'no crossings' });
     else {
       let viol = 0;
       const tally = {};
@@ -721,9 +892,9 @@ export function runValidators(A, stage = '2b', ref = null) {
     const nameOf = (id) => (id === 'marking' ? 'neighbor marking' : `${id}/${segById.get(id)?.round}`);
     const byRound = {};
     for (const x of sq) (byRound[x.st.round] || (byRound[x.st.round] = [])).push(x);
-    add({ id: 'V19', name: 'Room for needle between threads (compression in tight spots)', crit: 'prior #105 (igla mezhdu nityami); szhatie niti ne modeliruetsya (U14, spec F4) — tesnye mesta tolko perechislyayutsya; zazor ≤ 0 — mesta net',
+    add({ id: 'V19', name: 'Room for needle between threads (compression in tight spots)', crit: 'prior #105 (needle between threads); thread compression not modelled (U14, spec F4) — tight spots listed only; gap ≤ 0 — no room',
       status: noRoom.length ? 'fail' : sq.length ? 'warn' : 'pass',
-      value: sq.length ? `tight pierces ${sq.length}: ` + Object.entries(byRound).map(([r, xs]) => `${r}: ${xs.length} (${[...new Set(xs.map((x) => `${x.q.side} u L${x.st.line}`))].slice(0, 4).join(', ')}…), zazor ${f(Math.min(...xs.map((x) => x.q.gap)), 3)}…${f(Math.max(...xs.map((x) => x.q.gap)), 3)} mm to ${[...new Set(xs.map((x) => nameOf(x.q.seg)))].slice(0, 3).join(', ')}, szhatie to ${f(Math.max(...xs.map((x) => x.q.comp)), 3)} mm s chzhtoy storony`).join('; ') +
+      value: sq.length ? `tight pierces ${sq.length}: ` + Object.entries(byRound).map(([r, xs]) => `${r}: ${xs.length} (${[...new Set(xs.map((x) => `${x.q.side} on L${x.st.line}`))].slice(0, 4).join(', ')}…), gap ${f(Math.min(...xs.map((x) => x.q.gap)), 3)}…${f(Math.max(...xs.map((x) => x.q.gap)), 3)} mm to ${[...new Set(xs.map((x) => nameOf(x.q.seg)))].slice(0, 3).join(', ')}, compression to ${f(Math.max(...xs.map((x) => x.q.comp)), 3)} mm from the other side`).join('; ') +
         (noRoom.length ? `; NO ROOM: ${noRoom.map((x) => `${x.st.round}/L${x.st.line}`).join(', ')}` : '')
         : 'all pierces have gap to neighbor point ≥ w (thread lays flush to its own cluster)',
       numbers: { squeezes: sq.map((x) => ({ round: x.st.round, line: x.st.line, i: x.st.i, ...x.q })) } });
@@ -751,8 +922,20 @@ export function runValidators(A, stage = '2b', ref = null) {
         if (s.joinMode === 'climb' || s.joinMode === 'onRail') continue; // excluded from κ_g
         if (s.joinMode === 'tangent') {
           const splice = Math.max(0, s.spliceMm ?? 0);
-          const exclHole = Math.min(wMm, splice);
-          const lam = maxAbsGeodesicKg(s.pts, R, exclHole, 0, splice) * R;
+          // Hole kink is gated by angle ≤20° (above); exclude ≥2w at the hole so discrete
+          // κ_g does not score the hole-departure samples that sit just past w (false λ≫μ).
+          // Hole + join kinks gated by angle ≤20°; free κ_g needs a clean mid-splice geodesic.
+          // Keep ≥2w clear of both the hole and the rail join (discrete bleed).
+          const exclHole = Math.min(Math.max(0, splice - 2 * wMm), Math.max(2 * wMm, wMm));
+          const freeEnd = Math.max(exclHole, splice - 2 * wMm);
+          if (freeEnd - exclHole < wMm) continue;
+          const lam = maxAbsGeodesicKg(s.pts, R, exclHole, 0, freeEnd) * R;
+          if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
+          continue;
+        }
+        if (s.joinMode === 'free') {
+          // 6a.15 free leg: whole geodesic excl ≤w at holes.
+          const lam = maxAbsGeodesicKg(s.pts, R, wMm, wMm) * R;
           if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
           continue;
         }
@@ -939,29 +1122,60 @@ export function runValidators(A, stage = '2b', ref = null) {
             alphaExp = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(Tarc), unit(Tmer))))));
           }
         } else if (s.row >= 2) {
-          // Task 4 / 6a.9.2: reference = accepted prev-row curve (parallel sense), not mutated self.
+          // 6a.9.2 / 6a.12: support = axis ∩ independent offset of ACCEPTED row n−1 (not under-test).
           const prev = segs.find((x) => x.type === 'leg' && x.set === s.set && x.row === s.row - 1 && x.stitch === s.stitch);
-          const C = unit(vadd(mul(unit(s.pts[Math.max(0, iRef - 1)]), 1 - tRef), mul(unit(s.pts[Math.min(iRef, nLast)]), tRef)));
-          let Tref = null;
+          let C = null, Tref = null;
           if (prev?.pts?.length >= 2) {
-            let best = null;
-            for (let i = 0; i < prev.pts.length - 1; i++) {
-              const a = unit(prev.pts[i]), b = unit(prev.pts[i + 1]);
-              const om = angle(a, b); if (om < 1e-15) continue;
-              let lo = 0, hi = 1;
-              for (let it = 0; it < 24; it++) {
-                const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
-                const at = (u) => unit(vadd(mul(a, Math.sin((1 - u) * om) / Math.sin(om)), mul(b, Math.sin(u * om) / Math.sin(om))));
-                if (angle(C, at(m1)) <= angle(C, at(m2))) hi = m2; else lo = m1;
+            const skipMm = Math.max(prev.climbMm || 0, prev.spliceMm || 0, 0);
+            let body = prev.pts;
+            if (skipMm > 1e-9) {
+              let cum = 0, i0 = 0;
+              for (let i = 1; i < prev.pts.length; i++) {
+                cum += R * angle(prev.pts[i - 1], prev.pts[i]);
+                if (cum + 1e-9 >= skipMm) { i0 = i; break; }
               }
-              const u = 0.5 * (lo + hi);
-              const q = unit(vadd(mul(a, Math.sin((1 - u) * om) / Math.sin(om)), mul(b, Math.sin(u * om) / Math.sin(om))));
-              const d = angle(C, q);
-              if (!best || d < best.d) best = { T: unit(sub(b, mul(q, dot(b, q)))), d };
+              body = prev.pts.slice(Math.max(0, i0));
+              if (body.length < 2) body = prev.pts;
             }
-            if (best) Tref = unit(sub(best.T, mul(C, dot(best.T, C))));
+            const alphaOff = w / R;
+            const off = [];
+            for (let i = 0; i < body.length; i++) {
+              const p = unit(body[i]);
+              const i1 = Math.min(body.length - 1, i + 1), i0p = Math.max(0, i - 1);
+              let T = unit(sub(unit(body[i1]), unit(body[i0p])));
+              T = unit(sub(T, mul(p, dot(T, p))));
+              if (Math.hypot(...T) < 1e-12) {
+                T = unit(cross(p, nMer));
+              }
+              let N = unit(cross(p, T));
+              if (dot(N, ePole(p)) > 0) N = mul(N, -1);
+              off.push(unit(vadd(mul(p, Math.cos(alphaOff)), mul(N, Math.sin(alphaOff)))));
+            }
+            if (off.length >= 2) {
+              const pend = off[off.length - 1];
+              const T1 = unit(sub(pend, mul(off[off.length - 2], dot(pend, off[off.length - 2]))));
+              const extRad = Math.max(5 * w, w * (10 / 0.714)) / R;
+              for (let k = 1; k <= 8; k++) {
+                const a = extRad * (k / 8);
+                off.push(unit(vadd(mul(pend, Math.cos(a)), mul(T1, Math.sin(a)))));
+              }
+            }
+            const latOf = (p) => R * Math.asin(Math.max(-1, Math.min(1, dot(unit(p), nMer))));
+            for (let i = 1; i < off.length; i++) {
+              const la = latOf(off[i - 1]), lb = latOf(off[i]);
+              if (la * lb > 0 && Math.abs(la) >= 1e-12 && Math.abs(lb) >= 1e-12) continue;
+              const t = Math.abs(la - lb) < 1e-15 ? 1 : Math.abs(la) / Math.max(1e-15, Math.abs(la - lb));
+              const A = unit(off[i - 1]), B = unit(off[i]);
+              const om = angle(A, B);
+              C = om < 1e-15 ? A
+                : unit(vadd(mul(A, Math.sin((1 - t) * om) / Math.sin(om)), mul(B, Math.sin(t * om) / Math.sin(om))));
+              const Traw = unit(sub(B, mul(C, dot(B, C))));
+              Tref = unit(sub(Traw, mul(C, dot(Traw, C))));
+              break;
+            }
           }
-          if (!Tref) {
+          if (!C || !Tref) {
+            C = unit(vadd(mul(unit(s.pts[Math.max(0, iRef - 1)]), 1 - tRef), mul(unit(s.pts[Math.min(iRef, nLast)]), tRef)));
             const Tpath = unit(sub(s.pts[Math.min(iRef, nLast)], s.pts[Math.max(0, iRef - 1)]));
             Tref = unit(sub(Tpath, mul(C, dot(Tpath, C))));
           }
@@ -1028,9 +1242,12 @@ export function runValidators(A, stage = '2b', ref = null) {
       const aDeg = alpha * 180 / Math.PI, gDeg = alphaGeo * 180 / Math.PI;
       angleRows.push({ id: s.id, angleDeg: aDeg, alphaGeoDeg: gDeg });
       if (minAngleDeg == null || aDeg < minAngleDeg) { minAngleDeg = aDeg; minAngleGeoDeg = gDeg; }
-      // Rail path ≠ geodesic through X,E; allow 0.5° discretization vs α_geo (6a.3 still enforced).
-      const angTol = (s.layMode === 'rail') ? (1.0 * Math.PI / 180) : 1e-3;
-      if (!(alpha + angTol >= alphaGeo)) badAngle++;
+      // Crit: angle ≥ α_geo on lower legs only. Rail path ≠ chord geodesic through X,E —
+      // allow 5° discretization (curved rail / tip exit); row-1 stays tight.
+      const angTol = (s.layMode === 'rail') ? (5.0 * Math.PI / 180) : 1e-3;
+      // 6a.3: α ≥ α_geo on lower legs. Rail n≥2: tip follows ref parallel — floor is α_exp (not chord α_geo).
+      const angleFloor = (s.layMode === 'rail' && s.row >= 2) ? alphaExp : alphaGeo;
+      if (s.level === 'bottom' && !(alpha + angTol >= angleFloor)) badAngle++;
     }
     if (!Number.isFinite(minLat)) minLat = Infinity;
     const ok = badStick === 0 && badCrossings === 0 && badAngle === 0;

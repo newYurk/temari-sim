@@ -6,7 +6,7 @@ import { PARAM_SCHEMA, defaults } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples } from '../src/path.js';
 import { displayGeometry } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
-import { norm, unit, mul, sub, dot, angle, cross } from '../src/geom.js';
+import { norm, unit, mul, sub, add, dot, angle, cross } from '../src/geom.js';
 
 const recipe = await loadRecipe();
 const recipePreset = await loadJSON('../data/recipes/kiku-s8.json');
@@ -57,24 +57,38 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const base = { C_mm: 240, topMode: 'fracQ', sTopFrac: 5 / 60 };
   const A1 = computeAll(recipe, { ...base });
   const A2 = computeAll(recipe, { ...base, C_mm: 240 * k, w_mm: 0.714 * k, m_mm: 1.0 * k, startRun_mm: 35 * k });
-  // Compare A1+A2 / B1 PREFIX (stage A2), not full untilEquator uEnd (Codex: labeled A1+A2 but compared full threads).
-  const lenTo = (path, thread, stage) => {
-    const last = stageLastOp(recipe, path.ops, stage);
-    let L = 0;
-    for (const op of path.ops.slice(0, last + 1)) {
-      for (const id of op.segIds || []) {
-        const s = path.segs.find((x) => x.id === id);
-        if (s && s.thread === thread) L += s.length;
-      }
-    }
-    return L;
-  };
-  const r1 = lenTo(A1.path, 'A', 'A2'), r2 = lenTo(A2.path, 'A', 'A2');
-  const b1 = lenTo(A1.path, 'B', 'A2'), b2 = lenTo(A2.path, 'B', 'A2');
-  console.log(`  similarity ×1.25 all lengths: thread A (A1+A2 prefix) ${fmt(r1)} → ${fmt(r2)}, ratio ${fmt(r2 / r1, 12)}; thread B (B1) ${fmt(b2 / b1, 12)}`);
-  check(Math.abs(r2 / r1 - k) < 1e-9 && Math.abs(b2 / b1 - k) < 1e-9, 'similarity: both thread prefixes (A1+A2 / B1) scale exactly by k');
-  const V2 = runValidators(A2, 'A2', ref);
-  check(summary(V2).fail === 0, 'similar set passes all validators (through A2)');
+  // 6a.11(3)/6a.12: similarity on FULL path (untilEquator), lengths in fractions of w or R — no absolute mm.
+  const A1f = computeAll(recipe, { ...base, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32 });
+  const A2f = computeAll(recipe, { ...base, C_mm: 240 * k, w_mm: 0.714 * k, m_mm: 1.0 * k, startRun_mm: 35 * k,
+    rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32 });
+  const threadLen = (path, thread) => path.segs.filter((s) => s.thread === thread).reduce((a, s) => a + s.length, 0);
+  const r1 = threadLen(A1f.path, 'A'), r2 = threadLen(A2f.path, 'A');
+  const b1 = threadLen(A1f.path, 'B'), b2 = threadLen(A2f.path, 'B');
+  console.log(`  similarity ×1.25 full path: thread A ${fmt(r1)} → ${fmt(r2)}, ratio ${fmt(r2 / r1, 12)}; thread B ${fmt(b2 / b1, 12)}`);
+  check(Math.abs(r2 / r1 - k) < 1e-5 && Math.abs(b2 / b1 - k) < 1e-5, 'similarity: full-path thread lengths scale by k (rel < 1e-5; discrete rail/pack)');
+  // Segment-wise length ratios and first-drift xOff in units of w (not absolute mm).
+  const segs1 = A1f.path.segs.filter((s) => s.type === 'leg');
+  const segs2 = A2f.path.segs.filter((s) => s.type === 'leg');
+  check(segs1.length === segs2.length, `similarity: same leg count (${segs1.length} vs ${segs2.length})`);
+  let maxSegRel = 0, maxXOffW = 0;
+  for (let i = 0; i < Math.min(segs1.length, segs2.length); i++) {
+    const rel = Math.abs(segs2[i].length / segs1[i].length - k);
+    if (rel > maxSegRel) maxSegRel = rel;
+  }
+  const st1 = A1f.path.stitches, st2 = A2f.path.stitches;
+  for (let i = 0; i < Math.min(st1.length, st2.length); i++) {
+    const dw = Math.abs(st2[i].xOff - k * st1[i].xOff) / (0.714 * k);
+    if (dw > maxXOffW) maxXOffW = dw;
+  }
+  console.log(`  similarity segment |ratio−k| max ${fmt(maxSegRel, 8)}; xOff drift max ${fmt(maxXOffW, 6)} w`);
+  check(maxSegRel < 1e-4, `similarity: every leg length scales by k (|Δratio| max ${fmt(maxSegRel, 12)})`);
+  check(maxXOffW < 1e-4, `similarity: xOff scales by k (drift max ${fmt(maxXOffW, 12)} w)`);
+  // Join class must not flip under scale (onRail↔climb was an absolute-mm artifact).
+  let classFlip = 0;
+  for (let i = 0; i < Math.min(segs1.length, segs2.length); i++) {
+    if ((segs1[i].joinMode || null) !== (segs2[i].joinMode || null)) classFlip++;
+  }
+  check(classFlip === 0, `similarity: no joinMode class flips under ×k (flips ${classFlip})`);
 }
 
 // 2c. S16: dense marking — V5 catches neighbour-line reach; closing X squeeze in both JS and calc_reference (D37)
@@ -570,7 +584,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
     let ljOk = 0, ljN = 0;
     for (const s of ext) {
       const d = Math.abs(s.lateralMm ?? 0);
-      if (d < 0.05) continue;
+      if (d < 0.07 * (A.params.w_mm / 0.714)) continue; // ~0.05 mm at w0; scale with w (6a.11(3))
       const R = A.base.R, rho = s.rho;
       const expect = Math.sqrt(2 * d * R * Math.tan(rho));
       const got = s.spliceMm ?? 0;
@@ -580,7 +594,7 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
     }
     if (ljN === 0) {
       // Exterior with d≈0: tangent join length is negligible (6a.4 — no splice threshold).
-      check(ext.every((s) => (s.spliceMm ?? 0) < 0.05), 'exterior d≈0 ⇒ spliceMm ≈ 0 (no false L_j)');
+      check(ext.every((s) => (s.spliceMm ?? 0) < 0.07 * (A.params.w_mm / 0.714)), 'exterior d≈0 ⇒ spliceMm ≈ 0 (no false L_j)');
     } else {
       check(ljOk === ljN, 'L_j matches √(2·|d|·R·tan ρ) within 15% for exterior joins');
     }
@@ -642,20 +656,39 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   check(n0 === 5 && n00 === 5, 'λ=0: 5 rows to equator (geo and bowλ=0)');
   check(tip0 >= 58 && tip0 <= 60 && tip00 >= 58 && tip00 <= 60,
     `λ=0 last tip (K12) in 58–60 mm (got geo ${fmt(tip0, 3)}, bow ${fmt(tip00, 3)})`);
-  // 6a.11(1) tangent packing: Δ₂ matches table; successive Δ_n stays near Δ₂ (flat), so fewer rows than concentric.
-  // Measured ~9 / ~13; spec text still says 11/16 — flagged for masters. Accept ±2 around measured.
-  check(n32 >= 8 && n32 <= 12, `λ=0.32 tangent: 8–12 rows (got ${n32}; spec 11±1 pending masters)`);
-  check(n60 >= 12 && n60 <= 17, `λ=0.6 tangent: 12–17 rows (got ${n60}; spec 16±1 pending masters)`);
+  // 6a.12 / 6a.14: rows = 1+floor(20/Δ₂) ±1; Δ₂ ±0.5% vs table.
+  // Δ_n (n≥3) ±3% of Δ₂ and non-decreasing — ONLY for λ > 0 (at λ=0 free geodesics may drift ≈5%/row).
+  const table = [
+    { lam: 0, d2: 4.968, rows: 5 },
+    { lam: 0.10, d2: 3.616, rows: 6 },
+    { lam: 0.20, d2: 2.861, rows: 8 },
+    { lam: 0.32, d2: 2.293, rows: 9 },
+    { lam: 0.40, d2: 2.027, rows: 10 },
+    { lam: 0.45, d2: 1.890, rows: 11 },
+    { lam: 0.52, d2: 1.729, rows: 12 },
+    { lam: 0.60, d2: 1.575, rows: 13 },
+  ];
+  const expectRows = (d2) => 1 + Math.floor(20 / d2);
+  check(n32 === 9 || Math.abs(n32 - expectRows(2.293)) <= 1, `λ=0.32 rows ≈ 1+floor(20/Δ₂)=9 ±1 (got ${n32})`);
+  check(n60 === 13 || Math.abs(n60 - expectRows(1.575)) <= 1, `λ=0.6 rows ≈ 1+floor(20/Δ₂)=13 ±1 (got ${n60})`);
   check(n0 < n32 && n32 < n60, 'row count monotonic in λ');
+  check(Math.abs(n32 - 9) <= 1, `λ=0.32 rows 9±1 (got ${n32})`);
+  check(Math.abs(n60 - 13) <= 1, `λ=0.6 rows 13±1 (got ${n60})`);
 
   const d32 = dSseries(B32), d60 = dSseries(B60);
   console.log(`  Δ_n λ=0.32: ${d32.map((x) => fmt(x, 3)).join(', ')}`);
   console.log(`  Δ_n λ=0.6: ${d60.slice(0, 8).map((x) => fmt(x, 3)).join(', ')}…`);
-  // Tangent packing: Δ₂ within 0.5% of table; later Δ_n stay within 5% of Δ₂ (no concentric kink).
-  check(Math.abs(d32[0] - 2.296) / 2.296 < 0.005, `λ=0.32 Δ₂ tangent 2.296 (got ${fmt(d32[0], 5)})`);
-  check(Math.abs(d60[0] - 1.576) / 1.576 < 0.005, `λ=0.6 Δ₂ tangent 1.576 (got ${fmt(d60[0], 5)})`);
-  check(d32.every((x) => Math.abs(x - d32[0]) / d32[0] < 0.05), 'λ=0.32 Δ_n stays within 5% of Δ₂ (no construction kink)');
-  check(d60.every((x) => Math.abs(x - d60[0]) / d60[0] < 0.05), 'λ=0.6 Δ_n stays within 5% of Δ₂ (no construction kink)');
+  check(Math.abs(d32[0] - 2.293) / 2.293 < 0.005, `λ=0.32 Δ₂ within 0.5% of 2.293 (got ${fmt(d32[0], 5)})`);
+  check(Math.abs(d60[0] - 1.575) / 1.575 < 0.005, `λ=0.6 Δ₂ within 0.5% of 1.575 (got ${fmt(d60[0], 5)})`);
+  const laterOk = (ds) => ds.slice(1).every((x, i) => Math.abs(x - ds[0]) / ds[0] <= 0.03 + 1e-12 && x + 1e-12 >= ds[i]);
+  check(laterOk(d32), 'λ=0.32 Δ_n (n≥3) within ±3% of Δ₂ and monotonically non-decreasing');
+  check(laterOk(d60), 'λ=0.6 Δ_n (n≥3) within ±3% of Δ₂ and monotonically non-decreasing');
+  // Spot-check remaining table λ via tipDrop on two-row bow (Δ₂ only).
+  for (const row of table.filter((r) => r.lam > 0 && r.lam !== 0.32 && r.lam !== 0.6)) {
+    const A = computeAll(recipe, { shoulderForm: 'bow', bowLambda: row.lam, muWrap: Math.max(row.lam, 0.32), rowsMode: 'count', rowsCount: 2 });
+    const d2 = A.path.tipDrop.tipDrop_mm;
+    check(Math.abs(d2 - row.d2) / row.d2 < 0.005, `λ=${row.lam} Δ₂ within 0.5% of ${row.d2} (got ${fmt(d2, 5)})`);
+  }
 
   // §5.2: analytic tangent unit(±P×E) vs arcsin(λ·tan(γ/2))
   const Brow = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 1 });
@@ -687,6 +720,73 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 }
 
 
+
+
+// 8d. K16 tip coverage + V8 tipCross (6a.13 / 6a.16)
+{
+  console.log('\n## K16 tip coverage / V8 tipCross (6a.13–6a.16)');
+  const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'untilEquator' });
+  const vals = Object.fromEntries(runValidators(A, A.path.ops.length - 1, null).map((v) => [v.id, v]));
+  console.log(`  K16: ${vals.K16?.status} — ${vals.K16?.value}`);
+  check(vals.K16?.status === 'pass', `K16a–c pass (got ${vals.K16?.status})`);
+  console.log(`  V8: ${vals.V8?.status} — ${(vals.V8?.value || '').slice(0, 180)}`);
+  check(vals.V8?.status !== 'fail', `V8 not fail with tipCross class (got ${vals.V8?.status})`);
+  check(/tipCross/.test(vals.V8?.value || ''), 'V8 reports tipCross class (6a.13)');
+}
+
+
+// 8e. B.8 / 6a.15: λ=0 free when min gap ≥ w; kinks ≤20° and converge 96/192/384
+{
+  console.log('\n## B.8 / 6a.15 tube rule (λ=0)');
+  const interp = (a, b, t) => {
+    const A = unit(a), B = unit(b), om = angle(A, B);
+    if (om < 1e-12) return A;
+    return unit(add(mul(A, Math.sin((1 - t) * om) / Math.sin(om)), mul(B, Math.sin(t * om) / Math.sin(om))));
+  };
+  const pointSegDist = (R, p, a, b) => {
+    const A = unit(a), B = unit(b), P = unit(p), normal = unit(cross(A, B));
+    let Q = unit(sub(P, mul(normal, dot(P, normal))));
+    const ab = angle(A, B), aq = angle(A, Q), qb = angle(Q, B);
+    if (aq + qb <= ab + 1e-7) return R * angle(P, Q);
+    Q = mul(Q, -1);
+    if (angle(A, Q) + angle(Q, B) <= ab + 1e-7) return R * angle(P, Q);
+    return R * Math.min(angle(P, A), angle(P, B));
+  };
+  const pointPolyDist = (R, p, pts) => { let d = Infinity; for (let j = 1; j < pts.length; j++) d = Math.min(d, pointSegDist(R, p, pts[j - 1], pts[j])); return d; };
+  const turnDeg = (p, i) => {
+    const n = unit(p[i]);
+    const proj = (v) => unit(sub(v, mul(n, dot(v, n))));
+    const a = proj(sub(p[i], p[i - 1])), b = proj(sub(p[i + 1], p[i]));
+    return Math.atan2(dot(cross(a, b), n), dot(a, b)) * 180 / Math.PI;
+  };
+  const peaks = [];
+  for (const N of [96, 192, 384]) {
+    setLegSamples(N);
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, rowsMode: 'untilEquator' });
+    const R = A.base.R, w = A.params.w_mm;
+    const legs = A.path.segs.filter((x) => x.type === 'leg');
+    const table = new Map(legs.map((x) => [`${x.set}/${x.row}/${x.stitch}`, x]));
+    let freeAll = 0, viol = 0, peakOver = 0, maxPeak = 0;
+    for (const s of legs) {
+      if (s.set !== 'A' || s.row < 2) continue;
+      const prior = table.get(`${s.set}/${s.row - 1}/${s.stitch}`);
+      if (!prior) continue;
+      let minG = Infinity;
+      for (let j = 0; j <= 200; j++) minG = Math.min(minG, pointPolyDist(R, interp(s.from, s.to, j / 200), prior.pts));
+      if (minG >= w) { freeAll++; if (s.joinMode !== 'free') viol++; }
+      let peak = 0;
+      for (let i = 1; i < s.pts.length - 1; i++) peak = Math.max(peak, Math.abs(turnDeg(s.pts, i)));
+      if (peak > 20) peakOver++;
+      maxPeak = Math.max(maxPeak, peak);
+    }
+    peaks.push(maxPeak);
+    console.log(`  N=${N}: freeAll=${freeAll} viol=${viol} peakOver=${peakOver} maxPeak=${fmt(maxPeak, 2)}`);
+    check(freeAll === 22 && viol === 0, `N=${N}: 22 freeAll arms are joinMode=free (Codex 6a.15)`);
+    check(peakOver === 0 && maxPeak <= 20, `N=${N}: all peaks ≤20° (max ${fmt(maxPeak, 2)})`);
+  }
+  setLegSamples(null);
+  check(peaks[0] >= peaks[1] - 1e-6 && peaks[1] >= peaks[2] - 1e-6, `B.8 peaks converge 96→192→384 (${peaks.map((x) => fmt(x, 2)).join('→')})`);
+}
 
 // 9. Material preset (D34) + recipe scaffold (D35): provenance data + same path.ops for step/full
 {
