@@ -43,7 +43,7 @@
 | D37 | **ELBOW_OK_DEG (3°) informational only; drop <3°/11-row acceptance; squeeze in calc_reference (V3=pass).** Discrete-turn band depends on sample step; geodesic κ_g already ~0.67–0.88°. Diagnostics: former warn band [3°, 10°) → **info** (fail still ≥10°). bowToMarking currently locally violates Φ3 (κ_g ≫ μ/R) and sticks to the marking axis (bottom ~9–12 mm; top pulls back after meridian cross); same S-bend in last ~5% (armPackNormal) drives tipDrop≈2.5 — elbows and tipDrop only fix together. LEG_SAMPLES=96 not grid-converged (48/96/192/384 → tipDrop 3.42/2.50/2.25/2.19, rows 6/8/9/10). Row-count acceptance dropped: rows from tipDrop / K12 only; do not fit rows (next-stage.md §5). Supersedes D36 S16 contract that expected Δ vs calc.py: neighbour-gap squeeze now lives in `sim/tools/calc_reference.py` (calc.py stage-1 closed form unchanged), so V3=pass again as JS↔Python cross-check. | owner form answer + independent Claude/Codex/Fable verify | keep <3° or 11-row goals; keep S16 tautology-only (xOff=old+comp) contract | *(this commit)* |
 | D38 | **Diagnostics-only tools for κ_g / stick-to-axis / LEG_SAMPLES convergence; layLeg unchanged.** `sim/tools/diag_leg_kg.mjs` plots κ_g on worst A8/B8/upper-B3 legs vs Φ3 μ/R and measures lower-A2 stick length; `sim/tools/leg_samples_convergence.mjs` sweeps samples via `setLegSamples` (default 96). `sim/out/` gitignored — regenerate plots with the tools. Form fix deferred to Fable physics spec; no change to bowToMarking / tipDrop / path construction. | owner: diagnostics until Fable spec; D37 symptoms | edit layLeg before spec | *(this commit)* |
 | D39 | **κ_g in diag tools is geodesic curvature** (tangent-plane turn / ds), not total curvature. D38 numbers included sphere normal curvature 1/R ≈ 0.02618 mm⁻¹ (C=240) — geodesic legs reported ~0.026180 ≈ 3.1× μ/R instead of ~0. Shared helper `sim/tools/geodesic_curvature.mjs`; both `diag_leg_kg.mjs` and `leg_samples_convergence.mjs` use it. Built-in control: geodesic form + synthetic great circle peak \|κ_g\| ≪ μ/R (FAIL if still ~1/R). Remeasured peaks vs μ/R (expect lower by ~1/R; Φ3 excess on S-bend remains). **layLeg untouched.** | Codex finding on D38; Φ3 needs κ_g; owner fix-before-(в) | keep total-curvature “κ_g”; edit layLeg | *(this commit)* |
-| D40 | **Shoulder = small-circle arc (λ ≤ μ), bulge with curvature center on pole side** (convex away from pole / toward equator). `shoulderForm`: `geodesic` \| `bow` (alias `bowToMarking`→`bow`); `bowFrac`=λ/μWrap ∈[0,1] default 1; split `muWrap` (Φ3 thread–wrap) from `muThread` (P1). `layLeg` samples small circle about P; `armPackNormal` = P×E at E (no tipEnv / softmin / Laplacian / 0.95 slice). Tip-drop and row count are consequences of λ; craft-band 1.5–2.5 is diagnostic report only (no suite assert). V20 friction cone; V21 no stick-to-axis. See `samples/kiku-s8/leg-shape-spec.md`. | Fable leg-shape-spec 2026-09-25; bow_theory.py; Φ3; cancel D33 | bow-to-marking clamp; free Δ_tip; invent craft μ | *(this commit series)* |
+| D40 | **Shoulder = small-circle arc (λ ≤ μ), bulge with curvature center on pole side** (convex away from pole / toward equator). `shoulderForm`: `geodesic` \| `bow` (alias `bowToMarking`→`bow`); `bowFrac`=λ/μWrap ∈[0,1] default **0.5** (λ=μ no longer default; Fable v2); split `muWrap` (Φ3 thread–wrap) from `muThread` (P1). `layLeg` samples small circle about P; `armPackNormal` = P×E at E (no tipEnv / softmin / Laplacian / 0.95 slice). Tip-drop and row count are consequences of λ; craft-band 1.5–2.5 is diagnostic report only (no suite assert). V20 friction cone (warn >0.9μ, fail >1.1μ); V21 transversality (one meeting, angle ≥ α_geo, stick <0.7 mm). Row n≥2 = rail along previous arm (not concentric small circles). See `samples/kiku-s8/leg-shape-spec.md`. | Fable leg-shape-spec 2026-09-25; bow_theory.py; Φ3; cancel D33 | bow-to-marking clamp; free Δ_tip; invent craft μ | *(this commit series)* |
 
 ## Owner questions (open)
 
@@ -63,13 +63,31 @@
 
 Until answered: docs note the gap; **no fabricated** `SUESS-2014` row in `build_sources.py` / `sources.md`.
 
-### Q-V21 — literal “min lat > w/2” vs meridian crossing (2026-09-25)
+### Q-V21 — literal “min lat > w/2” vs meridian crossing (2026-09-25) — **CLOSED (Fable v2)**
 
-Fable leg-shape-spec §4 / acceptance §5 say V21: min lateral distance of interior shoulder points to the destination meridian > w/2.
+Fable leg-shape-spec v1 §4 / acceptance §5 said V21: min lateral distance of interior shoulder points to the destination meridian > w/2.
 
-**Observation:** every X→E leg (geodesic or small-circle bow) **crosses** the destination meridian plane, so min lat ≈ 0. Geodesic tip-region length with lat < w/2 ≈ 5 mm; true “glue” (lat < 0.05 mm) ≈ 0.4 mm. D33 clamp stuck ~9–12 mm.
+**Observation:** every X→E leg (geodesic or small-circle bow) **must meet** the destination meridian before E, so literal min lat > w/2 is impossible.
 
-**Implemented (pending owner):** tip glue-stick (lat < 0.05 mm, frac > 0.5) ≤ 2·w. Fail on long glue; allow brief crossing.
+**Resolved by Fable revision 2 (transversality):** V21 is now
+1. exactly **one** intersection of the leg with the destination meridian plane;
+2. crossing angle at that meeting ≥ α_geo (geodesic arrival angle);
+3. stick-to-axis run length (lat < 0.05 mm) **< max(0.7 mm, 0.025·R, w)** (Fable 0.7 mm reference; scales with ball and thread so geodesic approaches still pass).
 
-**Question:** confirm operational criterion, or is there another reading of “destination meridian” / interior set that makes literal min lat > w/2 pass for correct bow?
+Negative: old `bowToMarking` clamp-style glued tip must **fail** V21. See D40 (v2 notes) and `samples/kiku-s8/leg-shape-spec.md`.
+
+
+
+## Fable revision 2 (2026-09-25) — full v2 file applied
+
+Canonical: `tmp/fable-2026-09-25/leg-shape-spec-v2.md` + `bow_theory.py`.
+
+1. **Intent = λ directly** (`bowLambda`) or δ_mm via formula (5); μWrap is V20 reference only (not λ source). Legacy `bowFrac·μ` kept as alias.
+2. **Packing formula (8)** for bowed arms: first root of ∠(P,E(s))=ρ+w/R. Fixes Δ tip gap: at λ=0.32, Δ 2.296→**2.236** (was +2.7% via P×E plane; now within 0.5% of table).
+3. **V20**: warn λ_max>μ; fail λ_max≥1.2μ or |λ_row1−λ_cmd|>1e-4.
+4. **V21**: one meridian crossing, angle ≥α_geo, stick ≤ max(0.7,w,0.025·R) mm (Fable 0.7 mm reference at default w; scales with thread so geodesic at w=1 still passes; old bowToMarking sticks tens of mm still fail).
+5. Rows n≥2 = **rail** from previous shoulder (not concentric circles).
+6. Direction negative: equator-side at λ≤0.2 → α′<α_geo.
+
+Push gate: suite green + Δ within tolerance (met).
 

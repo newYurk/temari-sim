@@ -50,3 +50,9 @@
 ## Что точно известно без измерений
 
 Геометрия (G1–G9) при заданных параметрах; соотношения Ф0–Ф3 как законы; то, что κ_g ≤ μκ_n не зависит от T; то, что натяжение уложенных плеч может отличаться от силы протяжки в e^{μθ} раз (гистерезис затяжки).
+
+
+## Open (Fable v2)
+
+- **Holding beyond μ** — can the thread hold a bow with λ>μ in craft practice? V20 warns above μ and fails only at ≥1.2μ; sample decides.
+- **Bridge length at crossings** — length of thread bridges where arms cross markings/other arms; affects visible tip angle and may shift effective Δ. Not yet a free parameter.

@@ -41,7 +41,7 @@ export const PARAM_SCHEMA = [
     basis: 'PRIOR-THREAD: 25 m / 5 g (DMC/Olympus/Cosmo #5)', status: 'default', used: 'thread mass (diagnostics)' },
   { key: 'muWrap', group: 'thread', label: 'μ thread–wrap (Φ3)', type: 'number', def: 0.32, min: 0, max: 1.5, step: 0.01,
     basis: 'PHYS-COTTON-MU 0.32–0.52 — cotton yarn vs wrap, NOT #5 (order of magnitude only); Φ3 / P2', status: 'default',
-    used: 'geometry: friction cone λ≤μWrap for shoulderForm=bow' },
+    used: 'V20 reference mark (warn λ>μ, fail λ>1.2μ); NOT the default λ source' },
   { key: 'muThread', group: 'thread', label: 'μ thread–thread (P1)', type: 'number', def: 0.32, min: 0, max: 1.5, step: 0.01,
     basis: 'PHYS-COTTON-MU 0.32–0.52 — cotton yarn–yarn, NOT #5 (order of magnitude only); P1', status: 'default',
     used: 'diagnostics / future contact; not used by shoulder lay yet' },
@@ -81,14 +81,24 @@ export const PARAM_SCHEMA = [
   { key: 'shoulderForm', group: 'intent', label: 'Arm tip / shoulder form', type: 'select', def: 'geodesic',
     options: ['geodesic', 'bow'],
     optionLabels: {
-      geodesic: 'geodesic (idealization)',
-      bow: 'small-circle bow (λ = bowFrac·μWrap, pole-side center)',
+      geodesic: 'geodesic (idealization; GT14 default until sample)',
+      bow: 'small-circle bow (λ = bowLambda or from δ_mm via (5); pole-side center)',
     },
-    basis: 'samples/kiku-s8/leg-shape-spec.md; model/spec.md Φ3 — input is shoulder form; tip Δ is derived, not a free Δ=2 mm knob. Alias bowToMarking→bow for old recipes.',
-    status: 'intent', used: 'path: small-circle or geodesic leg; packThenPierce uses arc normal at E' },
-  { key: 'bowFrac', group: 'intent', label: 'Bow fraction λ/μWrap', type: 'number', def: 1, min: 0, max: 2, step: 0.01,
-    basis: 'leg-shape-spec §4: master intent how round the petal; craft range [0,1], max 2 so V20 can catch overshoot',
-    status: 'intent', used: 'path: λ = bowFrac·μWrap when shoulderForm=bow; unused for geodesic' },
+    basis: 'samples/kiku-s8/leg-shape-spec.md Fable v2 §4; model/spec.md Φ3 — intent is λ (or δ); tip Δ is derived. Alias bowToMarking→bow. Recipe: GT14→geodesic; Olympus→bow with λ from measure.',
+    status: 'intent', used: 'path: small-circle or geodesic leg; packThenPierce uses Fable (8) for bowed arms' },
+  { key: 'bowLambda', group: 'intent', label: 'Bow λ (friction-cone fraction)', type: 'number', def: '', min: 0, max: 2, step: 0.01, optional: true,
+    basis: 'Fable v2 §4: intent set by λ∈[0,1] directly (not bowFrac·μ). μWrap is V20 reference only. Default 0.32 ≈ cotton yarn μ order-of-magnitude when form=bow; craft [0,1], max 2 so V20 can catch overshoot.',
+    status: 'intent', used: 'path: λ when shoulderForm=bow and bowSagMm empty; unused for geodesic' },
+  { key: 'bowSagMm', group: 'intent', label: 'Bow sagitta δ, mm (optional → λ via (5))', type: 'number', def: '', min: 0, max: 20, step: 0.01, optional: true,
+    basis: 'Fable v2 formula (5): δ = R·(ρ − arccos(cos ρ / cos(γ/2))), ρ=arccot(λ). If set, overrides bowLambda.',
+    status: 'intent', used: 'path: invert (5) for λ when shoulderForm=bow; unused for geodesic' },
+  { key: 'bowFrac', group: 'intent', label: 'Legacy λ/μWrap (alias → bowLambda)', type: 'number', def: '', min: 0, max: 2, step: 0.01, optional: true,
+    basis: 'DEPRECATED alias: if bowLambda unset and bowFrac set, λ = bowFrac·μWrap. Prefer bowLambda.',
+    status: 'stored', used: 'compat only when bowLambda not provided' },
+  { key: 'bowSide', group: 'intent', label: 'Bow center side', type: 'select', def: 'pole', options: ['pole', 'equator'],
+    optionLabels: { pole: 'pole side (production)', equator: 'equator side (direction negative test)' },
+    basis: 'Fable v2 direction negative test; production always pole', status: 'stored',
+    used: 'path: small-circle center side when shoulderForm=bow; unused for geodesic' },
   { key: 'spacingMode', group: 'intent', label: 'Bottom spacing between rows', type: 'select', def: 'laidClose', options: ['laidClose', 'fixedPitch'],
     optionLabels: { laidClose: 'lay close → stitch at intersection', fixedPitch: 'fixed pitch' },
     basis: 'TK-STRETCH, OLY-TM7-V «自然に交わる所» / TK-UWA “about 2mm”', status: 'intent', used: 'row plan' },
@@ -125,6 +135,54 @@ export function statusLabel(status) {
 export function optionLabel(p, opt) {
   return t(`param.${p.key}.option.${opt}`, {}, p.optionLabels?.[opt] || String(opt));
 }
+
+
+/** Resolve commanded λ for shoulderForm=bow (Fable v2 §4).
+ * Priority: bowSagMm → invert (5); else bowLambda; else legacy bowFrac·μWrap; else schema def 0.32.
+ * gamma = central angle of chord (from/to); R in mm. Returns { lambda, source }.
+ */
+export function lambdaFromSagitta(R, gamma, deltaMm) {
+  // (5) δ = R·(ρ − arccos(cos ρ / cos(γ/2))), ρ = arccot(λ) = atan(1/λ)
+  // Domain: ρ ≥ γ/2 ⇒ λ ≤ cot(γ/2). δ increases with λ.
+  const half = gamma / 2;
+  const cosHalf = Math.cos(half);
+  if (!(deltaMm > 0) || !(R > 0) || !(cosHalf > 1e-15) || !(half > 1e-15)) return 0;
+  const lamMax = 1 / Math.tan(half) - 1e-9; // cot(γ/2)
+  if (!(lamMax > 0)) return 0;
+  const deltaOf = (lam) => {
+    if (lam < 1e-15) return 0;
+    const rho = Math.atan(1 / lam);
+    const c = Math.cos(rho) / cosHalf;
+    if (c >= 1 - 1e-15) return R * (rho); // near domain edge — large
+    if (c <= -1 + 1e-15) return R * (rho - Math.PI);
+    return R * (rho - Math.acos(Math.max(-1, Math.min(1, c))));
+  };
+  let lo = 0, hi = lamMax, dHi = deltaOf(hi);
+  if (deltaMm >= dHi - 1e-12) return hi;
+  for (let it = 0; it < 80; it++) {
+    const mid = (lo + hi) / 2;
+    if (deltaOf(mid) < deltaMm) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+export function resolveBowLambda(P, { R, gamma } = {}) {
+  const sag = P.bowSagMm;
+  if (sag !== '' && sag != null && Number.isFinite(+sag) && +sag > 0 && R > 0 && gamma > 0) {
+    return { lambda: lambdaFromSagitta(R, gamma, +sag), source: 'bowSagMm' };
+  }
+  if (P.bowLambda !== '' && P.bowLambda != null && Number.isFinite(+P.bowLambda)) {
+    return { lambda: Math.max(0, +P.bowLambda), source: 'bowLambda' };
+  }
+  // Legacy: bowFrac · μWrap
+  if (P.bowFrac !== '' && P.bowFrac != null && Number.isFinite(+P.bowFrac)) {
+    const mu = P.muWrap ?? P.mu ?? 0;
+    return { lambda: Math.max(0, +P.bowFrac * Math.max(0, mu)), source: 'bowFrac·μWrap' };
+  }
+  // Default when form=bow and nothing else set (Fable: μ is V20 mark only; λ defaults to 0.32 as craft starting guess)
+  return { lambda: 0.32, source: 'default' };
+}
+
 
 export function defaults() {
   const o = {};

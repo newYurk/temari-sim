@@ -4,9 +4,16 @@ Author: Claude cloud session (temari-sim-0f), 2026-09-25. Basis: model/spec.md �
 
 **Note:** Original was Russian from a Fable session (`tmp/fable-2026-09-25/leg-shape-spec.md`). This is a faithful English translation for the repo.
 
+
+> **Fable revision 2 corrections applied; full v2 file applied.**
+> Key v2 changes: V21 = transversality (one meridian meeting, angle ≥ α_geo, stick < max(0.7 mm, 0.025·R, w));
+> rows n≥2 = rail along previous arm (not concentric small circles); bowFrac default 0.5 (λ=μ not default);
+> V20 warn >0.9μ / fail >1.1μ; do not claim the model “reconciles both sources” — rows ≈ 20/Δ is arithmetic;
+> GT14 photos also compatible with geodesic; bow is Olympus intent; sample decides.
+
 ## 0. One-line summary
 
-Row-1 shoulder = arc of a **small circle** with constant geodesic curvature κ_g = λ/R, where 0 ≤ λ ≤ μ (friction cone Φ3), **convex away from the pole** (curvature center on the pole side). Rows n ≥ 2 = concentric small circles offset by w outward (that is packThenPierce). No envelopes, clamps, or target Δ: tip drop, row count, and bow sagitta are consequences of a single number λ.
+Row-1 shoulder = arc of a **small circle** with constant geodesic curvature κ_g = λ/R, where 0 ≤ λ ≤ μ (friction cone Φ3), **convex away from the pole** (curvature center on the pole side). Row 1 = small-circle arc; rows n ≥ 2 = rail along the previous laid arm (packThenPierce spirit — offset from previous polyline, not concentric circles about P). No envelopes, clamps, or target Δ: tip drop, row count, and bow sagitta are consequences of a single number λ.
 
 ## 1. Physics
 
@@ -56,16 +63,16 @@ Default sim params: C = 240, w = 0.714, m = 1.0, N = 8, s_T = 5, s_B = 40. R = 3
 | **0.60** | 59.0 | 18.6 | 26.2 | **1.55** | 3.12 | 16 |
 
 Reading the table:
-- At μ = 0.32 the cone limit gives Δ = 2.24 mm and 11 rows: hits TK-UWA “about 2 mm” and the ~8–11 threads impression on GT14 photos at once. First calculation in the project that reconciles both sources without fitting.
+- At μ = 0.32 the cone limit gives Δ ≈ 2.24 mm and ~11 rows (sim may show 12; ±1 tolerance). Compatible with TK-UWA “about 2 mm” under bow intent. Rows ≈ 20/Δ is arithmetic; GT14 photos are also compatible with geodesic. Bow is Olympus intent; the sample decides — do not claim the model reconciles both sources.
 - At μ = 0.6 the limit gives 1.55 mm and 16 rows — more than on the photo. So on a real ball either μ ≈ 0.3, or the master does not use the full cone. Sample row count measures λ directly: 8 rows ⇒ λ ≈ 0.2; 11 ⇒ 0.32; 13 ⇒ 0.45.
 - GT14 “extra 1–2 mm” is covered by λ ≈ 0.3–0.6 only in its upper half; the 1 mm lower bound is not reached by free bow (§1.6).
 
 ## 4. What Grok writes
 
-1. Parameters: `shoulderForm: geodesic | bow`; `bowFrac` = λ/μ ∈ [0, 1] as master intent (“how round the petal”), default 1 for bow; take μ as **μ thread–wrap** (P2), keep separate from μ thread–thread (P1) in schema and preset. No Δ_tip input.
+1. Parameters: `shoulderForm: geodesic | bow`; `bowLambda` = λ (or δ via (5)); legacy bowFrac·μ ∈ [0, 1] as master intent (“how round the petal”), default 0.5 for bow (λ=μ is not the default; Fable v2); take μ as **μ thread–wrap** (P2), keep separate from μ thread–thread (P1) in schema and preset. No Δ_tip input.
 2. `layLeg` for `bow`: small-circle arc per (1) with λ = bowFrac·μ, center on the pole side; samples uniform in angle about P; endpoints X,E fixed; all points on radius R. If λ < 1e-9 → geodesic.
-3. `packThenPierce`: same idea, but packing normal is not “last 5% of samples” — it is the arc tangent plane at E; for a small circle that is known analytically (direction P×E). Parallel curve for row n = concentric small circle of radius ρ + (n−1)·w/R about the same P.
-4. Validators: **V20 “friction cone”** λ_max ≤ μ over all shoulders (fail if > μ, warn if > 0.9 μ); **V21 “no stick-to-axis”**: min lateral distance of interior shoulder points to the destination meridian > w/2. Both need negative tests.
+3. `packThenPierce`: same idea, but packing normal is not “last 5% of samples” — it is the arc tangent plane at E; for a small circle that is known analytically (direction P×E). Row n ≥ 2 follows a rail offset from the previous laid polyline (not a new concentric small circle about P); packThenPierce sets the level.
+4. Validators: **V20 “friction cone”** warn if λ_max > 0.9 μ (incl. full cone); fail only if λ_max > 1.1 μ (Fable v2); **V21 “transversality”** (Fable v2): exactly one intersection with the destination meridian; crossing angle ≥ α_geo; stick-to-axis run (lat < 0.05 mm) < max(0.7 mm, 0.025·R, w). (Literal min lat > w/2 is impossible — leg must meet the meridian.) Both need negative tests.
 5. Delete: `tipEnv`, `TIP_ENV_NORM`, clamp `Math.min(tipEnv(t)·cap, lat)`, the `0.95` sample slice in `armPackNormal`, “craft band 1.5–2.5” and asserts on it.
 6. Docs: mark D33 cancelled by a new decision; in tip-drop-diagnosis.md remove “Φ3 not exceeded”, add §9 with formulas (2)–(5) and table §3; list V19/V20/V21 in README.
 
@@ -75,7 +82,7 @@ Reading the table:
 2. Formula (2): numerically measured arc-vs-chord angle at E matches arcsin(λ·tan γ/2) to 0.01°.
 3. Convergence: Δ and δ at LEG_SAMPLES 48 / 96 / 192 / 384 differ by less than 0.5% (vs 3.42 / 2.50 / 2.25 / 2.19 under the clamp).
 4. Φ3: λ_max/μ ≤ 1 at bowFrac ≤ 1, exactly 1 ± 1e-6 at bowFrac = 1; at bowFrac = 1.2 V20 fails.
-5. Stick: min lateral distance > w/2 for all interior points of all shoulders (V21 pass).
+5. Transversality (V21): one meridian meeting, cross angle ≥ α_geo, stick < max(0.7 mm, 0.025·R, w); glued tip negative must fail.
 6. §3 numbers at μ = 0.32 and 0.6 within 2%; rows to equator 11 and 16.
 7. Direction: under `bow`, α′ > α_geo and Δ < Δ_geo. Mutation “center P on the equator side” must give Δ > Δ_geo with V20 still pass — direction negative test.
 8. Lengths: V2 agrees with analytical arc length (6), not only polyLen.

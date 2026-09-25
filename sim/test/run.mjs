@@ -209,63 +209,66 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
 {
   const tipOf = (A) => A.path.tipDrop;
   const G = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic' });
-  const B0 = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', muWrap: 0.32, bowFrac: 0, rowsMode: 'count', rowsCount: 2 });
-  const B = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', muWrap: 0.32, bowFrac: 1, rowsMode: 'count', rowsCount: 3 });
+  const B0 = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', muWrap: 0.32, bowLambda: 0, rowsMode: 'count', rowsCount: 2 });
+  const B = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', muWrap: 0.32, bowLambda: 0.32, rowsMode: 'count', rowsCount: 3 });
   const Alias = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bowToMarking', mu: 0.32, rowsMode: 'count', rowsCount: 2 });
   const tg = tipOf(G), tb0 = tipOf(B0), tb = tipOf(B);
   console.log(`\n  tipDrop geodesic: ${fmt(tg.tipDrop_mm, 3)} mm`);
   console.log(`  tipDrop bow λ=0: ${fmt(tb0.tipDrop_mm, 3)} mm (must match geodesic)`);
-  console.log(`  tipDrop bow μWrap=0.32 bowFrac=1: ${fmt(tb.tipDrop_mm, 3)} mm (bow ${fmt(tb.bowLateralMm, 3)}, λ=${fmt(tb.lambda, 3)})`);
+  console.log(`  tipDrop bow λ=0.32: ${fmt(tb.tipDrop_mm, 3)} mm (bow ${fmt(tb.bowLateralMm, 3)}, λ=${fmt(tb.lambda, 3)})`);
   check(tg.tipDrop_mm > 4.5 && tg.tipDrop_mm < 5.5, `geodesic tipDrop in 4.5–5.5 mm (got ${fmt(tg.tipDrop_mm, 3)})`);
   check(Math.abs(tg.tipDrop_mm - 4.968) < 0.02, 'geodesic tipDrop ≈ 4.97 mm at default C/w');
   check(Math.abs(tb0.tipDrop_mm - tg.tipDrop_mm) < 0.02, 'bow with λ=0 matches geodesic tipDrop');
   check(tg.shoulderForm === 'geodesic' && tg.bowLateralMm === 0, 'geodesic mode stores zero bow');
   check(tb.shoulderForm === 'bow' && tb.bowLateralMm > 0, 'bow: lateral sagitta > 0');
-  check(Math.abs(tb.lambda - 0.32) < 1e-9, 'bowFrac=1 → λ = μWrap');
+  check(Math.abs(tb.lambda - 0.32) < 1e-9, 'bowLambda=0.32 → λ = 0.32');
   check(tb.tipDrop_mm < tg.tipDrop_mm, 'bow reduces tipDrop vs geodesic (α′ steeper)');
-  // Report vs theory table (§3): expect Δ≈2.24 at μ=0.32 — allow 15% while packing settles
-  console.log(`  theory §3 expect Δ≈2.24 at λ=0.32; actual ${fmt(tb.tipDrop_mm, 3)}`);
-  check(tb.tipDrop_mm > 1.5 && tb.tipDrop_mm < 3.5, `bow tipDrop in broad physics band (got ${fmt(tb.tipDrop_mm, 3)}; craft band not asserted)`);
+  // Theory table §3: Δ≈2.236, δ≈1.632 at λ=0.32 — Fable (8) packing must match within 0.5%
+  console.log(`  theory §3 expect Δ≈2.236 δ≈1.632 at λ=0.32; actual Δ=${fmt(tb.tipDrop_mm, 4)} δ=${fmt(tb.bowLateralMm, 4)}`);
+  check(Math.abs(tb.tipDrop_mm - 2.236) / 2.236 < 0.005, `bow tipDrop within 0.5% of theory 2.236 (got ${fmt(tb.tipDrop_mm, 4)})`);
+  check(Math.abs(tb.bowLateralMm - 1.632) / 1.632 < 0.005, `bow sagitta within 0.5% of theory 1.632 (got ${fmt(tb.bowLateralMm, 4)})`);
+  const B60 = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.32, rowsMode: 'count', rowsCount: 2 });
+  check(Math.abs(B60.path.tipDrop.tipDrop_mm - 1.544) / 1.544 < 0.005, `λ=0.6 tipDrop within 0.5% of 1.544 (got ${fmt(B60.path.tipDrop.tipDrop_mm, 4)})`);
+  check(Math.abs(B60.path.tipDrop.bowLateralMm - 3.118) / 3.118 < 0.005, `λ=0.6 sagitta within 0.5% of 3.118 (got ${fmt(B60.path.tipDrop.bowLateralMm, 4)})`);
   check(Alias.path.tipDrop.shoulderForm === 'bow', 'alias bowToMarking → bow');
   check(!PARAM_SCHEMA.some((p) => /tipDrop|delta_mm|dS_mm/i.test(p.key)),
     'no tipDrop/delta_mm user input in PARAM_SCHEMA (Δ is derived only)');
-  check(PARAM_SCHEMA.some((p) => p.key === 'bowFrac') && PARAM_SCHEMA.some((p) => p.key === 'muWrap'),
-    'schema has bowFrac and muWrap');
+  check(PARAM_SCHEMA.some((p) => p.key === 'bowLambda') && PARAM_SCHEMA.some((p) => p.key === 'muWrap'),
+    'schema has bowLambda and muWrap');
   const a2 = B.path.stitches.find((st) => st.round === 'A2' && st.level === 'bottom' && st.i === 1);
   check(a2 && Math.abs(a2.levelInfo.dS - tb.tipDrop_mm) < 1e-9, 'A2 levelInfo.dS equals reported tipDrop');
   check(a2.levelInfo.shoulderForm === 'bow' && a2.levelInfo.bowLateralMm > 0, 'levelInfo carries shoulderForm/bow from prev arm');
   const Vb = runValidators(B, 'A2', null);
   check(Vb.find((v) => v.id === 'V2').status === 'pass', 'V2 passes with bow (polyLen legs)');
   check(summary(runValidators(G, 'A2', ref)).fail === 0, 'geodesic A2: no validator fail');
-  // Full untilEquator row count under bow is slow (O(rows²) occupancy); measured offline ≈12
-  // (theory §3 ≈11 at λ=0.32). TipDrop above already uses rowsCount:3 and matches theory Δ≈2.24.
-  console.log(`  (row-count-to-equator under bow deferred to offline measure; tipDrop ${fmt(tb.tipDrop_mm, 3)} vs theory 2.24)`);
+  console.log(`  (row-count-to-equator under bow deferred; tipDrop ${fmt(tb.tipDrop_mm, 3)} vs theory 2.236)`);
 }
 
 
 
-// 8b. V20 friction cone + V21 no-stick (with negative tests)
+// 8b. V20 friction cone + V21 transversality (Fable v2) + direction / rail checks
 {
-  console.log('\n## V20 / V21');
-  const ok = computeAll(recipe, { shoulderForm: 'bow', muWrap: 0.32, bowFrac: 1, rowsMode: 'count', rowsCount: 2 });
+  console.log('\n## V20 / V21 (Fable v2)');
+  const ok = computeAll(recipe, { shoulderForm: 'bow', muWrap: 0.32, bowLambda: 0.32, rowsMode: 'count', rowsCount: 2 });
   const Vok = runValidators(ok, 'A2', null);
   const v20 = Vok.find((v) => v.id === 'V20');
   const v21 = Vok.find((v) => v.id === 'V21');
   console.log(`  V20: ${v20.status} — ${v20.value}`);
   console.log(`  V21: ${v21.status} — ${v21.value}`);
-  check(v20.status === 'pass' || v20.status === 'warn', 'V20 pass/warn at bowFrac=1 (λ=μ)');
-  check(Math.abs(v20.numbers.ratio - 1) < 1e-4, 'V20 λ/μ ≈ 1 at bowFrac=1');
-  check(v21.status === 'pass', 'V21 pass: no stick-to-axis on small-circle bow');
+  // Fable v2: warn when λ_max > μ; at λ=μ status is pass (not warn). Fail at λ ≥ 1.2μ.
+  check(v20.status === 'pass' || v20.status === 'warn', 'V20 pass/warn at bowLambda=μ');
+  check(Math.abs(v20.numbers.ratio - 1) < 1e-4, 'V20 λ/μ ≈ 1 at bowLambda=μ');
+  check(v21.status === 'pass', 'V21 pass: transversality (one meeting, stick ≤ max(0.7,w,0.025·R) mm) on small-circle bow');
 
-  // Negative V20: bowFrac=1.2 → λ > μWrap → fail
-  const over = computeAll(recipe, { shoulderForm: 'bow', muWrap: 0.32, bowFrac: 1.2, rowsMode: 'count', rowsCount: 2 });
+  // Negative V20: λ = 1.2 μ → fail (Codex §5.4)
+  const over = computeAll(recipe, { shoulderForm: 'bow', muWrap: 0.32, bowLambda: 0.32 * 1.2, rowsMode: 'count', rowsCount: 2 });
   const Vover = runValidators(over, 'A2', null);
   const v20fail = Vover.find((v) => v.id === 'V20');
-  console.log(`  V20 negative bowFrac=1.2: ${v20fail.status} ratio=${v20fail.numbers.ratio}`);
-  check(v20fail.status === 'fail' && v20fail.numbers.ratio > 1, 'V20 fails when bowFrac=1.2 (λ>μ)');
+  console.log(`  V20 negative λ=1.2μ: ${v20fail.status} ratio=${v20fail.numbers.ratio}`);
+  check(v20fail.status === 'fail' && v20fail.numbers.ratio >= 1.2 - 1e-12, 'V20 fails when λ ≥ 1.2μ');
 
-  // Negative V21: glue a long tip run onto the destination meridian → fail
-  const stuck = computeAll(recipe, { shoulderForm: 'bow', muWrap: 0.32, bowFrac: 1, rowsMode: 'count', rowsCount: 2 });
+  // Negative V21: glue a long tip run onto the destination meridian → fail (old bowToMarking spirit)
+  const stuck = computeAll(recipe, { shoulderForm: 'bow', muWrap: 0.32, bowLambda: 0.32, rowsMode: 'count', rowsCount: 2 });
   const leg = stuck.path.segs.find((s) => s.type === 'leg' && s.round === 'A1' && s.level === 'bottom');
   const phi = stuck.marking.phis[leg.line];
   const nMer = [-Math.sin(phi), Math.cos(phi), 0];
@@ -280,8 +283,48 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const Vstuck = runValidators(stuck, 'A2', null);
   const v21fail = Vstuck.find((v) => v.id === 'V21');
   console.log(`  V21 negative stuck: ${v21fail.status} tipStick=${v21fail.numbers.tipStickMm}`);
-  check(v21fail.status === 'fail', 'V21 fails when a long tip run is glued to the meridian');
+  check(v21fail.status === 'fail', 'V21 fails when a long tip run is glued to the meridian (bowToMarking-style)');
+
+  // Direction negative test (Fable v2 §5.7): equator-side center at λ≤0.2 → α′ < α_geo.
+  // Packing (8) may also hit channelBinding (Δ≈w) rather than Δ>Δ_geo; assert angle + pole control.
+  const arrivalAlpha = (A) => {
+    const leg = A.path.segs.find((s) => s.type === 'leg' && s.row === 1);
+    const pts = leg.pts; const n = pts.length - 1;
+    const E = unit(pts[n]);
+    const Ttrav = unit(sub(pts[n], pts[n - 1]));
+    const Tplane = unit(sub(Ttrav, mul(E, dot(Ttrav, E))));
+    const up = unit(sub([0, 0, 1], mul(E, dot([0, 0, 1], E))));
+    const merDown = mul(up, -1);
+    return Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(Tplane), unit(merDown))))));
+  };
+  const geo = computeAll(recipe, { shoulderForm: 'geodesic', rowsMode: 'count', rowsCount: 2 });
+  const dGeo = geo.path.tipDrop.tipDrop_mm;
+  const aGeo = arrivalAlpha(geo);
+  const badDir = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.16, muWrap: 0.32, bowSide: 'equator', rowsMode: 'count', rowsCount: 2 });
+  const aBad = arrivalAlpha(badDir);
+  const dBad = badDir.path.tipDrop.tipDrop_mm;
+  console.log(`  direction neg λ=0.16 equator-side: α′=${fmt(aBad * 180 / Math.PI, 2)}° Δ=${fmt(dBad, 3)} vs geo α=${fmt(aGeo * 180 / Math.PI, 2)}° Δ=${fmt(dGeo, 3)}`);
+  check(aBad < aGeo - 0.5 * Math.PI / 180, 'equator-side center at λ≤0.2: α′ < α_geo (wrong bulge direction)');
+  const goodDir = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, bowSide: 'pole', rowsMode: 'count', rowsCount: 2 });
+  check(arrivalAlpha(goodDir) > aGeo + 0.5 * Math.PI / 180, 'pole-side at λ=0.32: α′ > α_geo');
+  check(goodDir.path.tipDrop.tipDrop_mm < dGeo - 0.5, 'pole-side at λ=0.32 still improves Δ (no false fail)');
+
+  // n≥2 = rail, not concentric small-circle (Fable v2)
+  const railA = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 3 });
+  const row1 = railA.path.segs.filter((s) => s.type === 'leg' && s.row === 1);
+  const row2 = railA.path.segs.filter((s) => s.type === 'leg' && s.row === 2);
+  console.log(`  layMode row1: ${[...new Set(row1.map((s) => s.layMode))]} row2: ${[...new Set(row2.map((s) => s.layMode))]}`);
+  check(row1.length && row1.every((s) => s.layMode === 'smallCircle' || s.shoulderForm === 'bow'), 'row 1 legs are small-circle bow');
+  check(row2.length && row2.every((s) => s.layMode === 'rail'), 'row n≥2 legs are rail (not concentric small circle)');
+  check(row2.every((s) => !s.bowCenter), 'row n≥2 legs have no fresh bowCenter (not concentric about P)');
+
+  // bowLambda is the intent param; legacy bowFrac is empty optional
+  const bl = PARAM_SCHEMA.find((p) => p.key === 'bowLambda');
+  const bf = PARAM_SCHEMA.find((p) => p.key === 'bowFrac');
+  check(bl && (bl.def === '' || bl.def == null), 'bowLambda default is empty (resolved to 0.32 only when form=bow and nothing else set)');
+  check(bf && (bf.def === '' || bf.def == null), 'legacy bowFrac default is empty (prefer bowLambda)');
 }
+
 
 
 // 9. Material preset (D34) + recipe scaffold (D35): provenance data + same path.ops for step/full

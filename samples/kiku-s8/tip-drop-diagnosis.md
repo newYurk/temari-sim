@@ -107,7 +107,7 @@ Implementation matches G12; Δ_tip ≈ \(w/\sin\alpha\); scales sanely with C an
 | Rank | Cause | Tag | Verdict |
 |---|---|---|---|
 | 1 | packThenPierce + geodesic ⇒ Δ≈w/sinα≈5 mm; GT14 1–2 mm is a different, unmerged recipe number | technique + math | **Primary (model is consistent with D26)** |
-| 2 | Non-geodesic tip lay (friction-held bow) would reconcile ~2 mm + V13 width | physics | **Best physical next hypothesis** |
+| 2 | Non-geodesic tip lay (friction-held bow) could reach ~2 mm tip drop (and may help V13 width) | physics | **Best physical next hypothesis** |
 | 3 | Definition mismatch | technique | Secondary only |
 | 4 | Missing stack lift | physics | Not primary for tip drop |
 | 5 | Coding bug | math | No |
@@ -185,6 +185,10 @@ At default μ=0.32, **~2 mm is reachable within Φ3** — no need to force Δ=2 
 
 ## 9. Small-circle shoulder (D40, Fable 2026-09-25) — formulas and expected table
 
+Formulas (2) sinθ=λ·tan(γ/2); (3) α′=α_geo+θ; (5) δ=R·(ρ−arccos(cosρ/cos(γ/2))); (6) L_arc=R·sinρ·Δψ; (8) packing ang(P,E(s))=ρ+w/R. Table §3: at λ=0.32, Δ=2.236 δ=1.632 (sim matches within 0.5% after (8)).
+
+> **Fable revision 2 corrections applied; full v2 file applied.** V21 = transversality; n≥2 = rail; bowFrac default 0.5; V20 warn/fail thresholds 0.9μ / 1.1μ; do not claim reconciliation of GT14 + TK-UWA — sample decides.
+
 D33 `bowToMarking` (tipEnv envelope toward marking + last-5% pack normal) is **cancelled**. Honest physics: row-1 shoulder is a **small-circle arc** of constant geodesic curvature κ_g = λ/R with 0 ≤ λ ≤ μ (Φ3), curvature center on the **pole side** of plane OXE (bulge away from pole / toward equator). Full spec: [`leg-shape-spec.md`](leg-shape-spec.md). Theory script: `sim/tools/bow_theory.py`.
 
 ### Formulas (sphere)
@@ -212,4 +216,4 @@ From independent `bow_theory.py` (calibrates λ=0 → Δ≈4.972 vs sim 4.968):
 | 0.52 | 62.5 | 16.1 | 23.7 | 1.70 | 2.68 | 14 |
 | **0.60** | 59.0 | 18.6 | 26.2 | **1.55** | 3.12 | 16 |
 
-At μ=0.32, λ=μ (bowFrac=1): expect Δ≈2.24 mm and ~11 rows — reconciles TK-UWA ~2 mm with GT14 row impression without the D33 clamp. Tip Δ and row count are **consequences** of λ; no free tipDrop input; craft band 1.5–2.5 mm may be *reported* in diagnostics but must not fail the suite.
+At μ=0.32, λ=μ (bowFrac=1 for full-cone comparison; schema default is now 0.5 per Fable v2): expect Δ≈2.24 mm and ~11 rows (±1 ok; sim may show 12). Compatible with TK-UWA ~2 mm under bow intent; GT14 photos also compatible with geodesic. Rows ≈ 20/Δ is arithmetic. Bow is Olympus intent; sample decides — not a claim that the model reconciles both sources. D33 clamp still cancelled. Tip Δ and row count are **consequences** of λ; no free tipDrop input; craft band 1.5–2.5 mm may be *reported* in diagnostics but must not fail the suite.

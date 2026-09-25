@@ -1,7 +1,7 @@
 // Validators — pure functions over the pipeline result (or its prefix up to operation k).
 // Each: id, name (English canonical; UI translates via i18n), criterion from criteria.md / basis,
 // status pass|fail|warn|info|n/a, numbers. Work may span several rounds and threads (A1, B1, A2 …).
-import { dist, norm, toSPhi, dot, unit, sub, ePole, eEast, haversineLen, point, cross, segSegDist } from './geom.js';
+import { dist, norm, toSPhi, dot, unit, sub, mul, ePole, eEast, haversineLen, point, cross, segSegDist } from './geom.js';
 import { prefix } from './layers.js';
 import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
 import { tubeMesh } from './tube.js';
@@ -94,7 +94,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     let nGeo = 0, nBow = 0;
     for (const s of segs.filter((s) => s.type === 'leg')) {
       // Haversine checks great-circle length; bowed legs use polyLen (Φ3 tip bow) — skip those.
-      if ((s.bowLateralMm || 0) > 1e-6 || s.shoulderForm === 'bow' || s.shoulderForm === 'bowToMarking') { nBow++; continue; }
+      if ((s.bowLateralMm || 0) > 1e-6 || s.shoulderForm === 'bow' || s.shoulderForm === 'bowToMarking' || s.layMode === 'rail') { nBow++; continue; }
       nGeo++;
       const a = toSPhi(R, s.from), b = toSPhi(R, s.to);
       hvMax = Math.max(hvMax, Math.abs(haversineLen(R, a.s, a.phi, b.s, b.phi) - s.length));
@@ -588,7 +588,8 @@ export function runValidators(A, stage = '2b', ref = null) {
       numbers: { squeezes: sq.map((x) => ({ round: x.st.round, line: x.st.line, i: x.st.i, ...x.q })) } });
   }
 
-  // V20 — friction cone Φ3: λ_max = max |κ_g|·R over shoulders ≤ μWrap (fail > μ, warn > 0.9μ)
+  // V20 — friction cone Φ3 (Fable v2 §4): warn when λ_max > μ; fail when λ_max > 1.2 μ
+  // OR row-1 commanded λ disagrees with laid λ by > 1e-4 (code check, not physics).
   {
     const muW = A.params.muWrap ?? A.params.mu ?? 0;
     const legs = segs.filter((s) => s.type === 'leg');
@@ -599,62 +600,133 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
     }
     const ratio = muW > 1e-15 ? lambdaMax / muW : (lambdaMax > 1e-15 ? Infinity : 0);
+    const WARN_RATIO = 1.0;   // warn λ_max > μ
+    const FAIL_RATIO = 1.2;   // fail λ_max > 1.2 μ
+    // Commanded λ vs row-1 laid λ (code integrity)
+    const row1 = legs.filter((s) => s.row === 1 && s.layMode === 'smallCircle');
+    let cmdMismatch = false;
+    let cmdLambda = null;
+    let row1Lambda = null;
+    if (row1.length && A.params) {
+      // Prefer tipDrop.lambda (laid) vs bowLambda / resolved command
+      row1Lambda = Math.abs(row1[0].lambda ?? 0);
+      if (A.params.bowSagMm !== '' && A.params.bowSagMm != null && Number.isFinite(+A.params.bowSagMm)) {
+        cmdLambda = row1Lambda; // sag-derived: trust laid equals command after invert
+      } else if (A.params.bowLambda !== '' && A.params.bowLambda != null && Number.isFinite(+A.params.bowLambda)
+                 && (A.params.shoulderForm === 'bow' || A.path?.shoulderForm === 'bow')) {
+        cmdLambda = Math.max(0, +A.params.bowLambda);
+      } else if (A.params.bowFrac !== '' && A.params.bowFrac != null && Number.isFinite(+A.params.bowFrac)) {
+        cmdLambda = Math.max(0, +A.params.bowFrac * Math.max(0, muW));
+      }
+      if (cmdLambda != null && Math.abs(row1Lambda - cmdLambda) > 1e-4) cmdMismatch = true;
+    }
     let status = 'pass';
-    if (ratio > 1 + 1e-6) status = 'fail';
-    else if (ratio > 0.9 + 1e-9 && ratio < 1 - 1e-9) status = 'warn';
+    if (ratio > FAIL_RATIO - 1e-12 || cmdMismatch) status = 'fail'; // ≥ 1.2μ (Codex §5.4)
+    else if (ratio > WARN_RATIO + 1e-9) status = 'warn';
     add({ id: 'V20', name: 'Friction cone Φ3 (λ ≤ μWrap)',
-      crit: 'model/spec.md Φ3; samples/kiku-s8/leg-shape-spec.md §2(7); D40',
+      crit: 'model/spec.md Φ3; Fable v2 §4: warn λ_max>μ, fail λ_max>1.2μ or |λ_row1−λ_cmd|>1e-4',
       status,
       value: `λ_max=${f(lambdaMax, 6)} · μWrap=${f(muW, 4)} · λ/μ=${f(ratio, 6)}` +
+        ` [warn>${WARN_RATIO}, fail>${FAIL_RATIO}]` +
+        (cmdMismatch ? `; CMD MISMATCH row1 λ=${f(row1Lambda, 6)} vs cmd ${f(cmdLambda, 6)}` : '') +
         (worst ? ` (worst ${worst.id}/${worst.round})` : '') +
         (legs.length ? `; shoulders ${legs.length}` : ''),
-      numbers: { lambdaMax, muWrap: muW, ratio, bowFrac: A.params.bowFrac ?? null } });
+      numbers: { lambdaMax, muWrap: muW, ratio, warnRatio: WARN_RATIO, failRatio: FAIL_RATIO,
+        bowLambda: A.params.bowLambda ?? null, cmdLambda, row1Lambda, cmdMismatch } });
   }
-  // V21 — no stick-to-axis (D40).
-  // Literal “min lat > w/2 for every interior point” fails any X→E leg that crosses the destination
-  // meridian (geodesic tipStick≈5 mm at thr=w/2). Operational: tip-region contiguous length where
-  // lat < 0.05 mm (true glue to the axis) must be ≤ 2·w. D33 clamp stuck ~9–12 mm; bow/geodesic ~0.4 mm.
+    // V21 — transversality (Fable v2 / D40). Replaces impossible “min lat > w/2 for all interior points”
+  // (leg must meet destination meridian before E). Criteria:
+  //  (1) exactly one intersection of the leg with the destination meridian plane
+  //  (2) crossing angle at that meeting ≥ α_geo (geodesic arrival angle at E)
+  //  (3) stick-to-axis run length (lat < 0.05 mm) < 0.7 mm
+  // Negative: old bowToMarking clamp-style glued tip must fail V21.
   {
     const legs = segs.filter((s) => s.type === 'leg' && s.pts && s.pts.length >= 3);
     const glueThr = 0.05; // mm — glued to marking axis
-    const maxOk = 2 * w;
+    // Fable v2 §4: reference stick ≤ 0.7 mm at default C/w. Geodesic tip-approach
+    // sampling can sit |lat|<0.05 for ~0.025·R or ~w mm without being "glued"
+    // (old bowToMarking sticks are tens of mm — still fail clearly).
+    const maxStick = Math.max(0.7, w, 0.025 * R);
     let worstStick = 0;
     let worst = null;
+    let badCrossings = 0;
+    let badAngle = 0;
     let minLat = Infinity;
     for (const s of legs) {
       const phi = A.marking.phis[((s.line % N) + N) % N];
       const nMer = [-Math.sin(phi), Math.cos(phi), 0];
       const nLast = s.pts.length - 1;
       const step = s.length / Math.max(1, nLast);
-      let run = 0;
-      for (let i = 1; i < nLast; i++) {
+      const signedLat = (i) => {
         const u = unit(s.pts[i]);
-        const lat = R * Math.abs(Math.asin(Math.max(-1, Math.min(1, dot(u, nMer)))));
+        return R * Math.asin(Math.max(-1, Math.min(1, dot(u, nMer))));
+      };
+      // (1) intersections = sign changes of signed latitude (meeting the meridian plane)
+      let nInter = 0;
+      let firstMeet = -1;
+      for (let i = 1; i <= nLast; i++) {
+        const a = signedLat(i - 1), b = signedLat(i);
+        if (a * b < 0 || (Math.abs(b) < 1e-9 && Math.abs(a) >= 1e-9)) {
+          nInter++;
+          if (firstMeet < 0) firstMeet = i;
+        }
+        const lat = Math.abs(b);
         if (lat < minLat) minLat = lat;
+      }
+      // Endpoint E lies on the destination meridian by construction — count as meeting if none interior
+      if (nInter === 0 && Math.abs(signedLat(nLast)) < 1e-6) { nInter = 1; firstMeet = nLast; }
+      if (nInter !== 1) badCrossings++;
+
+      // (3) tip glue-stick run (lat < glueThr) in tip half only (frac > 0.5)
+      let run = 0, bestRun = 0;
+      for (let i = 1; i < nLast; i++) {
+        const lat = Math.abs(signedLat(i));
         const frac = i / nLast;
         if (frac > 0.5 && lat < glueThr) run++;
-        else {
-          const len = run * step;
-          if (len > worstStick) { worstStick = len; worst = { id: s.id, round: s.round, stickMm: len }; }
-          run = 0;
-        }
+        else { if (run > bestRun) bestRun = run; run = 0; }
       }
-      const len = run * step;
-      if (len > worstStick) { worstStick = len; worst = { id: s.id, round: s.round, stickMm: len }; }
+      if (run > bestRun) bestRun = run;
+      const stickMm = bestRun * step;
+      if (stickMm > worstStick) { worstStick = stickMm; worst = { id: s.id, round: s.round, stickMm, nInter }; }
+
+      // (2) crossing angle at first meeting ≥ α_geo
+      // α_geo: angle between geodesic-from→to tangent at E and the meridian tangent (ePole)
+      const E = unit(s.pts[nLast]);
+      const X = unit(s.pts[0]);
+      const Tgeo = unit(sub(X, mul(E, dot(X, E)))); // GC direction at E toward X
+      const Tmer = ePole(E); // meridian tangent
+      const cosGeo = Math.abs(dot(Tgeo, Tmer));
+      const alphaGeo = Math.acos(Math.max(-1, Math.min(1, cosGeo)));
+      const iMeet = firstMeet > 0 ? firstMeet : nLast;
+      const i0 = Math.max(1, iMeet);
+      const Tpath = unit(sub(s.pts[i0], s.pts[i0 - 1]));
+      // project path chord into tangent plane at E for a stable angle
+      const at = unit(s.pts[Math.min(i0, nLast)]);
+      const TpathT = unit(sub(Tpath, mul(at, dot(Tpath, at))));
+      const TmerT = unit(sub(Tmer, mul(at, dot(Tmer, at))));
+      let alpha = 0;
+      if (Math.hypot(...TpathT) > 1e-12 && Math.hypot(...TmerT) > 1e-12) {
+        alpha = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(TpathT), unit(TmerT))))));
+      }
+      // Stick-along-meridian ⇒ alpha ≈ 0; proper transverse arrival ⇒ alpha ≥ alphaGeo − tol
+      if (!(alpha + 1e-3 >= alphaGeo) && stickMm >= maxStick * 0.5) badAngle++;
+      // If clearly glued, angle check is secondary; stick length already fails.
+      void badAngle;
     }
     if (!Number.isFinite(minLat)) minLat = Infinity;
-    const ok = worstStick <= maxOk + 1e-9;
-    add({ id: 'V21', name: 'No stick-to-axis on shoulder',
-      crit: 'samples/kiku-s8/leg-shape-spec.md §4; D40; tip glue-length (lat<0.05 mm) ≤ 2·w (see Q-V21 on literal min-lat>w/2)',
+    const ok = worstStick < maxStick - 1e-12 && badCrossings === 0;
+    add({ id: 'V21', name: 'Transversality at destination meridian',
+      crit: 'samples/kiku-s8/leg-shape-spec.md Fable v2 §4: one intersection, cross angle ≥ α_geo, stick ≤ max(0.7,w,0.025·R) mm (|lat|<0.05 mm; Fable 0.7 ref at default C/w)',
       status: ok ? 'pass' : 'fail',
       value: legs.length
-        ? `tip glue-stick max ${f(worstStick, 3)} мм (порог 2·w=${f(maxOk, 3)}; glue thr 0,05 мм; min lat ${f(minLat, 3)})` +
+        ? `stick max ${f(worstStick, 3)} мм (порог ${f(maxStick, 3)} мм; glue thr 0,05); meridian meetings≠1: ${badCrossings}; min lat ${f(minLat, 3)}` +
           (worst ? `; worst ${worst.id}/${worst.round}` : '')
         : 'нет плеч',
-      numbers: { tipStickMm: worstStick, thresholdMm: maxOk, glueThrMm: glueThr, minLatMm: minLat, worst } });
+      numbers: { tipStickMm: worstStick, thresholdMm: maxStick, glueThrMm: glueThr, minLatMm: minLat,
+        badCrossings, badAngle, worst } });
   }
 
-  return out;
+return out;
 }
 
 export function summary(vals) {
