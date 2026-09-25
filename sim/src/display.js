@@ -2,26 +2,29 @@
 // The path model is unchanged: only display conventions live here, each called out.
 //  • visible leg: model is a geodesic on R (thread on the surface); tube axis at R + w/2,
 //    round tube of diameter w [D22] ⇒ outer point at R + w.
-//  • dive into the hole (6a.18): descent starts PAST the outer edge of the last underlying thread; length
-//    min(DIVE_W·w, distance to that edge); edge closer than w/4 → vertical drop. 90° kink at the hole is allowed.
+//  • dive into the hole (6a.18): descent starts PAST the near outer edge of the last underlying thread
+//    (edge = d_hole − w/2); length min(DIVE_W·w, that distance); edge closer than w/4 → vertical.
+//    lift(d) is carried until that short final dive. 90° kink at the hole is allowed.
 //  • pickup E→X: model is a sub-surface chord (depth ≤ 0.02 mm); drawn dashed with axis at R − w/2.
 //  • hidden start: model is a straight needle chord (35 mm ⇒ up to 4.24 mm deep). Default display is SCHEMATIC —
 //    an arc just under the surface (R − HID_DEPTH_W·w) so it does not cut through the ball; mode 'chord' = model.
-import { unit, mul, dist, angle } from './geom.js';
+import { unit, mul, dist, angle, segSegDist } from './geom.js';
 
 export const HID_DEPTH_W = 1.0;      // depth of schematic hidden-start arc, in thread widths (display convention, not model)
-//  • stack (6a.17): lift(d) = DISPLAY_STACK_LIFT_W·√(w²−d²) when d < w, else 0 (d = lateral axis distance).
-//    rail-parallel (d≈w) → 0; climb → √(2wδ−δ²); transversal crossing — tent on ±w/sinψ; wedge — via c.stack.
+//  • stack (6a.17): lift(d) = DISPLAY_STACK_LIFT_W·√(w²−d²) when d < w·(1−ε), else 0 (ε = LIFT_DIST_EPS = 0.01).
+//    rail-parallel (d≈w) → 0, never ×c.stack; climb → √(2wδ−δ²); transversal — tent on ±w/sinψ; wedge — c.stack.
 //    Later-laid thread rises (c.over), except under-passes per recipe. Hook: A.mechanics.liftAt.
 export const DISPLAY_STACK_LIFT_W = 0.6;
 export const DIVE_W = 1.5;           // leg dive length into the hole, in thread widths (display convention)
+/** ε for lift(d)=0 when d ≥ w·(1−ε); same 0.01 as free-leg contact (6a.17). */
+export const LIFT_DIST_EPS = 0.01;
 /** @deprecated 6a.17 general lift(d) supersedes kind skip; kept for tests that assert rail-parallel → 0. */
 export const STACK_LIFT_SKIP_KINDS = new Set(['rail-parallel']);
 const smooth = (e) => { e = Math.max(0, Math.min(1, e)); return e * e * (3 - 2 * e); };
 
-/** Peak lift (mm) from lateral axis distance d (6a.17). */
+/** Peak lift (mm) from lateral axis distance d (6a.17). Zero when d ≥ w·(1−ε). */
 export function liftFromDist(d, w, k = DISPLAY_STACK_LIFT_W) {
-  if (!(w > 0) || !(d < w)) return 0;
+  if (!(w > 0) || !(d < w * (1 - LIFT_DIST_EPS))) return 0;
   return k * Math.sqrt(Math.max(0, w * w - d * d));
 }
 
@@ -100,8 +103,12 @@ export function stackProfile(A, seg) {
       continue;
     }
 
-    // rail-parallel / flush / other: lift(d) from lateral distance (d≥w → 0).
+    // rail-parallel / flush / other: lift(d); d ≥ w·(1−ε) → 0. Rail-parallel never ×c.stack (6a.17 chatter).
     const d = c.dmin != null ? c.dmin : w;
+    if (c.kind === 'rail-parallel') {
+      // Flush packing at d ≈ w: ε floor → 0; do not amplify residual by stack level.
+      continue;
+    }
     const peak = liftFromDist(d, w, kLift) * stack;
     if (peak <= 0) continue;
     const half = Math.max(w, c.lenMm / 2, c.halfMm || 0);
@@ -135,32 +142,29 @@ function arcAtDepth(R, a, b, depth, h) {       // great-circle arc a→b; radius
 }
 
 /** For each segment in segIds (Set, or null = all): { seg, pts, radius, hidden, schematic, note }. */
-/** Distance along leg from end to where axis clears outer edge of underlying threads (d≥w). */
+/**
+ * Distance from hole to the near outer edge of the nearest earlier thread tube (6a.18).
+ * Edge = axis distance at hole minus w/2 (tube surface toward the hole). Dive length is
+ * min(DIVE_W·w, this); edge closer than w/4 → vertical. Path samples unchanged.
+ */
 function clearDistFromEnd(A, seg, fromStart) {
   const w = A.params.w_mm, R = A.base.R, pts = seg.pts;
   if (!pts || pts.length < 2) return DIVE_W * w;
+  const hole = fromStart ? pts[0] : pts[pts.length - 1];
   const others = A.path.segs.filter((o) => o.type === 'leg' && o.id !== seg.id
     && (o.u1 == null || seg.u0 == null || o.u1 <= seg.u0 + 1e-12)); // laid earlier
-  const n = pts.length;
-  const cum = [0];
-  for (let i = 1; i < n; i++) cum.push(cum[i - 1] + R * angle(pts[i - 1], pts[i]));
-  const total = cum[n - 1];
-  // Walk from the hole end inward; find first sample with min d to earlier axes ≥ w.
-  let clearAlong = 0;
-  const order = fromStart
-    ? [...Array(n).keys()]
-    : [...Array(n).keys()].reverse();
-  for (const i of order) {
-    const p = unit(pts[i]);
-    let dMin = Infinity;
-    for (const o of others) {
-      for (const q of o.pts) dMin = Math.min(dMin, R * angle(p, unit(q)));
+  if (!others.length) return DIVE_W * w;
+  // Chord distance hole→polyline (same metric as V16 / upper-hole audit).
+  let d0 = Infinity;
+  for (const o of others) {
+    const pts = o.pts;
+    for (let j = 1; j < pts.length; j++) {
+      d0 = Math.min(d0, segSegDist(hole, hole, pts[j - 1], pts[j]).d);
     }
-    const along = fromStart ? cum[i] : total - cum[i];
-    if (dMin >= w - 1e-9) { clearAlong = along; break; }
-    clearAlong = along;
   }
-  return clearAlong;
+  if (!(d0 < Infinity)) return DIVE_W * w;
+  // Near outer edge of underlying tube; negative ⇒ hole already inside tube → vertical dive.
+  return Math.max(0, d0 - w / 2);
 }
 
 export function displayGeometry(A, segIds = null, opts = {}) {
@@ -182,8 +186,9 @@ export function displayGeometry(A, segIds = null, opts = {}) {
       let liftMax = 0;
       const pts = P.map((p, i) => {
         liftMax = Math.max(liftMax, V[i]);
-        // Surface fraction: 0 in hole, 1 after dive length from that end.
+        // Surface fraction: 0 in hole, 1 after short dive past underlying-tube edge (6a.18).
         // When dive=0 (edge < w/4): vertical — e=0 only at exact end sample, else 1.
+        // Short dive (= hole→near-edge) means lift(d) is full for all samples past the edge.
         const e0 = dive0 < 1e-12 ? (X[i] < 1e-9 ? 0 : 1) : smooth(Math.min(1, X[i] / Math.max(dive0, 1e-12)));
         const e1 = dive1 < 1e-12 ? ((L - X[i]) < 1e-9 ? 0 : 1) : smooth(Math.min(1, (L - X[i]) / Math.max(dive1, 1e-12)));
         const ee = Math.min(e0, e1);

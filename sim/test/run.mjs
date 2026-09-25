@@ -1,10 +1,10 @@
 // Безбраузерные тесты: генератор пути + валидаторы. Запуск: node sim/test/run.mjs  (код выхода 0 = всё прошло)
 import { loadRecipe, loadJSON } from '../src/recipe.js';
 import { computeAll } from '../src/layers.js';
-import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan } from '../src/validators.js';
+import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan, geodesicAlphaAt, tipLevelMm } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples } from '../src/path.js';
-import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS, liftFromDist, DISPLAY_STACK_LIFT_W } from '../src/display.js';
+import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS, liftFromDist, DISPLAY_STACK_LIFT_W, LIFT_DIST_EPS, DIVE_W } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
 import { norm, unit, mul, sub, add, dot, angle, cross } from '../src/geom.js';
 
@@ -846,6 +846,26 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   }
 }
 
+// 8d0b. K16b λ=0: per-leg α + per-line Δ → 0 false promises (independent audit match)
+{
+  console.log('\n## K16b λ=0 per-leg/line inputs (0 false promises)');
+  const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0, rowsMode: 'untilEquator' });
+  const v = runValidators(A, A.path.ops.length - 1, null).find((x) => x.id === 'K16');
+  console.log(`  K16: ${v.status} — ${v.value}`);
+  check(v.status === 'pass', 'K16 pass at λ=0 (K16b diagnostic-only)');
+  // Both sets: every promised side is covered (miss 0). Published row-wide α/Δ had 10 false promises in B.
+  check(/miss 0/.test(v.value) && !/miss [1-9]/.test(v.value),
+    `K16b λ=0: 0 false promises on both sets (got ${v.value.match(/K16b diag[^;]+/g)?.join(' | ')})`);
+  check(/set B:.*K16b diag \d+\/\d+ promised-covered \(miss 0/.test(v.value),
+    'set B K16b diag reports miss 0');
+  // Sanity: geodesicAlphaAt on a known leg is acute and finite
+  const leg = A.path.segs.find((s) => s.type === 'leg' && s.row === 1);
+  const a0 = geodesicAlphaAt(leg.from, leg.to, leg.from);
+  check(Number.isFinite(a0) && a0 > 0 && a0 < Math.PI / 2, `geodesicAlphaAt finite acute (got ${(a0 * 180 / Math.PI).toFixed(2)}°)`);
+  check(Math.abs(tipLevelMm(leg.from, A.base.R) - (A.path.stitches.find((s) => s.legId === leg.id)?.s ?? tipLevelMm(leg.from, A.base.R))) < 1
+    || tipLevelMm(leg.from, A.base.R) > 0, 'tipLevelMm positive');
+}
+
 // 8d. K16 tip coverage + V8 tipCross (6a.13 / 6a.16)
 {
   console.log('\n## K16 tip coverage / V8 tipCross (6a.13–6a.16)');
@@ -945,8 +965,10 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
   const w0 = 0.714;
   check(Math.abs(liftFromDist(w0, w0)) < 1e-12, 'lift(d=w) = 0');
   check(Math.abs(liftFromDist(w0 + 0.01, w0)) < 1e-12, 'lift(d>w) = 0');
+  check(Math.abs(liftFromDist(w0 * (1 - LIFT_DIST_EPS), w0)) < 1e-12, 'lift(d=w·(1−ε)) = 0 (6a.17 ε floor)');
   check(Math.abs(liftFromDist(0, w0) - DISPLAY_STACK_LIFT_W * w0) < 1e-9, 'lift(d=0) = 0.6·w');
-  check(liftFromDist(w0 * 0.5, w0) > 1e-9, 'lift(d<w) > 0');
+  check(liftFromDist(w0 * 0.5, w0) > 1e-9, 'lift(d<w·(1−ε)) > 0');
+  check(LIFT_DIST_EPS === 0.01, 'LIFT_DIST_EPS = 0.01 (same as free-leg contact)');
   // Deprecated kind-skip list kept only as alias; acceptance is by d, not kind.
   check(STACK_LIFT_SKIP_KINDS.has('rail-parallel'), 'STACK_LIFT_SKIP_KINDS still lists rail-parallel (compat)');
 
@@ -1012,6 +1034,155 @@ check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C ка�
     // (4) By d: close contacts produce lift; far do not
     check(anyLiftFromClose > 1e-9, `${cfg.label}: liftFromDist(d<w) > 0 on some on-top contact`);
     check(Number.isFinite(maxLift) && maxLift >= 0, `${cfg.label}: stackProfile finite`);
+  }
+}
+
+
+// 8g. Display 6a.18 upper dive: short dive after near-edge; lift(d) on samples past dive room
+{
+  console.log('\n## Display 6a.18 upper E/X: dive after clear + lift(d)');
+  for (const cfg of [
+    { label: 'geo0', shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32 },
+    { label: 'bow0.32', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32 },
+    { label: 'bow0.6', shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6 },
+  ]) {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, rowsMode: 'count', rowsCount: 2, ...cfg });
+    const R = A.base.R, w = A.params.w_mm;
+    const legs = A.path.segs.filter((s) => s.type === 'leg');
+    const byId = new Map(A.path.segs.map((s) => [s.id, s]));
+    const order = new Map(A.path.segs.map((s, i) => [s.id, i]));
+    const tops = A.path.stitches.filter((s) => s.set === 'A' && s.row === 2 && s.level === 'top');
+    const ids = new Set();
+    const pairs = [];
+    for (const st of tops) {
+      const incoming = byId.get(st.legId);
+      const outgoing = A.path.segs.slice(order.get(st.pickupId) + 1).find((x) => x.type === 'leg' && x.set === st.set && x.row === st.row);
+      if (incoming && outgoing) { ids.add(incoming.id); ids.add(outgoing.id); pairs.push({ st, incoming, outgoing }); }
+    }
+    const dgBy = new Map(displayGeometry(A, ids).map((x) => [x.seg.id, x]));
+    let tested = 0, bad = 0, minRes = Infinity, maxDive = 0;
+    for (const { st, incoming, outgoing } of pairs) {
+      const old = legs.filter((s) => s.set === 'A' && s.row === 1 && order.get(s.id) < order.get(st.pickupId));
+      if (!old.length) continue;
+      for (const [side, leg, hole] of [['E', incoming, st.E], ['X', outgoing, st.X]]) {
+        const dg = dgBy.get(leg.id);
+        if (!dg) continue;
+        maxDive = Math.max(maxDive, ...(dg.diveMm || [0]));
+        const d0 = Math.min(...old.map((s) => {
+          let best = Infinity;
+          for (let j = 1; j < s.pts.length; j++) {
+            const a = s.pts[j - 1], b = s.pts[j];
+            const ab = sub(b, a), ap = sub(hole, a);
+            const t = Math.max(0, Math.min(1, dot(ap, ab) / (dot(ab, ab) || 1)));
+            best = Math.min(best, norm(sub(hole, add(a, mul(ab, t)))));
+          }
+          return best;
+        }));
+        const diveRoom = Math.max(0, d0 - w / 2);
+        // Dive must be the short hole→near-edge length (not full axis clearance walk).
+        const diveEnd = side === 'E' ? dg.diveMm[1] : dg.diveMm[0];
+        check(diveEnd <= diveRoom + 0.02 || diveEnd < w / 4 + 1e-9,
+          `${cfg.label} ${st.round}/${st.i} ${side}: dive ${fmt(diveEnd, 4)} ≤ hole→edge ${fmt(diveRoom, 4)}+0.02 (or vertical)`);
+        for (const p of dg.pts) {
+          const sAlong = R * angle(p, hole);
+          if (sAlong > 1.5 * w || sAlong < Math.max(0.4 * w, diveRoom + 0.05 * w)) continue;
+          const q = mul(unit(p), R);
+          let d = Infinity;
+          for (const s of old) {
+            for (let j = 1; j < s.pts.length; j++) {
+              const a = s.pts[j - 1], b = s.pts[j];
+              const ab = sub(b, a), ap = sub(q, a);
+              const t = Math.max(0, Math.min(1, dot(ap, ab) / (dot(ab, ab) || 1)));
+              d = Math.min(d, norm(sub(q, add(a, mul(ab, t)))));
+            }
+          }
+          if (d >= 0.98 * w) continue;
+          tested++;
+          const expected = DISPLAY_STACK_LIFT_W * Math.sqrt(Math.max(0, w * w - d * d));
+          const actual = norm(p) - (R + w / 2);
+          const residual = actual - expected;
+          minRes = Math.min(minRes, residual);
+          if (residual < -0.05 * w) bad++;
+        }
+      }
+    }
+    check(tested > 0, `${cfg.label}: upper E/X lift samples > 0`);
+    check(bad === 0, `${cfg.label}: no sample with d<0.98w under-lifted (bad=${bad}, minRes=${fmt(minRes, 4)} mm)`);
+    check(maxDive <= DIVE_W * A.params.w_mm + 1e-9, `${cfg.label}: dive ≤ 1.5·w`);
+    console.log(`  ${cfg.label}: tested=${tested} bad=${bad} minRes=${fmt(minRes, 4)} maxDive=${fmt(maxDive, 4)}`);
+  }
+}
+
+// 8h. Rail-parallel ε floor: d ≥ w·(1−ε) → lift 0; no stack×rail; zero rail-attributable height switches
+{
+  console.log('\n## Display 6a.17 rail-parallel ε floor (no chatter)');
+  for (const cfg of [
+    { label: 'geo0', shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, rowsMode: 'count', rowsCount: 2 },
+    { label: 'bow0.32', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'count', rowsCount: 4 },
+    { label: 'bow0.6', shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, rowsMode: 'count', rowsCount: 4 },
+  ]) {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, ...cfg });
+    const w = A.params.w_mm, R = A.base.R;
+    let maxLiftGeEps = 0, maxRailProfile = 0, railN = 0;
+    const legs = A.path.segs.filter((s) => s.type === 'leg');
+    for (const c of A.path.crossings) {
+      const d = c.dmin != null ? c.dmin : w;
+      if (d >= w * (1 - LIFT_DIST_EPS)) maxLiftGeEps = Math.max(maxLiftGeEps, liftFromDist(d, w) * Math.max(1, c.stack || 1));
+      if (c.kind === 'rail-parallel') {
+        railN++;
+        maxLiftGeEps = Math.max(maxLiftGeEps, liftFromDist(d, w) * Math.max(1, c.stack || 1));
+      }
+    }
+    // Rail-only profile on A2 must be identically 0 (no stack amplification chatter).
+    let railSwitches = 0;
+    for (const s of legs.filter((x) => x.round === 'A2')) {
+      const rails = A.path.crossings.filter((c) => c.over === s.id && c.kind === 'rail-parallel');
+      const profRail = stackProfile({ ...A, path: { ...A.path, crossings: rails } }, s);
+      maxRailProfile = Math.max(maxRailProfile, ...profRail);
+      // Switches attributable to rail-only profile
+      for (let i = 1; i < profRail.length; i++) {
+        const a = profRail[i - 1] > 1e-9, b = profRail[i] > 1e-9;
+        if (a !== b) railSwitches++;
+      }
+    }
+    check(maxLiftGeEps < 1e-12, `${cfg.label}: lift from d≥w·(1−ε) (and rail-parallel) === 0 (got ${maxLiftGeEps})`);
+    check(maxRailProfile < 1e-12, `${cfg.label}: rail-only stackProfile max === 0 (got ${maxRailProfile})`);
+    check(railSwitches === 0, `${cfg.label}: zero height switches attributable to rail-parallel (got ${railSwitches})`);
+    if (cfg.label.startsWith('bow')) check(railN > 0, `${cfg.label}: rail-parallel contacts exist`);
+    console.log(`  ${cfg.label}: rails=${railN} maxLiftGeEps=${maxLiftGeEps} maxRailProf=${maxRailProfile} railSwitches=${railSwitches}`);
+  }
+}
+
+// 8i. V16 6a.21: upper-hole offenders by whose thread; geo fan-start B4/B6/B8
+{
+  console.log('\n## V16 6a.21 upper holes: own fail / foreign fan U14 / foreign early fail');
+  // Early stage A2 must still pass (no late fan yet).
+  {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714 });
+    const v = runValidators(A, 'A2', null).find((x) => x.id === 'V16');
+    check(v.status === 'pass', `A2 stage V16 pass (got ${v.status})`);
+  }
+  const expectB = { 0: 4, 0.32: 6, 0.6: 8 };
+  for (const lambda of [0, 0.32, 0.6]) {
+    const A = computeAll(recipe, {
+      C_mm: 240, w_mm: 0.714,
+      shoulderForm: lambda ? 'bow' : 'geodesic', bowLambda: lambda,
+      muWrap: Math.max(lambda, 0.32), rowsMode: 'untilEquator',
+    });
+    const v = runValidators(A, A.path.ops.length - 1, null).find((x) => x.id === 'V16');
+    const n = v.numbers || {};
+    check((n.failOwn || 0) === 0, `λ=${lambda}: no own-cluster V16 fails (G3/G11)`);
+    check((n.earlyObs || 0) === 0, `λ=${lambda}: observed U14 not earlier than geometric fan-start`);
+    // Foreign-early fails would be path bugs; allow 0. Status may be warn (U14) or pass.
+    check(v.status === 'pass' || v.status === 'warn', `λ=${lambda}: V16 pass/warn not fail (got ${v.status}: ${v.value.slice(0, 120)})`);
+    check((n.failForeign || 0) === 0, `λ=${lambda}: no foreign-early V16 fails (got ${n.failForeign})`);
+    const geoB = Object.entries(n.geoFirst || {}).filter(([k]) => k.startsWith('B:')).map(([, r]) => r);
+    const geoBmin = geoB.length ? Math.min(...geoB) : null;
+    const exp = expectB[lambda];
+    // Geometric first for set B within ±2 of expected B4/B6/B8 (measurement tolerance on d(s_T)).
+    check(geoBmin != null && Math.abs(geoBmin - exp) <= 2,
+      `λ=${lambda}: geo fan-start B min row ≈ ${exp} (got ${geoBmin})`);
+    console.log(`  λ=${lambda}: status=${v.status} failOwn=${n.failOwn} failForeign=${n.failForeign} U14=${n.warnU14} geoBmin=${geoBmin} (expect~${exp})`);
   }
 }
 

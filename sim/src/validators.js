@@ -155,6 +155,32 @@ export function clairautAvgTan(alphaHole, sHole, sTip, R, samples = 16) {
 }
 
 /**
+ * Meridian angle α of the great-circle through from→to, evaluated at `at` (K16b per covering leg).
+ * Matches independent audit: atan2(|T·east|, |T·meridian|).
+ */
+export function geodesicAlphaAt(from, to, at) {
+  const P = unit(at), a = unit(from), b = unit(to);
+  const N = cross(a, b);
+  const nLen = Math.hypot(N[0], N[1], N[2]);
+  if (!(nLen > 1e-15)) return 0;
+  const Nu = [N[0] / nLen, N[1] / nLen, N[2] / nLen];
+  let T = cross(Nu, P);
+  const tLen = Math.hypot(T[0], T[1], T[2]);
+  if (!(tLen > 1e-15)) return 0;
+  T = [T[0] / tLen, T[1] / tLen, T[2] / tLen];
+  const th = Math.acos(clamp(P[2]));
+  const phi = Math.atan2(P[1], P[0]);
+  const eS = [Math.cos(th) * Math.cos(phi), Math.cos(th) * Math.sin(phi), -Math.sin(th)];
+  const eP = [-Math.sin(phi), Math.cos(phi), 0];
+  return Math.atan2(Math.abs(dot(T, eP)), Math.abs(dot(T, eS)));
+}
+
+/** Polar tip level s = R·acos(z) (same as independent K16b audit). */
+export function tipLevelMm(p, R) {
+  return R * Math.acos(clamp(unit(p)[2]));
+}
+
+/**
  * K16b two-sided Clairaut window (Fable 6a.20 correction of one-sided 6a.17).
  * Outgoing leg of row n+2 at tip-n level:
  *   x_leg = −(m + w)/2 + (Δ_{n+1} + Δ_{n+2}) · tanα
@@ -688,6 +714,7 @@ export function runValidators(A, stage = '2b', ref = null) {
   // K16 (6a.16 / 6a.17 / 6a.20) — tip coverage; K16b at λ=0 is two-sided Clairaut-window diagnostic
   {
     const bottoms = stitchesDone.filter((st) => st.level === 'bottom' && !st.closing);
+    const order = new Map(path.segs.map((x, i) => [x.id, i]));
     const bySet = {};
     for (const st of bottoms) (bySet[st.set] || (bySet[st.set] = [])).push(st);
     const parts = [];
@@ -749,23 +776,52 @@ export function runValidators(A, stage = '2b', ref = null) {
             const d = minDistToRow(T, set, n + 1);
             if (d <= w / 2 * 1.1) aOk++;
           }
-          // K16b: E_n, X_n covered by n+2 — at λ=0 diagnostic via two-sided Clairaut window (6a.20)
+          // K16b: E_n, X_n covered by n+2 — at λ=0 diagnostic via two-sided Clairaut window (6a.20).
+          // Inputs are per covering leg / line (not row-wide α or Δ): α from that leg's own hole,
+          // Clairaut-averaged to the E_n/X_n tip level; Δ_{n+1}, Δ_{n+2} on that line.
           if (n < Nrow - 1 && !closingWide && !firstLowerResume) {
-            const s0 = rowS(set, n), s1 = rowS(set, n + 1), s2 = rowS(set, n + 2);
-            const d1 = (s0 != null && s1 != null) ? Math.abs(s1 - s0) : (path.tipDrop?.tipDrop_mm ?? w);
-            const d2 = (s1 != null && s2 != null) ? Math.abs(s2 - s1) : d1;
+            const mid = bottoms.find((s) => s.set === set && s.row === n + 1 && s.line === st.line && !s.closing);
+            const later = bottoms.find((s) => s.set === set && s.row === n + 2 && s.line === st.line && !s.closing);
+            const d1 = (mid && st.s != null && mid.s != null) ? Math.abs(mid.s - st.s) : (path.tipDrop?.tipDrop_mm ?? w);
+            const d2 = (later && mid && later.s != null && mid.s != null) ? Math.abs(later.s - mid.s) : d1;
             const deltaSum = d1 + d2;
-            // Clairaut-average tan α between hole (row n+2) and tip-n level
-            const sHole = (s2 != null) ? s2 : (s0 != null ? s0 + deltaSum : null);
-            const tanA = (sHole != null && s0 != null)
-              ? clairautAvgTan(alphaK, sHole, s0, R)
-              : Math.tan(alphaK);
-            const alphaEff = Math.atan(tanA);
             const xE = st.eOff != null ? st.eOff : (m + w) / 2;
             const xX = st.xOff != null ? st.xOff : -(m + w) / 2;
-            const win = k16bCoverageWindow({ m, w, alpha: alphaEff, deltaSum, xE, tanAlpha: tanA, xX });
-            const promisedE = win.coveredE;
-            const promisedX = win.coveredX;
+            // Covering legs on this line: incoming ends at later.E; outgoing starts at later.X.
+            let incoming = later ? segById.get(later.legId) : null;
+            let outgoing = null;
+            if (later) {
+              const iPk = order.get(later.pickupId);
+              if (iPk != null) {
+                for (let i = iPk + 1; i < path.segs.length; i++) {
+                  const s = path.segs[i];
+                  if (s.type === 'leg' && s.set === set && s.row === n + 2) { outgoing = s; break; }
+                }
+              }
+            }
+            const sTipE = tipLevelMm(st.E, R), sTipX = tipLevelMm(st.X, R);
+            let promisedE = false, promisedX = false;
+            if (outgoing && outgoing.from) {
+              const hole = outgoing.from;
+              const alphaHole = geodesicAlphaAt(outgoing.from, outgoing.to, hole);
+              const tanA = clairautAvgTan(alphaHole, tipLevelMm(hole, R), sTipE, R);
+              const winE = k16bCoverageWindow({ m, w, alpha: Math.atan(tanA), deltaSum, xE, tanAlpha: tanA });
+              promisedE = winE.coveredE;
+            } else {
+              // Fallback: shared row angle (should be rare)
+              const tanA = clairautAvgTan(alphaK, (later?.s ?? st.s + deltaSum), st.s, R);
+              promisedE = k16bCoverageWindow({ m, w, alpha: Math.atan(tanA), deltaSum, xE, tanAlpha: tanA }).coveredE;
+            }
+            if (incoming && incoming.to) {
+              const hole = incoming.to;
+              const alphaHole = geodesicAlphaAt(incoming.from, incoming.to, hole);
+              const tanA = clairautAvgTan(alphaHole, tipLevelMm(hole, R), sTipX, R);
+              // coveredX uses +(m+w)/2 − Δ·tanα (incoming mirror); share call with dummy xE.
+              promisedX = k16bCoverageWindow({ m, w, alpha: Math.atan(tanA), deltaSum, xE, tanAlpha: tanA, xX }).coveredX;
+            } else {
+              const tanA = clairautAvgTan(alphaK, (later?.s ?? st.s + deltaSum), st.s, R);
+              promisedX = k16bCoverageWindow({ m, w, alpha: Math.atan(tanA), deltaSum, xE, tanAlpha: tanA, xX }).coveredX;
+            }
             const dE = minDistToRow(st.E, set, n + 2);
             const dX = minDistToRow(st.X, set, n + 2);
             const covE = dE <= w / 2 * 1.1, covX = dX <= w / 2 * 1.1;
@@ -1006,38 +1062,115 @@ export function runValidators(A, stage = '2b', ref = null) {
         status: unexplained ? 'fail' : explained ? 'warn' : 'pass', value: parts.join('; ') });
     }
   }
-  // V16 — needle does not pierce thread: each pierce (E, X, start holes) is ≥ w/2 from the axis of any already laid
-  //        thread — prior-stitch shoulder or channel (channel projected to the surface: it lies just under it)
+  // V16 — needle does not pierce thread (6a.21 at upper holes).
+  // Each pierce ≥ w/2 from any already-laid axis (channels projected to the surface).
+  // Upper-hole offenders classified by WHOSE thread is under the hole (not by row number):
+  //   (1) own cluster (same line + set) → fail (G3/G11 bug)
+  //   (2) foreign + capture half-width W_n/2 ≥ d(s_T(n)) → warn U14 (fan), same mechanism as V19
+  //   (3) foreign but W_n/2 < d → fail (check that thread's path)
+  // s_T(n) = sTop + (n−1)·w; d = lateral distance to nearest other-set leg at that level.
   {
-    let minMargin = Infinity, worst = null, nHoles = 0, bad = 0, badNoRoom = 0;
+    let minMargin = Infinity, worst = null, nHoles = 0;
+    let failOwn = 0, failForeign = 0, warnU14 = 0, badNoRoom = 0;
     const noRoomHoles = stitchesDone.flatMap((st) => (st.sides.squeeze || []).filter((q) => q.noRoom).map((q) => (q.side === 'E' ? st.E : st.X)));
     const order = new Map(path.segs.map((x, i) => [x.id, i]));
     const surf = new Map(segs.filter((x) => x.type === 'pickup').map((x) => [x.id, x.pts.map((q) => { const n0 = norm(q); return q.map((v) => v * R / n0); })]));
     const before = (idxSeg) => segs.filter((x) => (x.type === 'leg' || x.type === 'pickup') && order.get(x.id) < idxSeg);
-    const check = (p, idxSeg, exclude, what) => {
+    const sTop0 = A.layout?.sTop ?? A.params.sTop_mm ?? 5;
+    const phis = A.marking?.phis || [];
+    const foreignLatCache = new Map();
+    /** Lateral |y| on the needle line at tip level to nearest other-set leg (6a.21 d(s_T)). */
+    const foreignLatAt = (line, sT, ownSet) => {
+      if (!(line >= 0) || line >= phis.length || !(sT > 0)) return Infinity;
+      const key = `${ownSet}:${line}:${sT.toFixed(4)}`;
+      if (foreignLatCache.has(key)) return foreignLatCache.get(key);
+      const phi = phis[line];
+      const C = point(R, sT, phi);
+      const uC = unit(C), eL = eEast(C), n = ePole(C);
+      const coord = (p) => {
+        const q = unit(p);
+        return { f: R * Math.asin(Math.max(-1, Math.min(1, dot(q, n)))), y: R * Math.atan2(dot(q, eL), dot(q, uC)) };
+      };
+      let dMin = Infinity;
+      for (const L of segs) {
+        if (L.type !== 'leg' || L.set === ownSet || !L.pts || L.pts.length < 2) continue;
+        for (let i = 1; i < L.pts.length; i++) {
+          const a = coord(L.pts[i - 1]), b = coord(L.pts[i]);
+          if (!(a.f * b.f <= 0 || Math.min(Math.abs(a.f), Math.abs(b.f)) < w)) continue;
+          const t = Math.abs(a.f - b.f) < 1e-15 ? 0 : a.f / (a.f - b.f);
+          const tt = Math.max(0, Math.min(1, Number.isFinite(t) ? t : 0));
+          dMin = Math.min(dMin, Math.abs(a.y + (b.y - a.y) * tt));
+        }
+      }
+      foreignLatCache.set(key, dMin);
+      return dMin;
+    };
+    const hitDetails = [];
+    const checkHole = (p, idxSeg, exclude, st, side) => {
       nHoles++;
+      const what = `${side} ${st ? `${st.round}/${st.i}` : '?'}`;
       for (const L of before(idxSeg)) {
         if (exclude.includes(L.id)) continue;
         const d = ptPolyDist(p, L.type === 'pickup' ? surf.get(L.id) : L.pts);
         const margin = d - w / 2;
         if (margin < minMargin) { minMargin = margin; worst = `${what} — ${L.id}/${L.round} (${L.type === 'pickup' ? 'chnal' : 'leg'}): ${f(d, 3)} mm`; }
-        if (margin < -1e-9) { bad++; if (noRoomHoles.some((h) => dist(h, p) < 1e-9)) badNoRoom++; }
+        if (!(margin < -1e-9)) continue;
+        if (noRoomHoles.some((h) => dist(h, p) < 1e-9)) badNoRoom++;
+        // Non-upper / start holes: any pierce is a fail (unchanged).
+        if (!st || st.level !== 'top' || !(st.row >= 2)) { failForeign++; hitDetails.push({ side, st, L, kind: 'fail', margin }); continue; }
+        // 6a.21: classify by whose thread is under the upper hole.
+        const ownCluster = L.set === st.set && L.line === st.line;
+        if (ownCluster) { failOwn++; hitDetails.push({ side, st, L, kind: 'own', margin }); continue; }
+        const halfW = Math.abs((st.eOff ?? 0) - (st.xOff ?? 0)) / 2;
+        const sT = sTop0 + (st.row - 1) * w;
+        const dFan = foreignLatAt(st.line, sT, st.set);
+        if (halfW >= dFan - 1e-9) { warnU14++; hitDetails.push({ side, st, L, kind: 'U14', margin, halfW, dFan }); }
+        else { failForeign++; hitDetails.push({ side, st, L, kind: 'foreignEarly', margin, halfW, dFan }); }
       }
     };
     for (const st of stitchesDone) {
       const iPk = order.get(st.pickupId);
-      // svoi: incoming leg (ends at E) and neighboring thread segments that start/end at these holekh
       const own = path.segs.filter((x) => x.thread === st.thread && (dist(x.from, st.E) < 1e-9 || dist(x.to, st.E) < 1e-9 || dist(x.from, st.X) < 1e-9 || dist(x.to, st.X) < 1e-9)).map((x) => x.id);
-      check(st.E, iPk, [st.legId, ...own], `E ${st.round}/${st.i}`);
-      check(st.X, iPk, [st.legId, ...own], `X ${st.round}/${st.i}`);
+      checkHole(st.E, iPk, [st.legId, ...own], st, 'E');
+      checkHole(st.X, iPk, [st.legId, ...own], st, 'X');
     }
     for (const s2 of segs.filter((q) => q.type === 'hidden-start')) {
       const iS = order.get(s2.id);
-      check(s2.from, iS, [], `start ${s2.round} enter`); check(s2.to, iS, [], `start ${s2.round} exit`);
+      checkHole(s2.from, iS, [], null, `start ${s2.round} enter`);
+      checkHole(s2.to, iS, [], null, `start ${s2.round} exit`);
     }
-    add({ id: 'V16', name: 'Needle does not pierce thread (legs and channels)', crit: 'prior #105 (between threads, not throz); TK-LITTLE «jiwari should not be split»; radius igly ne modeliruetsya (0) [A]',
-      status: bad ? 'fail' : 'pass',
-      value: `pierces ${nHoles}; min margin to foreign-thread edge ${f(minMargin, 3)} mm (${worst || '—'}); violations ${bad}` + (bad ? ` (of nikh v prokolakh bez mesta — V19: ${badNoRoom})` : '') });
+    // Geometric fan-start row per set/line: first n with W_n/2 ≥ d(s_T(n)); observed U14 must not be earlier.
+    const geoFirst = {};
+    const obsFirst = {};
+    for (const st of stitchesDone.filter((x) => x.level === 'top' && x.row >= 2)) {
+      const key = `${st.set}:${st.line}`;
+      const halfW = Math.abs((st.eOff ?? 0) - (st.xOff ?? 0)) / 2;
+      const sT = sTop0 + (st.row - 1) * w;
+      const dFan = foreignLatAt(st.line, sT, st.set);
+      if (halfW >= dFan - 1e-9 && (geoFirst[key] == null || st.row < geoFirst[key])) geoFirst[key] = st.row;
+    }
+    for (const h of hitDetails) {
+      if (h.kind !== 'U14' || !h.st) continue;
+      const key = `${h.st.set}:${h.st.line}`;
+      if (obsFirst[key] == null || h.st.row < obsFirst[key]) obsFirst[key] = h.st.row;
+    }
+    let earlyObs = 0;
+    for (const key of Object.keys(obsFirst)) {
+      if (geoFirst[key] != null && obsFirst[key] < geoFirst[key]) earlyObs++;
+    }
+    const badFail = failOwn + failForeign + earlyObs;
+    const status = badFail ? 'fail' : (warnU14 ? 'warn' : 'pass');
+    const geoB = Object.entries(geoFirst).filter(([k]) => k.startsWith('B:')).map(([, n]) => n);
+    const geoBmin = geoB.length ? Math.min(...geoB) : null;
+    add({ id: 'V16', name: 'Needle does not pierce thread (legs and channels)',
+      crit: 'prior #105; TK-LITTLE «jiwari should not be split»; 6a.21 upper: own→fail, foreign+fan→U14 warn, foreign early→fail',
+      status,
+      value: `pierces ${nHoles}; min margin ${f(minMargin, 3)} mm (${worst || '—'}); `
+        + `fail own-cluster ${failOwn}, fail foreign-early ${failForeign}, U14 fan warn ${warnU14}`
+        + (earlyObs ? `; observed U14 earlier than geometric fan-start: ${earlyObs}` : '')
+        + (badNoRoom ? `; noRoom∩V16 ${badNoRoom}` : '')
+        + (geoBmin != null ? `; geo fan-start B min row ${geoBmin}` : ''),
+      numbers: { failOwn, failForeign, warnU14, earlyObs, geoFirst, obsFirst, minMargin, badNoRoom } });
   }
   // V17 — uwagake: at top points of row n ≥ 2 the needle passes UNDER ALL threads of prior rows at that point
   {
