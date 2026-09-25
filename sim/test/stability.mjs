@@ -18,6 +18,25 @@
 export const TOL_CONT = 5e-5;
 export const RAW_TURN_MAX_DEG = 20;
 
+/** Cases of test 8d0f: grid N, perturbations, and pattern params on top of STABILITY_BASE. */
+export const STABILITY_BASE = { C_mm: 240, w_mm: 0.714, startRun_mm: 35, rowsMode: 'untilEquator', topMode: 'fracQ', sTopFrac: 5 / 60 };
+export const STABILITY_CASES = [
+  { label: 'geo m0.5@96', N: 96, modes: ['eps', 'sim'], raw: { shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, m_mm: 0.5 } },
+  { label: 'bow0.32 m0.5@96', N: 96, modes: ['eps', 'sim'], raw: { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, m_mm: 0.5 } },
+  { label: 'bow0.6 m1@96', N: 96, modes: ['eps'], raw: { shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, m_mm: 1 } },
+  { label: 'geo m0.5@384', N: 384, modes: ['eps'], raw: { shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, m_mm: 0.5 } },
+];
+/** Every computeAll input of 8d0f as { N, raw } (the parallel runner precomputes them). */
+export function stabilityBuilds() {
+  const out = [];
+  for (const c of STABILITY_CASES) {
+    const raw = { ...STABILITY_BASE, ...c.raw };
+    out.push({ N: c.N, raw });
+    for (const mode of c.modes) out.push({ N: c.N, raw: perturb(raw, mode).v });
+  }
+  return out;
+}
+
 const LEG_FIELDS = ['joinMode', 'exitKind', 'exitFail', 'interiorXn', 'railKind', 'layMode', 'level'];
 
 export function perturb(raw, mode) {
@@ -34,8 +53,9 @@ export function perturb(raw, mode) {
   throw new Error(`perturb: unknown mode ${mode}`);
 }
 
-/** Compare builds A (base) and B (perturbed, lengths × k). Returns { discrete: [...], cont: {...} }. */
-export function compareBuilds(A, B, k, runValidators) {
+/** Compare builds A (base) and B (perturbed, lengths × k). statusesOf(X) → { V-id: status } at the last op.
+ *  Returns { discrete: [...], cont: {...} }. */
+export function compareBuilds(A, B, k, statusesOf) {
   const discrete = [];
   const rows = (X) => {
     const o = {};
@@ -71,9 +91,8 @@ export function compareBuilds(A, B, k, runValidators) {
     }
     if (Number.isFinite(sa[i].s) && Number.isFinite(sb[i].s)) lev = Math.max(lev, Math.abs(sb[i].s - k * sa[i].s) / (k * R));
   }
-  const va = runValidators(A, A.path.ops.length - 1, null), vb = runValidators(B, B.path.ops.length - 1, null);
-  const vbById = Object.fromEntries(vb.map((x) => [x.id, x.status]));
-  for (const x of va) if (x.status !== vbById[x.id]) discrete.push(`${x.id}:${x.status}→${vbById[x.id]}`);
+  const va = statusesOf(A), vb = statusesOf(B);
+  for (const id of new Set([...Object.keys(va), ...Object.keys(vb)])) if (va[id] !== vb[id]) discrete.push(`${id}:${va[id]}→${vb[id]}`);
   return { discrete, cont: { pts, ptsAt, len, lenAt, st, stAt, lev } };
 }
 

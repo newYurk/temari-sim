@@ -1,6 +1,6 @@
 // Безбраузерные тесты: генератор пути + валидаторы. Запуск: node sim/test/run.mjs  (код выхода 0 = всё прошло)
 import { loadRecipe, loadJSON } from '../src/recipe.js';
-import { computeAll, G, finish } from './harness.mjs'; // memoized computeAll + group gates / parallel runner (#34)
+import { computeAll, G, finish, validatorStatuses } from './harness.mjs'; // memoized computeAll + group gates / parallel runner (#34)
 import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan, geodesicAlphaAt, tipLevelMm } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples } from '../src/path.js';
@@ -940,9 +940,10 @@ if (G('8d0c'))
 }
 
 // 8d0f. Round-off / perturbation stability + raw-polyline turns + T₁ boundary root (#35, #34 item 5)
+if (G('8d0f'))
 {
   console.log('\n## Stability: inputs ×(1+1e−9), λ+1e−9, ×1.25 similarity → same decisions (#35)');
-  const { perturb, compareBuilds, rawTurns, TOL_CONT, RAW_TURN_MAX_DEG } = await import('./stability.mjs');
+  const { perturb, compareBuilds, rawTurns, TOL_CONT, RAW_TURN_MAX_DEG, STABILITY_CASES: cases, STABILITY_BASE } = await import('./stability.mjs');
   const { exitCandidates } = await import('../src/path.js');
   // (13в) window ends are candidates: a tangency at T₁ (no sign change, no interior minimum) must be found.
   const mk = (f) => (sv) => ({ s: sv, res: f(sv), score: 1 });
@@ -950,23 +951,17 @@ if (G('8d0c'))
   check(fwd.some((c) => c.s === 2), `exit window start T₁ is a tangency candidate (forward; cands at ${fwd.map((c) => c.s.toFixed(3)).join(',')})`);
   const bwd = exitCandidates(mk((sv) => 1e-4 + 1e-3 * (2 - sv)), 0, 2, 160).cands;
   check(bwd.some((c) => c.s === 2), `exit window end T₁ is a tangency candidate (backward; cands at ${bwd.map((c) => c.s.toFixed(3)).join(',')})`);
-  const cases = [
-    { label: 'geo m0.5@96', N: 96, modes: ['eps', 'sim'], raw: { shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, m_mm: 0.5 } },
-    { label: 'bow0.32 m0.5@96', N: 96, modes: ['eps', 'sim'], raw: { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, m_mm: 0.5 } },
-    { label: 'bow0.6 m1@96', N: 96, modes: ['eps'], raw: { shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, m_mm: 1 } },
-    { label: 'geo m0.5@384', N: 384, modes: ['eps'], raw: { shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, m_mm: 0.5 } },
-  ];
   const prevN = getLegSamples();
   for (const c of cases) {
     setLegSamples(c.N);
-    const raw = { C_mm: 240, w_mm: 0.714, startRun_mm: 35, rowsMode: 'untilEquator', topMode: 'fracQ', sTopFrac: 5 / 60, ...c.raw };
+    const raw = { ...STABILITY_BASE, ...c.raw };
     const A = computeAll(recipe, raw);
     const rt = rawTurns(A);
     console.log(`  ${c.label}: raw-polyline max turn ${rt.worst.toFixed(2)}° (${rt.at})`);
     check(rt.bad.length === 0, `${c.label}: raw-polyline turns ≤${RAW_TURN_MAX_DEG}° before resample (bad ${rt.bad.join(',') || 0})`);
     for (const mode of c.modes) {
       const { v, k } = perturb(raw, mode);
-      const { discrete, cont } = compareBuilds(A, computeAll(recipe, v), k, runValidators);
+      const { discrete, cont } = compareBuilds(A, computeAll(recipe, v), k, validatorStatuses);
       const worst = Math.max(cont.pts, cont.st, cont.lev, cont.len);
       console.log(`  ${c.label} ${mode}: discrete ${discrete.length}; pts ${cont.pts.toExponential(1)}·R @${cont.ptsAt}, `
         + `E/X ${cont.st.toExponential(1)}·R @${cont.stAt}, s ${cont.lev.toExponential(1)}·R, len ${cont.len.toExponential(1)} @${cont.lenAt}`);
@@ -999,7 +994,7 @@ if (G('8d0b'))
 }
 
 // 8d. K16 tip coverage + V8 tipCross (6a.13 / 6a.16)
-if (G('8d-8e'))
+if (G('8d'))
 {
   console.log('\n## K16 tip coverage / V8 tipCross (6a.13–6a.16)');
   const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'untilEquator' });
@@ -1040,6 +1035,7 @@ if (G('8d-8e'))
 
 
 // 8e. B.8 / 6a.15: λ=0 free when min gap ≥ w; kinks ≤20° and converge 96/192/384
+if (G('8e'))
 {
   console.log('\n## B.8 / 6a.15 tube rule (λ=0)');
   const interp = (a, b, t) => {

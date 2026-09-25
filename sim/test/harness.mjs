@@ -27,6 +27,8 @@ import { computeAll as computeAllUncached, canonical } from '../src/layers.js';
 import { normalizeParams } from '../src/params.js';
 import { getLegSamples, setLegSamples } from '../src/path.js';
 import { loadRecipe } from '../src/recipe.js';
+import { runValidators } from '../src/validators.js';
+import { stabilityBuilds } from './stability.mjs';
 
 const RUN = fileURLToPath(new URL('./run.mjs', import.meta.url));
 const argv = process.argv.slice(2);
@@ -57,28 +59,35 @@ const PREWARM = [
   { cost: 10, N: 96, raw: { C_mm: 300, topMode: 'fracQ', sTopFrac: 5 / 60, w_mm: 0.714 * 1.25, m_mm: 1.25, startRun_mm: 35 * 1.25, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32 } }, // 9
   { cost: 10, N: 96, raw: { C_mm: 240, topMode: 'fracQ', sTopFrac: 5 / 60, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32 } }, // 10
   { cost: 6, N: 192, raw: { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, rowsMode: 'untilEquator' } }, // 11
+  // 12: block 2c (S16) has no gate of its own (a gate line there would break the #31 stash), so every worker
+  // runs it; precomputing its build lets all but one worker read it from the shared cache.
+  { cost: 12, N: 96, raw: { N: 16 } }, // 12
+  // 13…: the builds of 8d0f (stability.mjs), in stabilityBuilds() order.
+  // validate: also precompute the validator statuses (validatorStatuses); cost = compute + validate.
+  ...stabilityBuilds().map((b) => ({ cost: b.N === 384 ? 17 : b.raw.shoulderForm === 'geodesic' ? 2 : b.raw.bowLambda >= 0.6 ? 20 : 13, validate: true, ...b })),
 ];
 const GROUP_COST = {
-  pre: { cost: 6 }, '2b-2c': { cost: 9, uses: [9, 10] }, 3: { cost: 1 }, 4: { cost: 4 }, 5: { cost: 0 }, 6: { cost: 3 },
-  7: { cost: 10 }, 8: { cost: 7 }, '8b': { cost: 9 }, '8b2': { cost: 9 },
-  '8c-8d0': { cost: 35, uses: [0, 1, 2, 3, 5, 6, 7, 11] }, '8d0a': { cost: 4, uses: [1, 5, 6] }, '8d0c': { cost: 1, uses: [4, 6, 8] },
-  '8d0b': { cost: 4 }, '8d-8e': { cost: 4, uses: [6, 7, 11] }, '8f': { cost: 4, uses: [6] }, '8g': { cost: 5 },
-  '8h': { cost: 13 }, '8i': { cost: 6, uses: [5, 6] }, 9: { cost: 3 },
+  pre: { cost: 6 }, '2b-2c': { cost: 9, uses: [9, 10, 12] }, 3: { cost: 6 }, 4: { cost: 5 }, 5: { cost: 0 }, 6: { cost: 3 },
+  7: { cost: 6 }, 8: { cost: 14 }, '8b': { cost: 18 }, '8b2': { cost: 16 },
+  '8c-8d0': { cost: 45, uses: [0, 1, 2, 3, 5, 6, 7, 11] }, '8d0a': { cost: 4, uses: [1, 5, 6] }, '8d0c': { cost: 1, uses: [4, 6, 8] },
+  '8d0f': { cost: 2, uses: stabilityBuilds().map((_, j) => 13 + j) },
+  '8d0b': { cost: 5 }, '8d': { cost: 14, uses: [6] }, '8e': { cost: 7, uses: [7, 11] }, '8f': { cost: 4, uses: [6] }, '8g': { cost: 8 },
+  '8h': { cost: 20 }, '8i': { cost: 45, uses: [5, 6] }, 9: { cost: 3 },
 };
 // --quick skips the fine grids (192/384) and the long untilEquator λ sweeps.
-const QUICK_SKIP = new Set(['8c-8d0', '8d0a', '8d0c', '8d-8e', '8i']);
+const QUICK_SKIP = new Set(['8c-8d0', '8d0a', '8d0c', '8d0f', '8d', '8e', '8i']);
 
 // ---- computeAll memo -------------------------------------------------------------------------------------
 const recipeKeys = new WeakMap();
 const memo = new Map();
-export const cacheStats = { hits: 0, misses: 0, disk: 0 };
+export const cacheStats = { hits: 0, misses: 0, disk: 0, statuses: 0 };
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /** Shared per-run disk cache: first worker to claim a key computes it; others wait for the file. */
-function viaDisk(key, compute) {
+function viaDisk(key, compute, stat = 'disk') {
   const f = join(CACHE_DIR, createHash('sha1').update(key).digest('hex'));
   for (;;) {
-    if (existsSync(f + '.bin')) { cacheStats.disk++; return deserialize(readFileSync(f + '.bin')); }
+    if (existsSync(f + '.bin')) { cacheStats[stat]++; return deserialize(readFileSync(f + '.bin')); }
     if (existsSync(f + '.err')) throw new Error(readFileSync(f + '.err', 'utf8'));
     let fd = null;
     try { fd = openSync(f + '.claim', 'wx'); } catch { /* claimed by another worker */ }
@@ -99,9 +108,11 @@ function viaDisk(key, compute) {
     }
   }
 }
-function cached(recipe, raw) {
+function keyFor(recipe, raw) {
   if (!recipeKeys.has(recipe)) recipeKeys.set(recipe, canonical(recipe));
-  const key = `${getLegSamples()}|${canonical(normalizeParams(raw))}|${recipeKeys.get(recipe)}`;
+  return `${getLegSamples()}|${canonical(normalizeParams(raw))}|${recipeKeys.get(recipe)}`;
+}
+function cached(recipe, raw, key = keyFor(recipe, raw)) {
   let hit = memo.get(key);
   if (hit) { cacheStats.hits++; return hit; }
   cacheStats.misses++;
@@ -109,9 +120,30 @@ function cached(recipe, raw) {
   memo.set(key, hit);
   return hit;
 }
+const keyOf = new WeakMap();   // returned copy → cache key (for validatorStatuses)
 /** Drop-in for layers.js computeAll in tests: memoized, returns a private deep copy. */
 export function computeAll(recipe, raw) {
-  return NO_CACHE ? computeAllUncached(recipe, raw) : structuredClone(cached(recipe, raw));
+  if (NO_CACHE) return computeAllUncached(recipe, raw);
+  const key = keyFor(recipe, raw);
+  const out = structuredClone(cached(recipe, raw, key));
+  keyOf.set(out, key);
+  return out;
+}
+const statusMemo = new Map();
+const statusesNow = (A) => Object.fromEntries(runValidators(A, A.path.ops.length - 1, null).map((v) => [v.id, v.status]));
+function statusesFor(key, A) {
+  let hit = statusMemo.get(key);
+  if (!hit) {
+    hit = CACHE_DIR ? viaDisk(`${key}|validators`, () => statusesNow(A), 'statuses') : statusesNow(A);
+    statusMemo.set(key, hit);
+  }
+  return { ...hit };
+}
+/** Validator statuses { id: status } of a build at its last op (all V-classes). Memoized per computeAll key
+ *  when A came unmodified from computeAll above; pass only builds the test has not mutated. */
+export function validatorStatuses(A) {
+  const key = keyOf.get(A);
+  return key === undefined ? statusesNow(A) : statusesFor(key, A);
 }
 
 // ---- worker side -----------------------------------------------------------------------------------------
@@ -124,7 +156,11 @@ if (MODE === 'worker') {
   if (idx.length && !NO_CACHE) {
     send({ g: '(prewarm)', t: performance.now() });
     const recipe = await loadRecipe();
-    for (const i of idx) { setLegSamples(PREWARM[i].N); cached(recipe, PREWARM[i].raw); }
+    for (const i of idx) {
+      setLegSamples(PREWARM[i].N);
+      const key = keyFor(recipe, PREWARM[i].raw), A = cached(recipe, PREWARM[i].raw, key);
+      if (PREWARM[i].validate) statusesFor(key, A);
+    }
     setLegSamples(null);
   }
   send({ g: 'pre', t: performance.now() });
