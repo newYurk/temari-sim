@@ -1,7 +1,10 @@
 // Генератор пути: чистая функция (рецепт + параметры + предыдущие слои) → упорядоченный список операций и
-// сегментов рабочих нитей (по одной на цвет) для обходов в порядке recipe.work.order (A1, B1, A2 …).
+// сегментов рабочих нитей (по одной на цвет) для обходов в порядке, выведенном из замысла (roundSequence: по ряду
+// A1, B1, A2 … — GT14; блоками A1…A5, B1…B5 — Suess 2014; явная последовательность).
 // Шитьё последовательное: всё — E/X, уровни рядов n ≥ 2, над/под в перекрестах — выводится из того, что уже
 // лежит на шаре после предыдущих операций (причинный префикс). Никаких сохранённых координат и сдвигов.
+import { parseSequence } from './params.js';
+import { t, fmtNum } from './i18n.js';
 import {
   point, offsetPt, slerp, lineSeg, geodLen, dist, rotateToward, toSPhi, wrapPi, tangentTo, ePole, dot,
   closeZones, angle, unit, sub, cross, eEast, perpPt, segSegDist,
@@ -10,59 +13,136 @@ import {
 const LEG_SAMPLES = 96;
 
 /**
- * Занятость у линии разметки на параллели s: интервалы вдоль параллели (мм, + = по ходу) — нить разметки и
- * уже уложенные нити (пересечения параллели и отверстия-концы). Кластер от нити разметки растёт, пока зазор
- * до соседней нити меньше w (рабочая нить в такой зазор не входит — prior #105: игла между нитями).
- * E = правый край кластера + w/2, X = левый край − w/2 (ось рабочей нити вплотную). Свободных чисел нет:
- * только ширины m и w и геометрия уже уложенного.
+ * Занятость на линии иглы у линии разметки k на уровне s. Линия иглы — большой круг через точку линии,
+ * перпендикулярный ей; координата y — вдоль него (мм, + = по ходу). Занятость: своя нить разметки [−m/2, m/2],
+ * соседние нити разметки (L(k±1), там, где они пересекают линию иглы), уже уложенные нити — пересечения плечами,
+ * отверстия (концы плеч и скрытого старта) и каналы прежних стежков (скрытые участки тоже нить). Кластер от своей
+ * нити разметки растёт, пока зазор до соседней занятости меньше w (рабочая нить туда не войдёт; prior #105 —
+ * игла между нитями, не сквозь). E = правый край кластера + w/2, X = левый край − w/2. Свободных чисел нет:
+ * только ширины m и w и геометрия уже уложенного. Окно — до соседних линий разметки (дальше кластер расти
+ * не может, не охватив соседнюю разметку — это ловит V5).
  */
 export function needleSides({ R, s, phi, m, w, N, laid }) {
-  // «Линия иглы» — большой круг через точку линии C, перпендикулярный линии (игла прямая и ⟂ линии).
   const C = point(R, s, phi);
   const uC = unit(C), eL = eEast(C), n = ePole(C);        // n — нормаль плоскости линии иглы
   const r = R * Math.sin(s / R);
   const spacing = r * 2 * Math.PI / N;                     // расстояние до соседней линии (по параллели)
-  const win = spacing / 2;                                 // окно: половина расстояния до соседней линии
   const occ = [];
   const coord = (p) => { const q = unit(p); return { f: R * Math.asin(Math.max(-1, Math.min(1, dot(q, n)))), y: R * Math.atan2(dot(q, eL), dot(q, uC)) }; };
+  // пересечение меридиана φ' с линией иглы: координата y и синус угла между ними
+  const meet = (ph) => {
+    const nMer = [-Math.sin(ph), Math.cos(ph), 0];
+    let d = unit(cross(nMer, n));
+    if (dot(d, uC) < 0) d = d.map((v) => -v);
+    const y = R * Math.atan2(dot(d, eL), dot(d, uC));
+    const sn = Math.max(1e-6, Math.sqrt(Math.max(0, 1 - dot(unit(cross(n, d)), unit(cross(nMer, d))) ** 2)));
+    return { y, sn };
+  };
+  // соседние нити разметки L(k±1)
+  let win = spacing;
+  for (const sg of [1, -1]) {
+    const { y, sn } = meet(phi + sg * 2 * Math.PI / N);
+    const wid = m / sn;
+    occ.push({ lo: y - wid / 2, hi: y + wid / 2, y, seg: 'marking', kind: 'marking-neighbour', line: sg });
+    win = Math.max(win, Math.abs(y) + wid / 2);
+  }
+  win += w;
+  // «своя точка»: сектор линии k между биссектрисами (φ ± π/N). Обход uwagake — вокруг нитей ЭТОЙ точки
+  // (TK-UWA «take a stitch around all of them»); занятость с центром за биссектрисой принадлежит соседней точке.
+  const yBis = { right: meet(phi + Math.PI / N).y, left: meet(phi - Math.PI / N).y };
   for (const seg of laid) {
-    if (seg.type !== 'leg') continue;
+    // отбор по габариту: точки линии иглы в окне лежат не дальше win + w от C (только ускорение, результат тот же)
+    const b = bb(seg);
+    if (Math.max(b.lo[0] - C[0], C[0] - b.hi[0], b.lo[1] - C[1], C[1] - b.hi[1], b.lo[2] - C[2], C[2] - b.hi[2]) > win + w) continue;
     const pts = seg.pts;
-    const c = pts.map(coord);
-    // отверстия (концы плеча) на линии иглы
-    for (const [idx, role] of [[0, 'hole-exit'], [pts.length - 1, 'hole-entry']]) {
-      const q = c[idx];
-      if (Math.abs(q.f) <= w / 2 && Math.abs(q.y) < win)
-        occ.push({ lo: q.y - w / 2, hi: q.y + w / 2, y: q.y, seg: seg.id, kind: role });
-    }
-    // пересечения линии иглы внутренними участками плеча
-    for (let i = 1; i < pts.length; i++) {
-      const a = c[i - 1].f, b = c[i].f;
-      const eps = 1e-9;   // точки на самой линии — это концы (отверстия), учтены выше
-      if (Math.abs(a) > eps && Math.abs(b) > eps && a * b < 0) {
-        const t = a / (a - b);
-        const y = c[i - 1].y + t * (c[i].y - c[i - 1].y);
-        if (Math.abs(y) >= win) continue;
-        const tan = unit(sub(pts[i], pts[i - 1]));
-        const eLine = unit(cross(n, unit(pts[i])));
-        const sn = Math.sqrt(Math.max(0, 1 - dot(tan, eLine) ** 2));  // синус угла нити к линии иглы
-        const wid = w / Math.max(sn, 1e-6);                             // след нити вдоль линии иглы
-        occ.push({ lo: y - wid / 2, hi: y + wid / 2, y, seg: seg.id, kind: 'crossing' });
+    if (seg.type === 'hidden-start') {     // отверстия скрытого старта на поверхности (игла не колет в них)
+      for (const [p, role] of [[seg.from, 'hole-start'], [seg.to, 'hole-start']]) {
+        const q = coord(p);
+        if (Math.abs(q.f) <= w / 2 && Math.abs(q.y) < win) occ.push({ lo: q.y - w / 2, hi: q.y + w / 2, y: q.y, seg: seg.id, kind: role });
       }
+      continue;
     }
+    const c = pts.map(coord);
+    // след нити на линии иглы — ТОЧНО: множество y, где точка линии иглы ближе w/2 к оси нити (капсула отрезка ∩ линия),
+    // по отрезкам полилинии; непрерывные группы — одна занятость. Касательный проход даёт свой настоящий след
+    // (формула w/sin θ для почти параллельной нити дала бы ложные 10 мм).
+    const h = w / 2;
+    let run = null;
+    const flush = () => {
+      if (!run) return;
+      if (Math.abs((run.lo + run.hi) / 2) < win || (run.lo < win && run.hi > -win)) {
+        const kind = seg.type === 'pickup' ? 'channel' : run.touchStart ? 'hole-exit' : run.touchEnd ? 'hole-entry' : run.cross ? 'crossing' : 'graze';
+        const y = run.cross ? run.yCross : (run.lo + run.hi) / 2;
+        occ.push({ lo: run.lo, hi: run.hi, y, seg: seg.id, kind });
+      }
+      run = null;
+    };
+    for (let i = 1; i < pts.length; i++) {
+      const P = c[i - 1], Qp = c[i];
+      const iv = capsuleOnLine(P.y, P.f, Qp.y, Qp.f, h);
+      if (!iv || iv[1] < -win || iv[0] > win) { flush(); continue; }
+      if (!run) run = { lo: iv[0], hi: iv[1], cross: false, touchStart: false, touchEnd: false };
+      else { run.lo = Math.min(run.lo, iv[0]); run.hi = Math.max(run.hi, iv[1]); }
+      if (seg.type === 'leg' && i === 1 && Math.abs(P.f) <= h) run.touchStart = true;
+      if (seg.type === 'leg' && i === pts.length - 1 && Math.abs(Qp.f) <= h) run.touchEnd = true;
+      if (P.f * Qp.f < 0 || (P.f === 0) !== (Qp.f === 0)) { run.cross = true; run.yCross = P.f === Qp.f ? P.y : P.y + (P.f / (P.f - Qp.f)) * (Qp.y - P.y); }
+    }
+    flush();
   }
   let lo = -m / 2, hi = m / 2;
   const used = [{ lo, hi, seg: 'marking', kind: 'marking' }];
+  for (const o of occ) o.own = o.kind !== 'marking-neighbour' && o.y > yBis.left && o.y < yBis.right;
   const rest = occ.slice();
   let changed = true;
   while (changed) {
     changed = false;
     for (let i = rest.length - 1; i >= 0; i--) {
       const o = rest[i];
+      if (!o.own) continue;
       if (o.lo < hi + w && o.hi > lo - w) { lo = Math.min(lo, o.lo); hi = Math.max(hi, o.hi); used.push(o); rest.splice(i, 1); changed = true; }
     }
   }
-  return { eOff: hi + w / 2, xOff: lo - w / 2, cluster: used, ignored: rest, spacing, lineHalfWindow: win };
+  // место для рабочей нити снаружи кластера: зазор до ближайшей чужой занятости (соседняя точка, соседняя разметка).
+  // Зазор ≥ w — нить ложится вплотную к кластеру (ось на w/2). Зазор < w — игла идёт МЕЖДУ нитями посередине зазора
+  // (#105), нити с обеих сторон должны сжаться на (w − зазор)/2 — сжатие не моделируется (U14), записывается (V19).
+  const side = (sgn) => {
+    const edge = sgn > 0 ? hi : lo;
+    let best = null;
+    for (const o of rest) {
+      const g = sgn > 0 ? o.lo - edge : edge - o.hi;
+      const beyond = sgn > 0 ? o.hi > edge : o.lo < edge;
+      if (!beyond) continue;
+      if (!best || g < best.gap) best = { gap: g, seg: o.seg, kind: o.kind, y: o.y };
+    }
+    if (!best || best.gap >= w) return { off: edge + sgn * w / 2, squeeze: null };
+    const squeeze = { ...best, comp: (w - best.gap) / 2, noRoom: best.gap <= 0 };
+    return { off: edge + sgn * best.gap / 2, squeeze };
+  };
+  const R_ = side(1), L_ = side(-1);
+  const squeeze = [R_.squeeze && { side: 'E', ...R_.squeeze }, L_.squeeze && { side: 'X', ...L_.squeeze }].filter(Boolean);
+  return { eOff: R_.off, xOff: L_.off, cluster: used, ignored: rest, spacing, window: win, bisector: yBis, squeeze };
+}
+
+const endsAt = (seg, H) => dist(seg.from, H) < 1e-9 || dist(seg.to, H) < 1e-9;
+
+/** Интервал y на прямой f = 0, где расстояние до отрезка (y1,f1)–(y2,f2) ≤ h (капсула ∩ прямая), или null. */
+function capsuleOnLine(y1, f1, y2, f2, h) {
+  let lo = Infinity, hi = -Infinity;
+  const disk = (y, f) => { if (Math.abs(f) <= h) { const r = Math.sqrt(h * h - f * f); lo = Math.min(lo, y - r); hi = Math.max(hi, y + r); } };
+  disk(y1, f1); disk(y2, f2);
+  const dy = y2 - y1, df = f2 - f1, L = Math.hypot(dy, df);
+  if (L > 1e-12) {
+    // полоса: |расстояние до прямой отрезка| ≤ h и проекция внутри [0, L]; оба условия линейны по y
+    const nx = -df / L, ny = dy / L, tx = dy / L, ty = df / L;
+    const lin = (a, b0, lo0, hi0) => {   // lo0 ≤ a·y + b0 ≤ hi0
+      if (Math.abs(a) < 1e-15) return b0 >= lo0 && b0 <= hi0 ? [-Infinity, Infinity] : null;
+      const u = (lo0 - b0) / a, v = (hi0 - b0) / a;
+      return [Math.min(u, v), Math.max(u, v)];
+    };
+    const i1 = lin(nx, -y1 * nx - f1 * ny, -h, h), i2 = lin(tx, -y1 * tx - f1 * ty, 0, L);
+    if (i1 && i2) { const a = Math.max(i1[0], i2[0]), b = Math.min(i1[1], i2[1]); if (a <= b) { lo = Math.min(lo, a); hi = Math.max(hi, b); } }
+  }
+  return lo <= hi ? [lo, hi] : null;
 }
 
 function crossAngleDeg(A, i, B, j) {
@@ -70,7 +150,7 @@ function crossAngleDeg(A, i, B, j) {
   return Math.acos(Math.min(1, Math.abs(dot(ta, tb)))) * 180 / Math.PI;
 }
 
-const fmt = (x, d = 1) => x.toFixed(d).replace('.', ',');
+const fmt = (x, d = 1) => fmtNum(x, d);
 
 /** Зоны, где ось плеча A ближе w к оси плеча B: [i0, i1], минимум, признак настоящего перекреста (A переходит
  *  через большой круг B внутри зоны). Контакт без перехода — «прилегание» (параллельный заход в зону w). */
@@ -81,18 +161,39 @@ function bb(seg) {
   Object.defineProperty(seg, '_bb', { value: { lo, hi }, enumerable: false });
   return seg._bb;
 }
+const CHUNK = 8;
+function chunks(seg) {           // габариты кусков по CHUNK отрезков (только ускорение отбора пар; результат тот же)
+  if (seg._ch) return seg._ch;
+  const out = [];
+  for (let j0 = 1; j0 < seg.pts.length; j0 += CHUNK) {
+    const j1 = Math.min(seg.pts.length - 1, j0 + CHUNK - 1);
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let j = j0 - 1; j <= j1; j++) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], seg.pts[j][k]); hi[k] = Math.max(hi[k], seg.pts[j][k]); }
+    out.push({ j0, j1, lo, hi });
+  }
+  Object.defineProperty(seg, '_ch', { value: out, enumerable: false });
+  return out;
+}
 function legZones(A, B, w) {
   const a = bb(A), b = bb(B);
   for (let k = 0; k < 3; k++) if (a.lo[k] - b.hi[k] >= w || b.lo[k] - a.hi[k] >= w) return [];
   const zones = [];
+  const chB = chunks(B);
   let cur = null;
   for (let i = 1; i < A.pts.length; i++) {
-    let m = { d: Infinity };
-    for (let j = 1; j < B.pts.length; j++) {
-      const r = segSegDist(A.pts[i - 1], A.pts[i], B.pts[j - 1], B.pts[j]);
-      if (r.d < m.d) m = { ...r, i, j };
+    const p = A.pts[i - 1], q = A.pts[i];
+    let best = null, bd = Infinity, bj = 0;
+    for (const c of chB) {
+      let far = false;
+      for (let k = 0; k < 3; k++) if (Math.min(p[k], q[k]) - c.hi[k] >= w || c.lo[k] - Math.max(p[k], q[k]) >= w) { far = true; break; }
+      if (far) continue;
+      for (let j = c.j0; j <= c.j1; j++) {
+        const r = segSegDist(p, q, B.pts[j - 1], B.pts[j]);
+        if (r.d < bd) { bd = r.d; best = r; bj = j; }
+      }
     }
-    if (m.d < w - 1e-9) {
+    if (bd < w - 1e-9) {
+      const m = { ...best, i, j: bj };
       if (!cur) cur = { i0: i, i1: i, min: m };
       else { cur.i1 = i; if (m.d < cur.min.d) cur.min = m; }
     } else if (cur) { zones.push(cur); cur = null; }
@@ -142,21 +243,75 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
   return { s, sPrevCross: axisCross(0), sLaidCross: axisCross(target), sigma };
 }
 
+const MAX_ROWS_PER_SET = 40;   // предохранитель для «до экватора» (не замысел)
+
+/** Последовательность наборов (буква = следующий ряд набора) из замысла порядка и числа рядов.
+ *  alternate — A, B, A, B … (GT14); blocks — k×A, k×B, k×A … (Suess 2014: k = 5); sequence — явный список.
+ *  При «до экватора» список длиннее нужного: генератор пути сам останавливает набор, когда кончик следующего ряда
+ *  ушёл бы за предел (по фактическому уложенному, не по формуле). */
+export function roundSequence(recipe, P) {
+  const sets = recipe.work.sets.map((x) => x.set);
+  if (P.order === 'sequence') return { letters: parseSequence(P.sequence, sets).letters, perSet: null, source: 'sequence' };
+  const cap = P.rowsMode === 'count' ? P.rowsCount : MAX_ROWS_PER_SET;
+  const letters = [];
+  if (P.order === 'blocks') {
+    const k = Math.max(1, Math.round(P.blockSize));
+    for (let b = 0; b * k < cap; b++) for (const x of sets) for (let j = 0; j < k && b * k + j < cap; j++) letters.push(x);
+  } else for (let n = 0; n < cap; n++) for (const x of sets) letters.push(x);
+  return { letters, perSet: P.rowsMode === 'count' ? P.rowsCount : null, source: P.order };
+}
+
 /**
- * Построить все обходы recipe.work.order последовательно. Возвращает
- * { ops, segs, stitches, rounds, threads, crossings } — единый хронологический список; у каждого сегмента —
- * нить (thread), обход (round), набор (set), ряд (row) и координата длины u своей нити.
+ * Построить все обходы последовательно в порядке roundSequence. Возвращает
+ * { ops, segs, stitches, rounds, threads, crossings, sequence, stopped } — единый хронологический список; у каждого
+ * сегмента — нить (thread), обход (round), набор (set), ряд (row) и координата длины u своей нити.
  */
-export function buildWork(recipe, P, base, marking, layout) {
+export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   const R = base.R, N = marking.N, w = P.w_mm, m = P.m_mm, Q = base.Q;
   const T = recipe.kagari, conv = recipe.conventions, LV = recipe.levels;
-  const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [] };
+  const limit = rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? Q - 7 : Q);
+  const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [] };
   const lineIdx = (k) => ((k % N) + N) % N;
   const phiOf = (k) => marking.phis[lineIdx(k)];
-  const legs = () => W.segs.filter((s) => s.type === 'leg');
+  const legList = [], laidList = [];          // уложенные плечи; всё уложенное (плечи, каналы, скрытый старт)
+  const legs = () => legList;
+  const laid = () => laidList;
 
-  for (const rid of recipe.work.order) {
-    const spec = recipe.layers.find((l) => l.id === rid);
+  /** Уровень низа ряда n ≥ 2 на линии k — вывод из уже уложенного (packThenPierce + канал не налезает на прежний). */
+  const bottomLevel = (k, prevRound) => {
+    const prevSt = W.stitches.find((st) => st.round === prevRound.id && st.line === k && st.level === 'bottom');
+    const prevArm = W.segs.find((x) => x.id === prevSt.legId);
+    const sidesAt = (t) => needleSides({ R, s: t, phi: phiOf(k), m, w, N, laid: laid() });
+    const pp = packThenPierce(R, prevArm, phiOf(k), (layout.sTop + prevSt.s) / 2, w, 2 * Q - 1, sidesAt);
+    if (!pp) return null;
+    // канал нового стежка не может налезать на канал предыдущего на этой линии (игла не прокалывает нить)
+    const sChan = Math.max(...W.stitches.filter((st) => st.line === k && st.level === 'bottom').map((st) => st.s)) + w;
+    const s = Math.max(pp.s, sChan);
+    return { s, levelInfo: { rule: 'packThenPierce', sPrev: prevSt.s, sPrevCross: pp.sPrevCross, sLaidCross: pp.sLaidCross, sPack: pp.s, sChan,
+      channelBinding: sChan > pp.s, dS: s - prevSt.s, prevArm: prevArm.id, basis: LV.bottom.next.basis } };
+  };
+
+  const seq = roundSequence(recipe, P);
+  W.sequence = { ...seq, planned: [] };
+  const rowsDone = {};
+  const stopEarly = P.rowsMode !== 'count';
+  for (const letter of seq.letters) {
+    const setSpec = recipe.work.sets.find((x) => x.set === letter);
+    if (!setSpec || W.stopped[letter]) continue;
+    const row = (rowsDone[letter] || 0) + 1;
+    const tmpl = row === 1 ? setSpec.row1 : setSpec.next;
+    const spec = { id: `${letter}${row}`, set: letter, thread: setSpec.thread, row, startLine: setSpec.startLine, begin: tmpl.begin, basis: tmpl.basis };
+    const prevRound = row > 1 ? W.rounds.find((r) => r.set === spec.set && r.row === row - 1) : null;
+    // кончик этого ряда до шитья: первый стежок обхода — нижний, его уровень зависит только от уже уложенного
+    const firstK = lineIdx(spec.startLine + 1);
+    const tip = row === 1 ? { s: layout.sBot } : bottomLevel(firstK, prevRound);
+    if (!tip) { W.stopped[letter] = { row, reason: 'уложенная вплотную нить не пересекает линию до экватора' }; continue; }
+    if (tip.s > limit + 1e-9) {
+      if (stopEarly) { W.stopped[letter] = { row, sTip: tip.s, reason: `кончик ряда ${row} лёг бы на s = ${tip.s.toFixed(3)} мм > предел ${limit.toFixed(3)} мм` }; continue; }
+      W.beyond.push({ round: spec.id, sTip: tip.s, over: tip.s - limit });
+    }
+    rowsDone[letter] = row;
+    W.sequence.planned.push(spec.id);
     const th = W.threads[spec.thread] || (W.threads[spec.thread] = { id: spec.thread, u: 0, segIds: [], rounds: [], park: null, parkStitch: null });
     const RD = { id: spec.id, set: spec.set, thread: spec.thread, row: spec.row, startLine: spec.startLine, begin: spec.begin,
       basis: spec.basis, opFirst: W.ops.length, stitchIdx: [], segIds: [], firstLegId: null, start: null, u0: th.u };
@@ -165,17 +320,18 @@ export function buildWork(recipe, P, base, marking, layout) {
       seg.id = `s${W.segs.length}`; seg.thread = th.id; seg.round = RD.id; seg.set = spec.set; seg.row = spec.row;
       seg.u0 = th.u; th.u += seg.length; seg.u1 = th.u;
       W.segs.push(seg); th.segIds.push(seg.id); RD.segIds.push(seg.id);
+      laidList.push(seg);
+      if (seg.type === 'leg') legList.push(seg);
       return seg;
     };
     const pushOp = (op) => { op.round = RD.id; op.thread = th.id; W.ops.push(op); return op; };
     const L0 = spec.startLine;
-    const prevRound = spec.row > 1 ? W.rounds.find((r) => r.set === spec.set && r.row === spec.row - 1) : null;
 
     // ---------- 1. Начало: скрытый старт новой нити или продолжение припаркованной ----------
     let cur;
     if (spec.begin === 'hiddenStart') {
       const sT = layout.sTop;
-      const side0 = needleSides({ R, s: sT, phi: phiOf(L0), m, w, N, laid: legs() });
+      const side0 = needleSides({ R, s: sT, phi: phiOf(L0), m, w, N, laid: laid() });
       const X0 = perpPt(R, sT, phiOf(L0), side0.xOff);
       const rule = T.start.rules[P.startRule];
       const runs = rule.runs, Lrun = P.startRun_mm;
@@ -189,9 +345,12 @@ export function buildWork(recipe, P, base, marking, layout) {
           source: `${P.startRule}; направление — [E]`, tag: rule.tag, run: k + 1, runs, depthMax: R - Math.sqrt(R * R - (dist(a, b) / 2) ** 2) });
         const last = k === runs - 1;
         pushOp({ kind: 'start-run', segIds: [seg.id], run: k + 1, runs,
-          label: `${RD.id}: скрытый старт нити ${th.id}, проход ${k + 1}/${runs}: игла ${k === 0 ? 'входит в обмотку' : 'входит в то же отверстие'}, ` +
-            `идёт прямо (хорда ${fmt(seg.length)} мм, глубина до ${fmt(seg.depthMax)} мм) и выходит ` +
-            (last ? `у L${L0} вплотную слева от занятого у линии (${fmt(side0.xOff, 3)} мм), ${fmt(sT)} мм от СП (X₀)` : 'на поверхность'),
+          label: t('path.start', {
+            round: RD.id, thread: th.id, run: k + 1, runs,
+            enter: k === 0 ? t('path.start.enter0') : t('path.start.enterN'),
+            len: fmt(seg.length), depth: fmt(seg.depthMax),
+            exit: last ? t('path.start.exitLast', { L0, xOff: fmt(side0.xOff, 3), sT: fmt(sT) }) : t('path.start.exitMid'),
+          }),
           source: `${rule.basis}; ${T.start.direction.basis}; ${spec.basis}` });
       }
       RD.start = { X0, holes, tail: holes[0], exitSides: side0, runs, Lrun, theta };
@@ -199,7 +358,7 @@ export function buildWork(recipe, P, base, marking, layout) {
     } else {
       cur = th.park;
       RD.start = { resumeFrom: th.parkStitch, X0: cur };
-      pushOp({ kind: 'resume', segIds: [], label: `${RD.id}: вернуться к нити ${th.id} — она припаркована у X последнего стежка ${th.rounds[th.rounds.length - 2]} (без скрытого перехода)`,
+      pushOp({ kind: 'resume', segIds: [], label: t('path.resume', { round: RD.id, thread: th.id, prev: th.rounds[th.rounds.length - 2] }),
         source: `${spec.basis}; TK-UWA; prior #94` });
     }
 
@@ -219,21 +378,12 @@ export function buildWork(recipe, P, base, marking, layout) {
           levelInfo = { rule: 'belowPrevChannel', sPrev, dS: s - sPrev, basis: LV.top.next.basis };
         }
       } else if (spec.row === 1) { s = layout.sBot; levelInfo = { rule: 'row1', basis: LV.bottom.row1.basis }; }
-      else {
-        const prevSt = W.stitches.find((st) => st.round === prevRound.id && st.line === k && st.level === 'bottom');
-        const prevArm = W.segs.find((x) => x.id === prevSt.legId);
-        const sidesAt = (t) => needleSides({ R, s: t, phi: phiOf(k), m, w, N, laid: legs() });
-        const pp = packThenPierce(R, prevArm, phiOf(k), (layout.sTop + prevSt.s) / 2, w, 2 * Q - 1, sidesAt);
-        // канал нового стежка не может налезать на канал предыдущего на этой линии (игла не прокалывает нить)
-        const sChan = Math.max(...W.stitches.filter((st) => st.line === k && st.level === 'bottom').map((st) => st.s)) + w;
-        s = Math.max(pp.s, sChan);
-        levelInfo = { rule: 'packThenPierce', sPrev: prevSt.s, sPrevCross: pp.sPrevCross, sLaidCross: pp.sLaidCross, sPack: pp.s, sChan,
-          channelBinding: sChan > pp.s, dS: s - prevSt.s, prevArm: prevArm.id, basis: LV.bottom.next.basis };
-      }
+      else ({ s, levelInfo } = bottomLevel(k, prevRound));
       // (б) где колоть: занятость у линии k на уровне s из уже уложенного (все нити, причинный префикс)
-      const sides = needleSides({ R, s, phi: phiOf(k), m, w, N, laid: legs() });
+      const sides = needleSides({ R, s, phi: phiOf(k), m, w, N, laid: laid() });
       const E = perpPt(R, s, phiOf(k), sides.eOff);
       const X = perpPt(R, s, phiOf(k), sides.xOff);
+      for (const q of sides.squeeze) W.squeezes.push({ hole: q.side === 'E' ? E : X, set: spec.set, round: RD.id, line: k, i, ...q });
       // (в) уложить нить: геодезическое плечо cur → E
       const legPts = slerp(R, cur, E, LEG_SAMPLES);
       const leg = addSeg({ type: 'leg', from: cur, to: E, pts: legPts, length: geodLen(R, cur, E), stitch: i, line: k, level,
@@ -253,6 +403,9 @@ export function buildWork(recipe, P, base, marking, layout) {
               : (other.set !== spec.set ? `позже уложенная сверху (G8, #102) ⇒ переплетение наборов (GT14 «kousa»)` : 'позже уложенная сверху (G8, #102, A14)');
           } else if (other.set === spec.set && other.row < spec.row && topEnd) {
             kind = 'wedge'; rule = 'uwagake: у верхней точки рабочая нить лежит ПОВЕРХ прежних рядов (GT14 «over the previously placed threads»)';
+          } else if (W.squeezes.some((q) => dist(q.hole, z.min.cp) < 2 * w &&
+              ((endsAt(leg, q.hole) && other.set !== q.set) || (endsAt(other, q.hole) && leg.set !== q.set)))) {
+            kind = 'squeeze'; rule = 'тесное место: прокол посередине зазора < w до нити соседней точки (#105); нити должны сжаться — не моделируется (U14, V19); позже уложенная сверху';
           } else { kind = 'contact'; rule = 'прилегание ближе w без перехода — не разрешено правилом'; allowed = false; }
           const sp = toSPhi(R, z.min.cp);
           const c = { id: `c${W.crossings.length}`, a: leg.id, b: other.id, over: passUnder ? other.id : leg.id, under: passUnder ? leg.id : other.id,
@@ -262,10 +415,19 @@ export function buildWork(recipe, P, base, marking, layout) {
           W.crossings.push(c); leg.crossings.push(c);
         }
       }
-      const crossTxt = leg.crossings.map((c) => `${c.kind === 'wedge' ? 'клин' : 'перекрест'} с ${c.b} (${W.segs.find((x) => x.id === c.b).round}) на s=${fmt(c.s)} мм: ${c.over === leg.id ? 'НАД' : 'ПОД'}`).join('; ');
+      const crossTxt = leg.crossings.map((c) => t('path.cross.item', {
+        kind: c.kind === 'wedge' ? t('path.cross.wedge') : t('path.cross.crossing'),
+        b: c.b, round: W.segs.find((x) => x.id === c.b).round, s: fmt(c.s),
+        over: c.over === leg.id ? t('path.over') : t('path.under'),
+      })).join('; ');
       pushOp({ kind: 'lay', segIds: [leg.id], stitch: i, line: k, level, closing,
-        label: `${RD.id}: уложить нить ${th.id} к L${k} (${level === 'top' ? 'верх' : 'низ'} ряда ${spec.row}${closing ? ', замыкание' : ''}): геодезическое плечо ${fmt(leg.length)} мм` +
-          (crossTxt ? `; ${crossTxt}` : '') + (closing ? '. Плечо проходит ПОД первым плечом обхода' : ''),
+        label: t('path.lay', {
+          round: RD.id, thread: th.id, line: k,
+          level: level === 'top' ? t('path.level.top') : t('path.level.bottom'),
+          row: spec.row, closing: closing ? t('path.closing') : '',
+          len: fmt(leg.length),
+          cross: (crossTxt ? `; ${crossTxt}` : '') + (closing ? t('path.lay.closingUnder') : ''),
+        }),
         source: closing ? `${T.closing.basis}; ${conv.closingUnder.basis}` : `${conv.lay.basis}; ${T.patternBasis}; ${conv.crossing.basis}` });
       // (г) стежок: прямой канал E → X под нитью разметки и всем кластером
       const pk = addSeg({ type: 'pickup', from: E, to: X, pts: lineSeg(E, X, 12), length: dist(E, X), stitch: i, line: k, level,
@@ -273,12 +435,21 @@ export function buildWork(recipe, P, base, marking, layout) {
         source: `${conv.sides.basis}; ${conv.needle.basis}; ${conv.channel.basis}`, tag: conv.sides.tag,
         depthMax: R - Math.sqrt(R * R - (dist(E, X) / 2) ** 2) });
       const nameOf = (id) => { const x = W.segs.find((q) => q.id === id); return x ? `${id}/${x.round}` : id; };
-      const underTxt = sides.cluster.map((c) => (c.seg === 'marking' ? `нитью разметки L${k}` : `${nameOf(c.seg)} (${c.kind === 'hole-exit' ? 'выход нити' : c.kind === 'hole-entry' ? 'вход нити' : 'перекрёсток линии иглы'})`)).join(', ');
+      const underTxt = sides.cluster.map((c) => (c.kind === 'marking' ? t('path.under.marking', { line: k })
+        : c.kind === 'marking-neighbour' ? t('path.under.markingNeighbour', { line: lineIdx(k + c.line) })
+        : `${nameOf(c.seg)} (${t('path.kind.' + c.kind, {}, c.kind)})`)).join(', ');
+      const levelExtra = levelInfo.rule === 'belowPrevChannel'
+        ? t('path.level.belowPrev', { prev: spec.row - 1, sPrev: fmt(levelInfo.sPrev, 3) })
+        : levelInfo.rule === 'packThenPierce'
+          ? t('path.level.packThenPierce', { prevArm: levelInfo.prevArm, dS: fmt(levelInfo.dS, 2), prev: spec.row - 1 })
+          : '';
       pushOp({ kind: 'stitch', segIds: [pk.id], stitch: i, line: k, level, closing,
-        label: `${RD.id}: стежок ${i} (${level === 'top' ? 'верх' : 'низ'}, s = ${fmt(s, 3)} мм) на L${k}: игла входит E справа (+${fmt(sides.eOff, 3)} мм от оси линии), ` +
-          `идёт ⟂ линии против хода под ${underTxt}, выходит X слева (${fmt(sides.xOff, 3)} мм); скрытый участок ${fmt(pk.length, 3)} мм` +
-          (levelInfo.rule === 'belowPrevChannel' ? `; уровень = канал ряда ${spec.row - 1} (${fmt(levelInfo.sPrev, 3)}) + w` : '') +
-          (levelInfo.rule === 'packThenPierce' ? `; уровень — где нить, уложенная вплотную к ${levelInfo.prevArm}, пересекает линию (на ${fmt(levelInfo.dS, 2)} мм ниже кончика ряда ${spec.row - 1})` : ''),
+        label: t('path.stitch', {
+          round: RD.id, i, line: k,
+          level: level === 'top' ? t('path.level.top') : t('path.level.bottom'),
+          s: fmt(s, 3), eOff: fmt(sides.eOff, 3), xOff: fmt(sides.xOff, 3),
+          under: underTxt, len: fmt(pk.length, 3),
+        }) + levelExtra,
         source: `${pk.source}; ${levelInfo.basis}` });
       const st = { round: RD.id, set: spec.set, row: spec.row, thread: th.id, i, line: k, level, s, E, X, eOff: sides.eOff, xOff: sides.xOff,
         legId: leg.id, pickupId: pk.id, closing, sides, levelInfo };
@@ -287,7 +458,7 @@ export function buildWork(recipe, P, base, marking, layout) {
       cur = X;
     }
     th.park = cur; th.parkStitch = `${RD.id}/${N}`;
-    pushOp({ kind: 'park', segIds: [], label: `${RD.id}: парковка нити ${th.id} у X${N} (игла с нитью оставлена снаружи; следующий ряд — той же нитью)`, source: T.end.basis });
+    pushOp({ kind: 'park', segIds: [], label: t('path.park', { round: RD.id, thread: th.id, N }), source: T.end.basis });
     RD.opLast = W.ops.length - 1;
     RD.u1 = th.u;
     RD.length = th.u - RD.u0;
@@ -328,9 +499,15 @@ function stackLevels(W, w) {
   }
 }
 
-/** Индекс последней операции этапа по описанию в рецепте. */
+/** Индекс последней операции этапа по описанию в рецепте ('2a', '2b', 'B1', 'A2', 'all') или по id обхода (A3, B5 …). */
 export function stageLastOp(recipe, ops, stage) {
-  const spec = recipe.stages[stage].throughOp;
+  const st = recipe.stages[stage];
+  if (!st) {                                   // id обхода: до его парковки включительно
+    const idx = ops.findIndex((o) => o.round === stage && o.kind === 'park');
+    return idx < 0 ? ops.length - 1 : idx;
+  }
+  const spec = st.throughOp;
+  if (spec.round === '*') return ops.length - 1;
   const idx = ops.findIndex((o) => o.round === spec.round && o.kind === spec.kind && (spec.stitch === undefined || o.stitch === spec.stitch));
   return idx < 0 ? ops.length - 1 : idx;
 }

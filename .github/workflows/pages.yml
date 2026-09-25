@@ -1,0 +1,44 @@
+name: Deploy Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare site
+        run: |
+          mkdir -p _site
+          if [ -d sim ] && [ -f sim/index.html ]; then
+            cp -a sim/. _site/
+          else
+            cat > _site/index.html << 'HTML'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head><meta charset="utf-8" /><title>temari-sim</title></head>
+          <body style="font-family:system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem;line-height:1.5">
+            <h1>temari-sim</h1>
+            <p>Parametric temari knowledge base and browser simulator. The interactive sim will appear here after the first full push of <code>sim/</code>.</p>
+            <p><a href="https://github.com/newYurk/temari-sim">GitHub repository</a></p>
+          </body>
+          </html>
+          HTML
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

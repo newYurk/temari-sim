@@ -1,12 +1,13 @@
-// UI: параметры → computeAll (чистый конвейер) → рендер/валидаторы. Состояние сохраняется в URL.
+// UI: params → computeAll (pure pipeline) → render/validators. State persists in the URL.
 import { loadRecipe, loadJSON } from './recipe.js';
 import { computeAll } from './layers.js';
 import { runValidators, summary, refKey } from './validators.js';
-import { PARAM_SCHEMA, GROUPS, STATUS_LABEL, defaults, paramsFromQuery } from './params.js';
+import { PARAM_SCHEMA, defaults, paramsFromQuery, groupLabel, paramLabel, paramUsed, statusLabel, optionLabel } from './params.js';
 import { Renderer, viridis, warm, SET_COLORS, roundColor } from './render.js';
+import { t, fmtNum, applyDomI18n, getLocale, setLocale, onLocaleChange, validatorName } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
-const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : '—');
+const f = (x, d = 3) => fmtNum(x, d);
 window.__sim = { ready: false, errors: [] };
 window.addEventListener('error', (e) => window.__sim.errors.push(String(e.message)));
 
@@ -34,22 +35,46 @@ document.querySelector(`input[name=color][value=${R3.opts.color}]`).checked = tr
 
 let A = null, V = null;
 
+function syncLangToggle() {
+  const loc = getLocale();
+  document.querySelectorAll('.lang-btn').forEach((b) => {
+    const on = b.dataset.lang === loc;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
 function buildForm() {
   const form = $('params');
   form.innerHTML = '';
   let grp = null;
   for (const p of PARAM_SCHEMA) {
-    if (p.group !== grp) { grp = p.group; const h = document.createElement('div'); h.className = 'grp'; h.textContent = GROUPS[grp]; form.appendChild(h); }
+    if (p.group !== grp) {
+      grp = p.group;
+      const h = document.createElement('div');
+      h.className = 'grp';
+      h.textContent = groupLabel(grp);
+      form.appendChild(h);
+    }
     const row = document.createElement('div'); row.className = 'prm';
-    const lab = document.createElement('label'); lab.textContent = p.label; lab.htmlFor = 'p_' + p.key;
+    const lab = document.createElement('label'); lab.textContent = paramLabel(p); lab.htmlFor = 'p_' + p.key;
     let inp;
     if (p.type === 'select') {
       inp = document.createElement('select');
-      for (const o of p.options) { const op = document.createElement('option'); op.value = o; op.textContent = p.optionLabels?.[o] || o; inp.appendChild(op); }
-    } else { inp = document.createElement('input'); inp.type = p.type === 'number' ? 'number' : 'text'; if (p.type === 'number') { inp.step = p.step; inp.min = p.min; inp.max = p.max; } }
+      for (const o of p.options) {
+        const op = document.createElement('option');
+        op.value = o;
+        op.textContent = optionLabel(p, o);
+        inp.appendChild(op);
+      }
+    } else {
+      inp = document.createElement('input');
+      inp.type = p.type === 'number' ? 'number' : 'text';
+      if (p.type === 'number') { inp.step = p.step; inp.min = p.min; inp.max = p.max; }
+    }
     inp.id = 'p_' + p.key; inp.value = state.raw[p.key] ?? '';
     const meta = document.createElement('div'); meta.className = 'meta';
-    meta.innerHTML = `<span class="st-${p.status}">[${STATUS_LABEL[p.status]}]</span> ${p.basis}. <i>Используется: ${p.used}</i>`;
+    meta.innerHTML = `<span class="st-${p.status}">[${statusLabel(p.status)}]</span> ${p.basis}. <i>${t('meta.used', { used: paramUsed(p) })}</i>`;
     row.append(lab, inp, meta); form.appendChild(row);
   }
 }
@@ -63,6 +88,7 @@ function syncURL() {
   const d = defaults(), u = new URLSearchParams();
   for (const p of PARAM_SCHEMA) if (String(state.raw[p.key]) !== String(d[p.key])) u.set(p.key, state.raw[p.key]);
   u.set('stage', state.stage); u.set('k', state.k); u.set('view', state.view);
+  u.set('lang', getLocale());
   if (R3.opts.transparent) u.set('t', '1'); if (!R3.opts.hidden) u.set('h', '0');
   if (!R3.opts.labels) u.set('lab', '0'); if (!R3.opts.pins) u.set('pins', '0'); if (R3.opts.color !== 'round') u.set('color', R3.opts.color);
   if (R3.opts.hidMode === 'chord') u.set('hid', 'chord');
@@ -70,9 +96,9 @@ function syncURL() {
 }
 
 function recompute(first = false) {
-  A = computeAll(recipe, state.raw);           // полный пересчёт с нуля
+  A = computeAll(recipe, state.raw);           // full recompute from scratch
   const errs = A.params._errors;
-  $('perr').textContent = errs.length ? 'Входы: ' + errs.join('; ') : '';
+  $('perr').textContent = errs.length ? t('err.inputs', { errs: errs.join('; ') }) : '';
   R3.buildStatic(A);
   if (first) {
     R3.view(state.view, A.base.R, q.has('dist') ? Number(q.get('dist')) : null, q.has('dir') ? q.get('dir').split(',').map(Number) : null);
@@ -83,7 +109,8 @@ function recompute(first = false) {
   }
   setStage(state.stage, first && state.k !== null ? state.k : null);
   const rp = A.rowPlan;
-  $('plan').innerHTML = `План рядов по формуле замысла: <b>${rp.nRows}</b> (${rp.rows.map((r) => `n${r.n}: верх ${f(r.sTop, 2)}, низ ${f(r.sBot, 2)} мм`).join('; ')}). Фактические уровни ряда 2 выводит генератор пути (см. V12, V13).`;
+  const rows = rp.rows.map((r) => t('plan.rowItem', { n: r.n, sTop: f(r.sTop, 2), sBot: f(r.sBot, 2) })).join('; ');
+  $('plan').innerHTML = t('plan.rows', { n: rp.nRows, rows });
 }
 
 function setStage(stage, k = null) {
@@ -101,7 +128,7 @@ function update() {
   $('step').value = state.k;
   R3.buildThread(A, state.k);
   const op = A.path.ops[state.k];
-  $('opinfo').innerHTML = `<b>Операция ${state.k} / ${A.path.stageEnd[state.stage]}</b> (${op.kind}): ${op.label}<div class="src">Основание: ${op.source}</div>`;
+  $('opinfo').innerHTML = `<b>${t('op.header', { k: state.k, kEnd: A.path.stageEnd[state.stage] })}</b> (${op.kind}): ${op.label}<div class="src">${t('op.basis', { source: op.source })}</div>`;
   renderLengths();
   renderLegend();
   renderCaption();
@@ -109,6 +136,7 @@ function update() {
   window.__sim.ready = true;
   window.__sim.k = state.k; window.__sim.stage = state.stage;
   window.__sim.summary = summary(V);
+  window.__sim.locale = getLocale();
 }
 
 function renderCaption() {
@@ -116,9 +144,11 @@ function renderCaption() {
   const r = A.path.rounds.find((x) => x.id === op.round);
   const sts = r.stitchIdx.map((i) => A.path.stitches[i]);
   const top = sts.find((st) => st.level === 'top'), bot = sts.find((st) => st.level === 'bottom'), cl = sts[sts.length - 1];
-  $('caption').innerHTML = `C = ${f(P.C_mm, 0)} мм (R = ${f(A.base.R, 2)}) · S${P.N} · w = ${f(P.w_mm, 3)} · m = ${f(P.m_mm, 2)} мм · этап ${state.stage}, оп. ${state.k}<br>` +
-    `обход <b>${r.id}</b> (нить ${r.thread}, ряд ${r.row}): верх s = ${f(top.s, 3)} мм, E/X ±${f(top.eOff, 3)} (замыкающий X ${f(cl.xOff, 3)}); низ s = ${f(bot.s, 3)} мм, E/X ±${f(bot.eOff, 3)}<br>` +
-    `длина обхода ${f(r.length, 2)} мм · нить A ${f(A.path.threads.A.uEnd, 1)} мм${A.path.threads.B ? ` · нить B ${f(A.path.threads.B.uEnd, 1)} мм` : ''} (весь рецепт)`;
+  const uB = A.path.threads.B ? t('caption.threadB', { uB: f(A.path.threads.B.uEnd, 1) }) : '';
+  $('caption').innerHTML =
+    t('caption.line1', { C: f(P.C_mm, 0), R: f(A.base.R, 2), N: P.N, w: f(P.w_mm, 3), m: f(P.m_mm, 2), stage: state.stage, k: state.k }) + '<br>' +
+    t('caption.line2', { round: r.id, thread: r.thread, row: r.row, sTop: f(top.s, 3), eTop: f(top.eOff, 3), xCl: f(cl.xOff, 3), sBot: f(bot.s, 3), eBot: f(bot.eOff, 3) }) + '<br>' +
+    t('caption.line3', { rLen: f(r.length, 2), uA: f(A.path.threads.A.uEnd, 1), uB });
 }
 
 function renderLengths() {
@@ -127,53 +157,73 @@ function renderLengths() {
   const segs = path.segs.filter((s) => ids.has(s.id));
   const ids2 = new Set(path.ops.slice(0, state.k + 1).flatMap((o) => o.segIds));
   const rows = [];
-  for (const t of Object.keys(path.threads)) {
-    const ts = segs.filter((s) => s.thread === t);
+  for (const thr of Object.keys(path.threads)) {
+    const ts = segs.filter((s) => s.thread === thr);
     if (!ts.length) continue;
     const byRound = {};
     for (const s of ts) { const b = byRound[s.round] || (byRound[s.round] = { hid: 0, leg: 0, pk: 0, nLeg: 0 }); if (s.type === 'hidden-start') b.hid += s.length; else if (s.type === 'leg') { b.leg += s.length; b.nLeg++; } else b.pk += s.length; }
     for (const [rid, b] of Object.entries(byRound)) {
-      const ri = path.rounds.findIndex((r) => r.id === rid), sw = R3.opts.color === 'round' ? roundColor(ri) : SET_COLORS[t];
-      rows.push([`<span class="sw" style="background:#${sw.toString(16).padStart(6, '0')}"></span>${rid}: ${b.hid ? `скрытый старт ${f(b.hid, 1)} + ` : ''}плечи (${b.nLeg}) ${f(b.leg, 1)} + захваты ${f(b.pk, 1)}`, f(b.hid + b.leg + b.pk)]);
+      const ri = path.rounds.findIndex((r) => r.id === rid), sw = R3.opts.color === 'round' ? roundColor(ri) : SET_COLORS[thr];
+      const hid = b.hid ? t('len.hiddenStart', { hid: f(b.hid, 1) }) : '';
+      rows.push([`<span class="sw" style="background:#${sw.toString(16).padStart(6, '0')}"></span>${t('len.roundRow', { rid, hid, nLeg: b.nLeg, leg: f(b.leg, 1), pk: f(b.pk, 1) })}`, f(b.hid + b.leg + b.pk)]);
     }
     const tot = ts.reduce((a, s) => a + s.length, 0);
-    const used = path.segs.filter((s) => s.thread === t && ids2.has(s.id)).reduce((a, s) => a + s.length, 0);
-    rows.push([`<b>Нить ${t} (цвет ${t}) — всего по этапу</b>; израсходовано до операции ${state.k}: ${f(used, 1)} мм; масса ${f(tot * A.params.tex / 1e6, 3)} г`, `<b>${f(tot)}</b>`]);
+    const used = path.segs.filter((s) => s.thread === thr && ids2.has(s.id)).reduce((a, s) => a + s.length, 0);
+    rows.push([t('len.threadTot', { t: thr, k: state.k, used: f(used, 1), mass: f(tot * A.params.tex / 1e6, 3) }), `<b>${f(tot)}</b>`]);
   }
-  let html = rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b} мм</td></tr>`).join('');
+  let html = rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b} ${getLocale() === 'ru' ? 'мм' : 'mm'}</td></tr>`).join('');
   const v3 = V.find((v) => v.id === 'V3');
   if (v3 && v3.numbers) {
     const d = Math.abs(v3.numbers.rowLen - v3.numbers.refLen);
-    html += `<tr class="${d < 1e-6 ? 'ok' : ''}"><td>A1 (плечи + захваты) vs calc.py — Δ</td><td class="n">${f(v3.numbers.refLen)} мм · Δ ${d.toExponential(1)}</td></tr>`;
+    html += `<tr class="${d < 1e-6 ? 'ok' : ''}"><td>${t('len.v3')}</td><td class="n">${f(v3.numbers.refLen)} ${getLocale() === 'ru' ? 'мм' : 'mm'} · Δ ${d.toExponential(1)}</td></tr>`;
   }
   const hw = A.params.hw, w = A.params.w_mm, R = A.base.R;
   const legs = segs.filter((s) => s.type === 'leg').reduce((a, s) => a + s.length, 0);
-  html += `<tr><td>Диагностика: все плечи по оси нити на R + h/2 (h = ${f(hw, 2)}·w — не измерено; подъём в стопке не учтён)</td><td class="n">+${f(legs * hw * w / 2 / R, 2)} мм</td></tr>`;
+  html += `<tr><td>${t('len.diag', { hw: f(hw, 2) })}</td><td class="n">+${f(legs * hw * w / 2 / R, 2)} ${getLocale() === 'ru' ? 'мм' : 'mm'}</td></tr>`;
   $('lengths').innerHTML = html;
 }
 
 function renderValidators() {
   const s = summary(V);
-  $('vsum').innerHTML = `этап ${state.stage}: <span style="color:#1f7a3a">pass ${s.pass}</span> · <span style="color:#c0392b">fail ${s.fail}</span> · <span style="color:#d68910">warn ${s.warn}</span> · info ${s.info} · n/a ${s['n/a']}`;
-  $('validators').innerHTML = V.map((v) => `<li><span class="badge b-${v.status === 'n/a' ? 'na' : v.status}">${v.status}</span><b>${v.id}. ${v.name}</b><div class="val">${v.value}</div><div class="crit">${v.crit}</div></li>`).join('');
+  $('vsum').innerHTML = t('vsum', { stage: state.stage, pass: s.pass, fail: s.fail, warn: s.warn, info: s.info, na: s['n/a'] });
+  $('validators').innerHTML = V.map((v) => `<li><span class="badge b-${v.status === 'n/a' ? 'na' : v.status}">${v.status}</span><b>${v.id}. ${validatorName(v)}</b><div class="val">${v.value}</div><div class="crit">${v.crit}</div></li>`).join('');
 }
 
 function renderLegend() {
   const grad = (fn) => `linear-gradient(90deg,${Array.from({ length: 11 }, (_, i) => `#${fn(i / 10).getHexString()}`).join(',')})`;
-  const liftNote = '<div class="note">Верхняя нить в перекрёстке приподнята на 0,6·w на уровень стопки — только изображение (высоты — механика, позже). Скрытые участки — светлее цвета своего обхода; канал иглы E→X — тонкая бледная трубка под всеми нитями.</div>';
+  const liftNote = `<div class="note">${t('legend.lift')}</div>`;
   if (R3.opts.color === 'round') {
     const shown = new Set(A.path.ops.slice(0, state.k + 1).map((o) => o.round));
-    $('legend').innerHTML = A.path.rounds.map((r, i) => `<span${shown.has(r.id) ? '' : ' style="opacity:.4"'}><span class="sw" style="background:#${roundColor(i).toString(16).padStart(6, '0')}"></span>${r.id} — нить ${r.thread}, ряд ${r.row}${shown.has(r.id) ? '' : ' (ещё не шит)'}</span>`).join('') + liftNote;
+    $('legend').innerHTML = A.path.rounds.map((r, i) => {
+      const pending = shown.has(r.id) ? '' : t('legend.pending');
+      return `<span${shown.has(r.id) ? '' : ' style="opacity:.4"'}><span class="sw" style="background:#${roundColor(i).toString(16).padStart(6, '0')}"></span>${t('legend.round', { id: r.id, thread: r.thread, row: r.row, pending })}</span>`;
+    }).join('') + liftNote;
   } else if (R3.opts.color === 'u') {
-    $('legend').innerHTML = Object.values(A.path.threads).map((t) => `нить ${t.id}: u = 0 (конец)<div class="bar" style="background:${grad(t.id === 'B' ? warm : viridis)}"></div>${f(t.uEnd, 1)} мм`).join('<br>');
+    $('legend').innerHTML = Object.values(A.path.threads).map((thr) => `${t('legend.u', { id: thr.id })}<div class="bar" style="background:${grad(thr.id === 'B' ? warm : viridis)}"></div>${f(thr.uEnd, 1)} ${getLocale() === 'ru' ? 'мм' : 'mm'}`).join('<br>');
   } else if (R3.opts.color === 'set') {
-    $('legend').innerHTML = Object.entries(SET_COLORS).map(([k2, c]) => `<span><span class="sw" style="background:#${c.toString(16).padStart(6, '0')}"></span>набор ${k2} (нить ${k2}); ряд 2 светлее</span>`).join('') + liftNote;
+    $('legend').innerHTML = Object.entries(SET_COLORS).map(([k2, c]) => `<span><span class="sw" style="background:#${c.toString(16).padStart(6, '0')}"></span>${t('legend.set', { k: k2 })}</span>`).join('') + liftNote;
   } else {
-    $('legend').innerHTML = `<span><span class="sw" style="background:#2f6bd6"></span>плечо</span><span><span class="sw" style="background:#d6336c"></span>захват (скрыт)</span><span><span class="sw" style="background:#7a7a7a"></span>скрытый старт</span><span><span class="sw" style="background:#ff8c00"></span>текущая операция</span>`;
+    $('legend').innerHTML =
+      `<span><span class="sw" style="background:#2f6bd6"></span>${t('legend.type.leg')}</span>` +
+      `<span><span class="sw" style="background:#d6336c"></span>${t('legend.type.pickup')}</span>` +
+      `<span><span class="sw" style="background:#7a7a7a"></span>${t('legend.type.hidden')}</span>` +
+      `<span><span class="sw" style="background:#ff8c00"></span>${t('legend.type.current')}</span>`;
   }
 }
 
-// события
+function refreshI18nUI() {
+  applyDomI18n(document);
+  syncLangToggle();
+  const keepK = state.k;
+  buildForm();
+  if (A) {
+    // Recompute so path op labels / 3D labels pick up the new locale via t().
+    recompute(false);
+    if (keepK !== null) setStage(state.stage, keepK);
+  }
+}
+
+// events
 document.querySelectorAll('button.stage').forEach((b) => b.addEventListener('click', () => setStage(b.dataset.stage)));
 document.querySelectorAll('button[data-view]').forEach((b) => b.addEventListener('click', () => { state.view = b.dataset.view; R3.view(state.view, A.base.R); syncURL(); }));
 $('step').addEventListener('input', (e) => { state.k = Number(e.target.value); update(); });
@@ -187,6 +237,13 @@ $('optChord').addEventListener('change', (e) => { R3.opts.hidMode = e.target.che
 document.querySelectorAll('input[name=color]').forEach((r) => r.addEventListener('change', (e) => { R3.opts.color = e.target.value; update(); }));
 $('recompute').addEventListener('click', (e) => { e.preventDefault(); state.raw = readForm(); recompute(); });
 $('reset').addEventListener('click', (e) => { e.preventDefault(); state.raw = defaults(); buildForm(); recompute(); });
+document.querySelectorAll('.lang-btn').forEach((b) => b.addEventListener('click', () => {
+  if (b.dataset.lang === getLocale()) return;
+  setLocale(b.dataset.lang);
+}));
+onLocaleChange(() => refreshI18nUI());
 
+applyDomI18n(document);
+syncLangToggle();
 buildForm();
 recompute(true);

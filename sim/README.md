@@ -10,6 +10,16 @@ model/spec.md Ф3), слои в перекрестах не поднимаютс
 - **2c** — последовательное шитьё: **+ B1** (нить B, ряд 1, линии B = A + 45°; операции 19…37) и **+ A2** (нить A из парковки, ряд 2, первый верх uwagake поверх ряда 1; операции 38…55). Уровни и E/X ряда 2 выводятся из занятости (model/spec.md G10–G14, D24–D27); над/под — хронология + uwagake; в изображении верхняя нить приподнята условно на 0,6·w на уровень стопки (D28, только картинка).
 - Окраска по умолчанию — **по обходу** (A1, B1, A2, … — свои цвета, легенда); варианты: по набору, по длине нити, по типу участка.
 
+
+## UI language (RU / EN)
+
+The panel has a **RU | EN** toggle (top right). Choice is stored in `localStorage` key `temari.sim.locale` and mirrored as `?lang=ru|en`.
+
+- Default: **ru**.
+- Switching re-applies all `[data-i18n*]` strings and rebuilds the params form / captions / validators / legend without a full page reload (path op labels refresh via recompute).
+- Code and comments stay English. EN UI prefers craft terms: *kiku*, *mari*, *NP*, *round* (A1/B1 circuit), *row* (row index), *set A/B*, *catch* / *pickup*, *hidden start*, *marking*, *pins*. See also `glossary.md` (ряд/круг).
+- Strings still composed in Russian inside validator **value**/crit text and some path rule notes are listed as remaining Russian-only until those modules return message keys.
+
 ## Запуск
 
 ```

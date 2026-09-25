@@ -8,6 +8,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { point, eEast, unit, mul, add, sub, norm, dist } from './geom.js';
 import { tubeMesh } from './tube.js';
 import { displayGeometry } from './display.js';
+import { t } from './i18n.js';
 
 const COLORS = { leg: 0x2f6bd6, pickup: 0xd6336c, 'hidden-start': 0x7a7a7a, current: 0xff8c00 };
 export const SET_COLORS = { A: 0x1f5fbf, B: 0xc2185b };   // набор A — синий, набор B — малиновый (цвета условные)
@@ -172,8 +173,8 @@ export class Renderer {
     // подписи линий и полюса
     this.staticLabels = new THREE.Group();
     A.marking.phis.forEach((phi, k) => this.staticLabels.add(this.label(`L${k}`, point(R + 3, Q, phi), 'lbl line')));
-    this.staticLabels.add(this.label('СП', point(R + 1.6, 1.6, -3 * Math.PI / 8), 'lbl pole'));
-    this.staticLabels.add(this.label('экватор', point(R + 1.5, Q, -Math.PI / 2 + 0.25), 'lbl line'));
+    this.staticLabels.add(this.label(t('label.NP'), point(R + 1.6, 1.6, -3 * Math.PI / 8), 'lbl pole'));
+    this.staticLabels.add(this.label(t('label.equator'), point(R + 1.5, Q, -Math.PI / 2 + 0.25), 'lbl line'));
     g.add(this.staticLabels);
     this.static = g;
     this.world.add(g);
@@ -221,8 +222,8 @@ export class Renderer {
         }
         if (s.type === 'hidden-start' && s.run === 1) {
           const mid = pts[Math.floor(pts.length / 2)];
-          this.hiddenGroup.add(this.label(`${s.round}: скрытый старт нити ${s.thread} — ${dg.schematic ? 'схема у поверхности (модель: прямая хорда)' : 'хорда иглы (модель)'}`, mul(unit(mid), R + 1.5), 'lbl small'));
-          this.hiddenGroup.add(this.label(`конец нити ${s.thread} (скрыт)`, mul(unit(s.from), R + 1.5), 'lbl small'));
+          this.hiddenGroup.add(this.label(t('label.hiddenStart', { round: s.round, thread: s.thread, mode: dg.schematic ? t('label.hiddenStart.schematic') : t('label.hiddenStart.chord') }), mul(unit(mid), R + 1.5), 'lbl small'));
+          this.hiddenGroup.add(this.label(t('label.threadEnd', { thread: s.thread }), mul(unit(s.from), R + 1.5), 'lbl small'));
         }
       }
       if (curIds.has(s.id)) g.add(new THREE.Mesh(tubeGeometry(pts, radius * 1.9, () => new THREE.Color(COLORS.current)), matCur));
@@ -240,16 +241,18 @@ export class Renderer {
     if (cur && cur.segIds.length) {
       const s = path.segs.find((x) => x.id === cur.segIds[0]);
       const mid = s.pts[Math.floor(s.pts.length / 2)];
-      const short = cur.kind === 'lay' ? `▶ ${cur.idx}: ${cur.round} плечо к L${cur.line}` : cur.kind === 'stitch' ? `▶ ${cur.idx}: ${cur.round} стежок ${cur.stitch}, игла E→X` : `▶ ${cur.idx}: ${cur.round} скрытый старт ${cur.run}/${cur.runs}`;
+      const short = cur.kind === 'lay' ? t('label.cur.lay', { idx: cur.idx, round: cur.round, line: cur.line })
+        : cur.kind === 'stitch' ? t('label.cur.stitch', { idx: cur.idx, round: cur.round, stitch: cur.stitch })
+        : t('label.cur.start', { idx: cur.idx, round: cur.round, run: cur.run, runs: cur.runs });
       this.threadLabels.add(this.label(short, mul(unit(mid), R + 3), 'lbl current'));
       for (const c of (s.crossings || [])) {
         if (c.kind === 'wedge') continue;
-        this.threadLabels.add(this.label(c.over === s.id ? '× над' : '× под', mul(unit(c.at), R + 1.6), 'lbl cross'));
+        this.threadLabels.add(this.label(c.over === s.id ? t('label.over') : t('label.under'), mul(unit(c.at), R + 1.6), 'lbl cross'));
       }
     } else if (cur && (cur.kind === 'park' || cur.kind === 'resume')) {
       const r = cur.kind === 'park' ? curRound : path.rounds.find((q) => q.thread === curRound.thread && q.opLast < curRound.opFirst);
       const last = path.stitches[r.stitchIdx[r.stitchIdx.length - 1]];
-      this.threadLabels.add(this.label(`▶ ${cur.idx}: ${cur.kind === 'park' ? `парковка нити ${cur.thread}` : `нить ${cur.thread} снова в работе`}`, mul(unit(last.X), R + 3), 'lbl current'));
+      this.threadLabels.add(this.label(cur.kind === 'park' ? t('label.cur.park', { idx: cur.idx, thread: cur.thread }) : t('label.cur.resume', { idx: cur.idx, thread: cur.thread }), mul(unit(last.X), R + 3), 'lbl current'));
     }
     g.add(this.threadLabels);
     this.dynamic = g;

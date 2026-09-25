@@ -1,0 +1,572 @@
+// Bilingual RU/EN UI for the temari simulator.
+// Code/comments: English. Default locale: ru (current UI language).
+// Craft terms in EN: kiku, mari, NP, round/row, set A/B, catch/pickup, hidden start, marking, pins.
+
+const STORAGE_KEY = 'temari.sim.locale';
+const SUPPORTED = ['ru', 'en'];
+
+/** Craft glossary — same JA/romaji where the term should stay. */
+export const GLOSSARY = {
+  kiku: { ru: 'кику', en: 'kiku', note: 'chrysanthemum pattern' },
+  mari: { ru: 'мари', en: 'mari', note: 'ball' },
+  NP: { ru: 'СП', en: 'NP', note: 'north pole' },
+  round: { ru: 'обход', en: 'round', note: 'A1/B1 stitch circuit' },
+  row: { ru: 'ряд', en: 'row', note: 'row index within a set' },
+  set: { ru: 'набор', en: 'set', note: 'set A / set B' },
+  catch: { ru: 'захват', en: 'catch', note: 'pickup stitch' },
+  pickup: { ru: 'захват', en: 'pickup', note: 'alias of catch' },
+  hiddenStart: { ru: 'скрытый старт', en: 'hidden start' },
+  marking: { ru: 'разметка', en: 'marking' },
+  pins: { ru: 'булавки', en: 'pins' },
+  uwagake: { ru: 'uwagake', en: 'uwagake', note: 'over-wrapping at top' },
+  leg: { ru: 'плечо', en: 'leg' },
+  park: { ru: 'парковка', en: 'park' },
+};
+
+const ru = {
+  // Document / panel chrome
+  'doc.title': 'Темари · кику S8 · симулятор нитей (этапы 2a–2c: A1, B1, A2)',
+  'panel.title': 'Кику S8 · пути нитей A и B',
+  'panel.sub': 'рецепт → явный путь (последовательное шитьё: A1 → B1 → A2) → (механика — позже) → рендер. Этап 2c.',
+  'section.stage': 'Этап и шаг',
+  'section.view': 'Вид',
+  'section.lengths': 'Длина нити',
+  'section.validators': 'Проверки (валидаторы)',
+  'section.params': 'Параметры',
+  'params.note': 'Все входы — органы управления. Изменение любого входа пересчитывает все слои по порядку: шар → разметка → булавки → план рядов → путь (A1, B1, A2) → проверки. Ширины захвата и сдвигов рядов нет: E/X, уровни ряда 2 и над/под выводятся из того, что уже лежит на шаре.',
+  'btn.recompute': 'Пересчитать',
+  'btn.reset': 'Сброс',
+  'lang.ru': 'RU',
+  'lang.en': 'EN',
+  'lang.title': 'Язык интерфейса',
+
+  // Stage / nav
+  'stage.2a': '2a · проход',
+  'stage.2a.title': 'скрытый старт A и первый проход',
+  'stage.2b': 'A1',
+  'stage.2b.title': 'обход A1, парковка A',
+  'stage.B1': '+ B1',
+  'stage.B1.title': '+ обход B1 (нить B), парковка B',
+  'stage.A2': '+ A2',
+  'stage.A2.title': '+ обход A2: нить A снова в работе, верх поверх ряда 1',
+  'nav.first': 'в начало',
+  'nav.prev': 'назад',
+  'nav.next': 'вперёд',
+  'nav.last': 'в конец',
+
+  // View
+  'view.top': 'Сверху (СП)',
+  'view.oblique': 'Косо',
+  'view.side': 'Сбоку',
+  'view.bottom': 'Снизу',
+  'opt.transparent': 'прозрачный шар',
+  'opt.hidden': 'скрытые участки',
+  'opt.chord': 'старт хордой (как в модели)',
+  'opt.chord.title': 'В модели скрытый старт — прямая хорда иглы (до 4 мм вглубь). По умолчанию он показан схемой у поверхности.',
+  'opt.labels': 'подписи',
+  'opt.pins': 'булавки',
+  'color.prefix': 'окраска:',
+  'color.round': 'по обходу (A1, B1, A2 …)',
+  'color.u': 'по длине нити u',
+  'color.set': 'по набору (A / B)',
+  'color.type': 'по типу участка',
+
+  // Groups
+  'group.base': 'а) Шар / основа',
+  'group.marking': 'б) Разметка',
+  'group.thread': 'в) Нить / материал',
+  'group.process': 'г) Процесс',
+  'group.intent': 'д) Замысел (слой «кику, набор A»)',
+
+  // Status
+  'status.source': 'источник',
+  'status.default': 'по умолчанию, не измерено',
+  'status.stored': 'хранится, не используется',
+  'status.intent': 'замысел',
+  'meta.used': 'Используется: {used}',
+
+  // Param labels
+  'param.C_mm.label': 'Окружность мари C, мм',
+  'param.C_mm.used': 'геометрия',
+  'param.baseWrap.label': 'Обмотка основы',
+  'param.baseWrap.used': 'не используется',
+  'param.N.label': 'Число делений (Simple N)',
+  'param.N.used': 'геометрия',
+  'param.m_mm.label': 'Ширина нити разметки m, мм',
+  'param.m_mm.used': 'геометрия: положение E/X',
+  'param.w_mm.label': 'Ширина уложенной нити w, мм',
+  'param.w_mm.used': 'геометрия: E/X, план рядов; рендер (диаметр трубки)',
+  'param.hw.label': 'Сечение h/w',
+  'param.hw.used': 'только диагностика «длина по оси нити»',
+  'param.tex.label': 'Линейная плотность, текс',
+  'param.tex.used': 'масса нити (диагностика)',
+  'param.mu.label': 'μ нить–нить',
+  'param.mu.used': 'не используется (нет механики)',
+  'param.compress.label': 'Сжимаемость сечения',
+  'param.compress.used': 'не используется',
+  'param.tension_N.label': 'Натяжение T, Н',
+  'param.tension_N.used': 'геометрией пока не используется',
+  'param.startRule.label': 'Закрепление начала',
+  'param.startRule.used': 'скрытый старт',
+  'param.startRule.option.TK-ANCHOR': 'TK-ANCHOR: 2 прохода в то же отверстие',
+  'param.startRule.option.OLY-BASIC': 'OLY-BASIC: 1 проход, без узла',
+  'param.startRun_mm.label': 'Длина скрытого прохода, мм',
+  'param.startRun_mm.used': 'скрытый старт, баланс',
+  'param.topMode.label': 'Верхние точки ряда 1 заданы как',
+  'param.topMode.used': 'геометрия',
+  'param.topMode.option.mm': 'мм от полюса (GT14)',
+  'param.topMode.option.fracQ': 'доля дуги полюс–экватор',
+  'param.sTop_mm.label': 'Верх: мм от СП',
+  'param.sTop_mm.used': 'если «мм»',
+  'param.sTopFrac.label': 'Верх: доля Q',
+  'param.sTopFrac.used': 'если «доля»',
+  'param.bottomFromEq.label': 'Низ: доля Q от экватора',
+  'param.bottomFromEq.used': 'геометрия (булавки)',
+  'param.rowsMode.label': 'Сколько рядов в наборе',
+  'param.rowsMode.used': 'путь: «до экватора» — ряд не шьётся, если его выведенный кончик ниже предела; «ровно N» — N рядов, кончики за пределом → V12 warn (толщина не уменьшается)',
+  'param.rowsMode.option.untilEquator': 'до экватора (GT14)',
+  'param.rowsMode.option.untilOly7': 'до 7 мм над экватором (Olympus TM-7, другая техника)',
+  'param.rowsMode.option.count': 'ровно N рядов на набор',
+  'param.rowsCount.label': 'N рядов на набор (если «ровно N»)',
+  'param.rowsCount.used': 'путь и план рядов',
+  'param.order.label': 'Порядок рядов',
+  'param.order.used': 'путь: хронология обходов ⇒ над/под, занятость',
+  'param.order.option.alternate': 'по ряду: A1, B1, A2, B2 … (GT14)',
+  'param.order.option.blocks': 'блоками: k рядов A, затем k рядов B (Suess 2014)',
+  'param.order.option.sequence': 'явная последовательность',
+  'param.blockSize.label': 'k рядов в блоке (если «блоками»)',
+  'param.blockSize.used': 'если «блоками»',
+  'param.sequence.label': 'Последовательность (если «явная»)',
+  'param.sequence.used': 'если «явная»',
+  'param.spacingMode.label': 'Шаг низа между рядами',
+  'param.spacingMode.used': 'план рядов',
+  'param.spacingMode.option.laidClose': 'уложить вплотную → колоть в пересечении',
+  'param.spacingMode.option.fixedPitch': 'фиксированный шаг',
+  'param.pitch_mm.label': 'Фикс. шаг низа, мм',
+  'param.pitch_mm.used': 'если «фиксированный»',
+
+  // Param validation errors
+  'err.notNumber': '{key}: не число',
+  'err.outOfRange': '{key}={v} вне [{min}, {max}]',
+  'err.badSelect': '{key}: недопустимое значение {v}',
+  'err.NEven': 'N должно быть чётным (два набора кику)',
+  'err.sequenceLetters': 'последовательность: допустимы только буквы A и B ({sequence})',
+  'err.sequenceEmpty': 'последовательность пуста',
+  'err.inputs': 'Входы: {errs}',
+
+  // Dynamic UI (main.js)
+  'op.header': 'Операция {k} / {kEnd}',
+  'op.basis': 'Основание: {source}',
+  'plan.rows': 'План рядов по формуле замысла: <b>{n}</b> ({rows}). Фактические уровни ряда 2 выводит генератор пути (см. V12, V13).',
+  'plan.rowItem': 'n{n}: верх {sTop}, низ {sBot} мм',
+  'caption.line1': 'C = {C} мм (R = {R}) · S{N} · w = {w} · m = {m} мм · этап {stage}, оп. {k}',
+  'caption.line2': 'обход <b>{round}</b> (нить {thread}, ряд {row}): верх s = {sTop} мм, E/X ±{eTop} (замыкающий X {xCl}); низ s = {sBot} мм, E/X ±{eBot}',
+  'caption.line3': 'длина обхода {rLen} мм · нить A {uA} мм{uB} (весь рецепт)',
+  'caption.threadB': ' · нить B {uB} мм',
+  'len.hiddenStart': 'скрытый старт {hid} + ',
+  'len.roundRow': '{rid}: {hid}плечи ({nLeg}) {leg} + захваты {pk}',
+  'len.threadTot': '<b>Нить {t} (цвет {t}) — всего по этапу</b>; израсходовано до операции {k}: {used} мм; масса {mass} г',
+  'len.v3': 'A1 (плечи + захваты) vs calc.py — Δ',
+  'len.diag': 'Диагностика: все плечи по оси нити на R + h/2 (h = {hw}·w — не измерено; подъём в стопке не учтён)',
+  'vsum': 'этап {stage}: <span style="color:#1f7a3a">pass {pass}</span> · <span style="color:#c0392b">fail {fail}</span> · <span style="color:#d68910">warn {warn}</span> · info {info} · n/a {na}',
+  'legend.round': '{id} — нить {thread}, ряд {row}{pending}',
+  'legend.pending': ' (ещё не шит)',
+  'legend.lift': 'Верхняя нить в перекрёстке приподнята на 0,6·w на уровень стопки — только изображение (высоты — механика, позже). Скрытые участки — светлее цвета своего обхода; канал иглы E→X — тонкая бледная трубка под всеми нитями.',
+  'legend.u': 'нить {id}: u = 0 (конец)',
+  'legend.set': 'набор {k} (нить {k}); ряд 2 светлее',
+  'legend.type.leg': 'плечо',
+  'legend.type.pickup': 'захват (скрыт)',
+  'legend.type.hidden': 'скрытый старт',
+  'legend.type.current': 'текущая операция',
+
+  // 3D labels (render.js)
+  'label.NP': 'СП',
+  'label.equator': 'экватор',
+  'label.hiddenStart': '{round}: скрытый старт нити {thread} — {mode}',
+  'label.hiddenStart.schematic': 'схема у поверхности (модель: прямая хорда)',
+  'label.hiddenStart.chord': 'хорда иглы (модель)',
+  'label.threadEnd': 'конец нити {thread} (скрыт)',
+  'label.cur.lay': '▶ {idx}: {round} плечо к L{line}',
+  'label.cur.stitch': '▶ {idx}: {round} стежок {stitch}, игла E→X',
+  'label.cur.start': '▶ {idx}: {round} скрытый старт {run}/{runs}',
+  'label.cur.park': '▶ {idx}: парковка нити {thread}',
+  'label.cur.resume': '▶ {idx}: нить {thread} снова в работе',
+  'label.over': '× над',
+  'label.under': '× под',
+
+  // Path op labels (templates)
+  'path.start': '{round}: скрытый старт нити {thread}, проход {run}/{runs}: игла {enter}, идёт прямо (хорда {len} мм, глубина до {depth} мм) и выходит {exit}',
+  'path.start.enter0': 'входит в обмотку',
+  'path.start.enterN': 'входит в то же отверстие',
+  'path.start.exitLast': 'у L{L0} вплотную слева от занятого у линии ({xOff} мм), {sT} мм от СП (X₀)',
+  'path.start.exitMid': 'на поверхность',
+  'path.resume': '{round}: вернуться к нити {thread} — она припаркована у X последнего стежка {prev} (без скрытого перехода)',
+  'path.lay': '{round}: уложить нить {thread} к L{line} ({level} ряда {row}{closing}): геодезическое плечо {len} мм{cross}',
+  'path.level.top': 'верх',
+  'path.level.bottom': 'низ',
+  'path.closing': ', замыкание',
+  'path.cross.wedge': 'клин',
+  'path.cross.crossing': 'перекрест',
+  'path.cross.item': '{kind} с {b} ({round}) на s={s} мм: {over}',
+  'path.over': 'НАД',
+  'path.under': 'ПОД',
+  'path.stitch': '{round}: стежок {i} ({level}, s = {s} мм) на L{line}: игла входит E справа (+{eOff} мм от оси линии), идёт ⟂ линии против хода под {under}, выходит X слева ({xOff} мм); скрытый участок {len} мм',
+  'path.under.marking': 'нитью разметки L{line}',
+  'path.under.markingNeighbour': 'СОСЕДНЕЙ нитью разметки L{line}',
+  'path.kind.hole-exit': 'выход нити',
+  'path.kind.hole-entry': 'вход нити',
+  'path.kind.hole-start': 'отверстие скрытого старта',
+  'path.kind.crossing': 'перекрёсток линии иглы',
+  'path.kind.channel': 'канал прежнего стежка',
+  'path.lay.closingUnder': '. Плечо проходит ПОД первым плечом обхода',
+  'path.level.belowPrev': '; уровень = канал ряда {prev} ({sPrev}) + w',
+  'path.level.packThenPierce': '; уровень — где нить, уложенная вплотную к {prevArm}, пересекает линию (на {dS} мм ниже кончика ряда {prev})',
+  'path.park': '{round}: парковка нити {thread} у X{N} (игла с нитью оставлена снаружи; следующий ряд — той же нитью)',
+
+  // Validator names (ids stay V1…)
+  'validator.V1.name': 'Каждая нить непрерывна',
+  'validator.V2.name': 'Баланс длины по каждой нити: u = Σ сегментов',
+  'validator.V3.name': 'Согласие A1 с calc.py',
+  'validator.V4.name': 'Захват ⟂ линии, против хода, под поверхностью',
+  'validator.V5.name': 'Стежки на своих линиях и уровнях',
+  'validator.V6.name': 'Симметрия лепестков в обходе',
+  'validator.V7.name': 'Плечи на поверхности, скрытые участки внутри',
+  'validator.V8.name': 'Нет взаимопроникновения, кроме разрешённого правилами',
+  'validator.V9.name': 'Выведенный захват ряда 1 vs источники',
+  'validator.V10.name': 'Замыкание обходов',
+  'validator.V11.name': 'Цепочка слоёв свежая',
+  'validator.V12.name': 'Ряды до экватора: выведенные кончики vs предел и план',
+  'validator.V13.name': 'Верх ряда n+1 «на нить ниже и шире» как следствие (по рядам)',
+  'validator.V14.name': 'Нить не парит над шаром (модель и меш)',
+  'validator.V15.name': 'Bn = An, повёрнутый на 360°/N',
+  'validator.V15b.name': 'Bn = An, повёрнутый на 360°/N (по рядам)',
+  'validator.V16.name': 'Игла не прокалывает нить (плечи и каналы)',
+  'validator.V17.name': 'Игла под всеми прежними рядами у верха (uwagake)',
+  'validator.V18.name': 'Над/под по правилу; переплетение наборов',
+  'validator.V19.name': 'Место для иглы между нитями (сжатие в тесных местах)',
+};
+
+const en = {
+  'doc.title': 'Temari · kiku S8 · thread simulator (stages 2a–2c: A1, B1, A2)',
+  'panel.title': 'Kiku S8 · thread paths A and B',
+  'panel.sub': 'recipe → explicit path (sequential stitching: A1 → B1 → A2) → (mechanics — later) → render. Stage 2c.',
+  'section.stage': 'Stage and step',
+  'section.view': 'View',
+  'section.lengths': 'Thread length',
+  'section.validators': 'Checks (validators)',
+  'section.params': 'Parameters',
+  'params.note': 'All inputs are controls. Changing any input recomputes all layers in order: ball → marking → pins → row plan → path (A1, B1, A2) → checks. No catch-width or row-shift inputs: E/X, row-2 levels and over/under are derived from what already lies on the ball.',
+  'btn.recompute': 'Recompute',
+  'btn.reset': 'Reset',
+  'lang.ru': 'RU',
+  'lang.en': 'EN',
+  'lang.title': 'UI language',
+
+  'stage.2a': '2a · pass',
+  'stage.2a.title': 'hidden start A and first pass',
+  'stage.2b': 'A1',
+  'stage.2b.title': 'round A1, park A',
+  'stage.B1': '+ B1',
+  'stage.B1.title': '+ round B1 (thread B), park B',
+  'stage.A2': '+ A2',
+  'stage.A2.title': '+ round A2: thread A back in work, top over row 1',
+  'nav.first': 'to start',
+  'nav.prev': 'back',
+  'nav.next': 'forward',
+  'nav.last': 'to end',
+
+  'view.top': 'Top (NP)',
+  'view.oblique': 'Oblique',
+  'view.side': 'Side',
+  'view.bottom': 'Bottom',
+  'opt.transparent': 'transparent ball',
+  'opt.hidden': 'hidden segments',
+  'opt.chord': 'start as chord (as in model)',
+  'opt.chord.title': 'In the model the hidden start is a straight needle chord (up to 4 mm deep). By default it is shown as a schematic near the surface.',
+  'opt.labels': 'labels',
+  'opt.pins': 'pins',
+  'color.prefix': 'color by:',
+  'color.round': 'by round (A1, B1, A2 …)',
+  'color.u': 'by thread length u',
+  'color.set': 'by set (A / B)',
+  'color.type': 'by segment type',
+
+  'group.base': 'a) Ball / base',
+  'group.marking': 'b) Marking',
+  'group.thread': 'c) Thread / material',
+  'group.process': 'd) Process',
+  'group.intent': 'e) Intent (layer “kiku, set A”)',
+
+  'status.source': 'source',
+  'status.default': 'default, not measured',
+  'status.stored': 'stored, unused',
+  'status.intent': 'intent',
+  'meta.used': 'Used: {used}',
+
+  'param.C_mm.label': 'Mari circumference C, mm',
+  'param.C_mm.used': 'geometry',
+  'param.baseWrap.label': 'Base wrap',
+  'param.baseWrap.used': 'unused',
+  'param.N.label': 'Division count (Simple N)',
+  'param.N.used': 'geometry',
+  'param.m_mm.label': 'Marking thread width m, mm',
+  'param.m_mm.used': 'geometry: E/X position',
+  'param.w_mm.label': 'Laid thread width w, mm',
+  'param.w_mm.used': 'geometry: E/X, row plan; render (tube diameter)',
+  'param.hw.label': 'Cross-section h/w',
+  'param.hw.used': 'diagnostics only (“length along thread axis”)',
+  'param.tex.label': 'Linear density, tex',
+  'param.tex.used': 'thread mass (diagnostics)',
+  'param.mu.label': 'μ thread–thread',
+  'param.mu.used': 'unused (no mechanics)',
+  'param.compress.label': 'Cross-section compressibility',
+  'param.compress.used': 'unused',
+  'param.tension_N.label': 'Tension T, N',
+  'param.tension_N.used': 'not used by geometry yet',
+  'param.startRule.label': 'Start anchor',
+  'param.startRule.used': 'hidden start',
+  'param.startRule.option.TK-ANCHOR': 'TK-ANCHOR: 2 passes into the same hole',
+  'param.startRule.option.OLY-BASIC': 'OLY-BASIC: 1 pass, no knot',
+  'param.startRun_mm.label': 'Hidden run length, mm',
+  'param.startRun_mm.used': 'hidden start, balance',
+  'param.topMode.label': 'Row-1 top points given as',
+  'param.topMode.used': 'geometry',
+  'param.topMode.option.mm': 'mm from pole (GT14)',
+  'param.topMode.option.fracQ': 'fraction of pole–equator arc',
+  'param.sTop_mm.label': 'Top: mm from NP',
+  'param.sTop_mm.used': 'if “mm”',
+  'param.sTopFrac.label': 'Top: fraction of Q',
+  'param.sTopFrac.used': 'if “fraction”',
+  'param.bottomFromEq.label': 'Bottom: fraction of Q from equator',
+  'param.bottomFromEq.used': 'geometry (pins)',
+  'param.rowsMode.label': 'How many rows per set',
+  'param.rowsMode.used': 'path: “to equator” — a row is not sewn if its derived tip is below the limit; “exactly N” — N rows, tips past limit → V12 warn (thickness not reduced)',
+  'param.rowsMode.option.untilEquator': 'to the equator (GT14)',
+  'param.rowsMode.option.untilOly7': 'to 7 mm above equator (Olympus TM-7, other technique)',
+  'param.rowsMode.option.count': 'exactly N rows per set',
+  'param.rowsCount.label': 'N rows per set (if “exactly N”)',
+  'param.rowsCount.used': 'path and row plan',
+  'param.order.label': 'Row order',
+  'param.order.used': 'path: round chronology ⇒ over/under, occupancy',
+  'param.order.option.alternate': 'by row: A1, B1, A2, B2 … (GT14)',
+  'param.order.option.blocks': 'in blocks: k rows A, then k rows B (Suess 2014)',
+  'param.order.option.sequence': 'explicit sequence',
+  'param.blockSize.label': 'k rows per block (if “blocks”)',
+  'param.blockSize.used': 'if “blocks”',
+  'param.sequence.label': 'Sequence (if “explicit”)',
+  'param.sequence.used': 'if “explicit”',
+  'param.spacingMode.label': 'Bottom spacing between rows',
+  'param.spacingMode.used': 'row plan',
+  'param.spacingMode.option.laidClose': 'lay close → stitch at intersection',
+  'param.spacingMode.option.fixedPitch': 'fixed pitch',
+  'param.pitch_mm.label': 'Fixed bottom pitch, mm',
+  'param.pitch_mm.used': 'if “fixed”',
+
+  'err.notNumber': '{key}: not a number',
+  'err.outOfRange': '{key}={v} outside [{min}, {max}]',
+  'err.badSelect': '{key}: invalid value {v}',
+  'err.NEven': 'N must be even (two kiku sets)',
+  'err.sequenceLetters': 'sequence: only letters A and B allowed ({sequence})',
+  'err.sequenceEmpty': 'sequence is empty',
+  'err.inputs': 'Inputs: {errs}',
+
+  'op.header': 'Operation {k} / {kEnd}',
+  'op.basis': 'Basis: {source}',
+  'plan.rows': 'Row plan from intent formula: <b>{n}</b> ({rows}). Actual row-2 levels come from the path generator (see V12, V13).',
+  'plan.rowItem': 'n{n}: top {sTop}, bottom {sBot} mm',
+  'caption.line1': 'C = {C} mm (R = {R}) · S{N} · w = {w} · m = {m} mm · stage {stage}, op. {k}',
+  'caption.line2': 'round <b>{round}</b> (thread {thread}, row {row}): top s = {sTop} mm, E/X ±{eTop} (closing X {xCl}); bottom s = {sBot} mm, E/X ±{eBot}',
+  'caption.line3': 'round length {rLen} mm · thread A {uA} mm{uB} (full recipe)',
+  'caption.threadB': ' · thread B {uB} mm',
+  'len.hiddenStart': 'hidden start {hid} + ',
+  'len.roundRow': '{rid}: {hid}legs ({nLeg}) {leg} + catches {pk}',
+  'len.threadTot': '<b>Thread {t} (color {t}) — stage total</b>; used up to operation {k}: {used} mm; mass {mass} g',
+  'len.v3': 'A1 (legs + catches) vs calc.py — Δ',
+  'len.diag': 'Diagnostics: all legs along thread axis at R + h/2 (h = {hw}·w — not measured; stack lift not included)',
+  'vsum': 'stage {stage}: <span style="color:#1f7a3a">pass {pass}</span> · <span style="color:#c0392b">fail {fail}</span> · <span style="color:#d68910">warn {warn}</span> · info {info} · n/a {na}',
+  'legend.round': '{id} — thread {thread}, row {row}{pending}',
+  'legend.pending': ' (not sewn yet)',
+  'legend.lift': 'At a crossing the upper thread is raised by 0.6·w to the stack level — display only (heights are mechanics, later). Hidden segments are a lighter tint of their round; the needle channel E→X is a thin pale tube under all threads.',
+  'legend.u': 'thread {id}: u = 0 (end)',
+  'legend.set': 'set {k} (thread {k}); row 2 lighter',
+  'legend.type.leg': 'leg',
+  'legend.type.pickup': 'catch (hidden)',
+  'legend.type.hidden': 'hidden start',
+  'legend.type.current': 'current operation',
+
+  'label.NP': 'NP',
+  'label.equator': 'equator',
+  'label.hiddenStart': '{round}: hidden start of thread {thread} — {mode}',
+  'label.hiddenStart.schematic': 'schematic near surface (model: straight chord)',
+  'label.hiddenStart.chord': 'needle chord (model)',
+  'label.threadEnd': 'end of thread {thread} (hidden)',
+  'label.cur.lay': '▶ {idx}: {round} leg to L{line}',
+  'label.cur.stitch': '▶ {idx}: {round} stitch {stitch}, needle E→X',
+  'label.cur.start': '▶ {idx}: {round} hidden start {run}/{runs}',
+  'label.cur.park': '▶ {idx}: park thread {thread}',
+  'label.cur.resume': '▶ {idx}: thread {thread} back in work',
+  'label.over': '× over',
+  'label.under': '× under',
+
+  'path.start': '{round}: hidden start of thread {thread}, pass {run}/{runs}: needle {enter}, goes straight (chord {len} mm, depth up to {depth} mm) and exits {exit}',
+  'path.start.enter0': 'enters the wrap',
+  'path.start.enterN': 'enters the same hole',
+  'path.start.exitLast': 'at L{L0} flush left of occupied at the line ({xOff} mm), {sT} mm from NP (X₀)',
+  'path.start.exitMid': 'onto the surface',
+  'path.resume': '{round}: return to thread {thread} — it is parked at X of the last stitch of {prev} (no hidden transition)',
+  'path.lay': '{round}: lay thread {thread} to L{line} ({level} of row {row}{closing}): geodesic leg {len} mm{cross}',
+  'path.level.top': 'top',
+  'path.level.bottom': 'bottom',
+  'path.closing': ', closing',
+  'path.cross.wedge': 'wedge',
+  'path.cross.crossing': 'crossing',
+  'path.cross.item': '{kind} with {b} ({round}) at s={s} mm: {over}',
+  'path.over': 'OVER',
+  'path.under': 'UNDER',
+  'path.stitch': '{round}: stitch {i} ({level}, s = {s} mm) on L{line}: needle enters E on the right (+{eOff} mm from line axis), goes ⟂ to the line against the grain under {under}, exits X on the left ({xOff} mm); hidden segment {len} mm',
+  'path.under.marking': 'marking thread L{line}',
+  'path.under.markingNeighbour': 'NEIGHBOUR marking thread L{line}',
+  'path.kind.hole-exit': 'thread exit',
+  'path.kind.hole-entry': 'thread entry',
+  'path.kind.hole-start': 'hidden-start hole',
+  'path.kind.crossing': 'needle-line crossing',
+  'path.kind.channel': 'previous-stitch channel',
+  'path.lay.closingUnder': '. Leg passes UNDER the round’s first leg',
+  'path.level.belowPrev': '; level = row {prev} channel ({sPrev}) + w',
+  'path.level.packThenPierce': '; level — where the thread laid flush to {prevArm} meets the line ({dS} mm below row {prev} tip)',
+  'path.park': '{round}: park thread {thread} at X{N} (needle with thread left outside; next row — same thread)',
+
+  'validator.V1.name': 'Each thread is continuous',
+  'validator.V2.name': 'Length balance per thread: u = Σ segments',
+  'validator.V3.name': 'A1 agrees with calc.py',
+  'validator.V4.name': 'Catch ⟂ to line, against grain, under surface',
+  'validator.V5.name': 'Stitches on their lines and levels',
+  'validator.V6.name': 'Petal symmetry within a round',
+  'validator.V7.name': 'Legs on surface, hidden segments inside',
+  'validator.V8.name': 'No interpenetration except rule-allowed',
+  'validator.V9.name': 'Derived row-1 catch vs sources',
+  'validator.V10.name': 'Round closure',
+  'validator.V11.name': 'Layer chain is fresh',
+  'validator.V12.name': 'Rows to equator: derived tips vs limit and plan',
+  'validator.V13.name': 'Row n+1 top “one thread lower and wider” as consequence (per row)',
+  'validator.V14.name': 'Thread does not float above the ball (model and mesh)',
+  'validator.V15.name': 'Bn = An rotated by 360°/N',
+  'validator.V15b.name': 'Bn = An rotated by 360°/N (per row)',
+  'validator.V16.name': 'Needle does not pierce thread (legs and channels)',
+  'validator.V17.name': 'Needle under all previous rows at top (uwagake)',
+  'validator.V18.name': 'Over/under by rule; set interweave',
+  'validator.V19.name': 'Room for needle between threads (compression in tight spots)',
+};
+
+export const LOCALES = { ru, en };
+
+let current = 'ru';
+const listeners = new Set();
+
+function readStored() {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (SUPPORTED.includes(s)) return s;
+  } catch (_) { /* ignore */ }
+  return null;
+}
+
+function readUrl() {
+  try {
+    const q = new URLSearchParams(location.search).get('lang');
+    if (SUPPORTED.includes(q)) return q;
+  } catch (_) { /* ignore */ }
+  return null;
+}
+
+/** Resolve initial locale: ?lang= → localStorage → ru. */
+export function initLocale() {
+  current = readUrl() || readStored() || 'ru';
+  try { localStorage.setItem(STORAGE_KEY, current); } catch (_) { /* ignore */ }
+  return current;
+}
+
+export function getLocale() { return current; }
+
+export function setLocale(lang) {
+  if (!SUPPORTED.includes(lang) || lang === current) {
+    if (SUPPORTED.includes(lang)) current = lang;
+    return current;
+  }
+  current = lang;
+  try { localStorage.setItem(STORAGE_KEY, current); } catch (_) { /* ignore */ }
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set('lang', current);
+    history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString() + u.hash);
+  } catch (_) { /* ignore */ }
+  for (const fn of listeners) {
+    try { fn(current); } catch (_) { /* ignore */ }
+  }
+  return current;
+}
+
+export function onLocaleChange(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+/** Translate key with optional {name} interpolation. Falls back to key, then fallback. */
+export function t(key, vars, fallback) {
+  const dict = LOCALES[current] || LOCALES.ru;
+  let s = dict[key];
+  if (s === undefined) s = LOCALES.ru[key];
+  if (s === undefined) s = fallback !== undefined ? fallback : key;
+  if (vars && typeof s === 'string') {
+    s = s.replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined && vars[k] !== null ? String(vars[k]) : '{' + k + '}'));
+  }
+  return s;
+}
+
+/** Apply data-i18n / data-i18n-title / data-i18n-html on a DOM subtree. */
+export function applyDomI18n(root = document) {
+  root.documentElement?.setAttribute?.('lang', current);
+  if (root.documentElement) root.documentElement.setAttribute('lang', current);
+  else if (typeof document !== 'undefined') document.documentElement.setAttribute('lang', current);
+
+  const scope = root.querySelectorAll ? root : document;
+  for (const el of scope.querySelectorAll('[data-i18n]')) {
+    const key = el.getAttribute('data-i18n');
+    if (key) el.textContent = t(key);
+  }
+  for (const el of scope.querySelectorAll('[data-i18n-html]')) {
+    const key = el.getAttribute('data-i18n-html');
+    if (key) el.innerHTML = t(key);
+  }
+  for (const el of scope.querySelectorAll('[data-i18n-title]')) {
+    const key = el.getAttribute('data-i18n-title');
+    if (key) el.setAttribute('title', t(key));
+  }
+  const titleEl = typeof document !== 'undefined' ? document.querySelector('title[data-i18n]') : null;
+  if (titleEl) titleEl.textContent = t(titleEl.getAttribute('data-i18n'));
+  else if (typeof document !== 'undefined' && document.title !== undefined) {
+    document.title = t('doc.title');
+  }
+}
+
+/** Format a number for the active locale (comma in RU, period in EN). */
+export function fmtNum(x, d = 3) {
+  if (!Number.isFinite(x)) return '—';
+  const s = x.toFixed(d);
+  return current === 'ru' ? s.replace('.', ',') : s;
+}
+
+/** Validator display name: prefer i18n, fall back to embedded name. V15 per-row uses V15b. */
+export function validatorName(v) {
+  if (v.id === 'V15' && /по рядам|per row/i.test(v.name || '')) return t('validator.V15b.name', {}, v.name);
+  return t(`validator.${v.id}.name`, {}, v.name);
+}
+
+export function term(key) {
+  const g = GLOSSARY[key];
+  if (!g) return key;
+  return current === 'en' ? g.en : g.ru;
+}
+
+// Initialize on module load so early imports see the right locale.
+initLocale();

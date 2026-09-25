@@ -49,3 +49,12 @@ form .st-default { color: #b35c00; } form .st-stored { color: #888; } form .st-s
 .lbl.cross { background: #333; color: #fff; font-size: 10.5px; }
 .lbl.small { font-size: 10.5px; color: #555; }
 .caption { position: absolute; left: 10px; top: 8px; z-index: 5; background: rgba(255,255,255,.85); border: 1px solid #cfd6df; border-radius: 4px; padding: 4px 8px; font-size: 12.5px; pointer-events: none; }
+
+/* Language toggle (RU | EN) */
+.panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.panel-head h1 { flex: 1; min-width: 0; }
+.lang-toggle { display: inline-flex; flex-shrink: 0; border: 1px solid #aab4c0; border-radius: 4px; overflow: hidden; margin-top: 2px; }
+.lang-toggle .lang-btn { border: 0; border-radius: 0; padding: 2px 8px; background: #fff; color: #334; font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.lang-toggle .lang-btn + .lang-btn { border-left: 1px solid #aab4c0; }
+.lang-toggle .lang-btn.active { background: #2f6bd6; color: #fff; }
+.lang-toggle .lang-btn:not(.active):hover { background: #eef2f8; }

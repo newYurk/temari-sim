@@ -2,7 +2,7 @@
 
 Сгенерировано `sources/build_sources.py` → `sources.json`. Статусы: **opened** — открыт и прочитан мной 2026-09-24; **abstract** — только аннотация/заголовок/описание; **snippet** — только поисковый сниппет; **catalog** — только каталожная запись; **not-opened** — не удалось открыть (или известен только через prior-project).
 
-Итого: abstract: 3, catalog: 1, not-opened: 7, opened: 40, snippet: 1 (всего 52).
+Итого: abstract: 3, catalog: 1, not-opened: 7, opened: 40, snippet: 1 (всего 54; +KARO-KIKU-V, SUESS-KIKU-V 2026-09-25).
 
 Изображения в `sources/img/` — скачаны для внутреннего изучения (права у авторов: Olympus, TemariKai); не для публикации. Сырые страницы — `sources/raw/` (в .gitignore).
 
@@ -54,6 +54,8 @@
 | [PRIOR-ISSUES](https://github.com/newYurk/temari/issues) | opened | ru | newYurk/temari (владелица + агенты), 2026-09-08…24 | История попыток: законы укладки #106/#107/#101–#105, сжатие #93, #100 (верх/низ), #97, #94 (сквозные пересечения), #86/#36 (кику S8 GT14), #112 (архитектурный аудит) | GT14 uwagake kiku / S8 | high (как запись истории) |
 | [PRIOR-THREAD-OVER-THREAD](prior-project/docs_thread-over-thread.md (копия из newYurk/temari docs/)) | opened | ru | newYurk/temari, 2026-09-23 | Аналоговые оценки сечения 0.71×0.46, t_c≈0.37, подъём ≈0.28 мм при принятом T≈1 Н, m^0.85, закон роста паковки — явно НЕ измерены на перле #5 |  /  | medium (как гипотеза) |
 | [PRIOR-THREAD](/workspace/temari-thread-search-report.md) | opened | ru/ja/en | предыдущий агент (поиск по нитям), 2026-09 | Метраж/линейная плотность нитей #5 (25 м/5 г ≈ 200 tex), гейдж 0.71 мм, расход 99DA04 |  /  | medium |
+| [KARO-KIKU-V](https://www.youtube.com/watch?v=tiZkl_1Wv1Y) | opened | ja | カロhandicraft, n/d (checked 2026-09-25) | Live needle uwagake chidori; 2:37 under jiwari+wrap; 3:56 nested rows ~2–3 mm; equal distance from pole; “2 rounds” per colour from row 2 | uwagake chidori kagari / kiku / gold S8-style | high |
+| [SUESS-KIKU-V](https://www.youtube.com/watch?v=ceyC3uYHPxQ) | opened | en | Barbara B. Suess, Stitch Along ~9 min | Live EN kiku herringbone; 4:39 needle close-up; block A-then-B recipe vs GT14 alternate | uwagake chidori / kiku herringbone | high |
 | [NO-ASTITCH](astitchornine.com) | not-opened | en | —, — | Домен истёк |  /  | — |
 | [NO-KAGA](kagatemari yubinuki) | not-opened | ja | —, — | HTTP 500 |  /  | — |
 | [NO-TENTEMARI](tentemari.com) | not-opened | en | —, — | Домен продаётся |  /  | — |
@@ -63,6 +65,8 @@
 
 ## Открытые вопросы по источникам
 
+- **KARO-KIKU-V**: Map “2 rounds per colour” and diagram 2–3 mm onto GT14 / Suess recipes without merging sources
+- **SUESS-KIKU-V**: Confirm exact block sizes from full video vs alternate GT14
 - **OLY-TM7-L**: Число рядов и цвета — в печатной инструкции набора (не видел)
 - **OLY-TM7-V**: Поверхностный или скрытый переход к 黄ピン — по кадрам не определить
 - **OLY-TM2**: Инструкция 八重菊 из набора TM-2 не найдена онлайн

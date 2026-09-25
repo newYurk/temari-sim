@@ -1,5 +1,5 @@
 // Конвейер слоёв: чистая функция (рецепт + параметры) → слои в порядке зависимостей
-// base → marking → layout → rowPlan → path(A1, B1, A2 … по recipe.work.order) → validators. Каждый слой несёт штамп: хэш собственных входов
+// base → marking → layout → rowPlan → path(обходы в порядке замысла: по ряду / блоками / явный) → validators. Каждый слой несёт штамп: хэш собственных входов
 // и штампы слоёв-родителей. Пересчёт всегда с нуля: никаких кэшей между наборами параметров.
 import { point, angleWithMeridian, rad } from './geom.js';
 import { normalizeParams } from './params.js';
@@ -63,12 +63,13 @@ export function layerRowPlan(recipe, P, base, marking, layout) {
 }
 
 export function layerPath(recipe, P, base, marking, layout, rowPlan) {
-  const inputs = pick(P, ['w_mm', 'm_mm', 'startRule', 'startRun_mm']);
+  const inputs = pick(P, ['w_mm', 'm_mm', 'startRule', 'startRun_mm', 'order', 'blockSize', 'sequence', 'rowsMode', 'rowsCount']);
   const parents = [base.stamp, marking.stamp, layout.stamp, rowPlan.stamp];
-  const res = buildWork(recipe, P, base, marking, layout);
-  const stageEnd = Object.fromEntries(Object.keys(recipe.stages).map((k) => [k, stageLastOp(recipe, res.ops, k)]));
+  const res = buildWork(recipe, P, base, marking, layout, rowPlan);
+  const order = res.rounds.map((r) => r.id);
+  const stageEnd = Object.fromEntries([...Object.keys(recipe.stages), ...order].map((k) => [k, stageLastOp(recipe, res.ops, k)]));
   const A1 = res.rounds[0];
-  return { id: `path:${recipe.work.order.join('+')}`, inputs, parents, stamp: hash({ inputs, parents, order: recipe.work.order }), ...res, stageEnd,
+  return { id: `path:${order.join('+')}`, inputs, parents, stamp: hash({ inputs, parents, order }), ...res, order, stageEnd,
     // первый обход — для совместимости диагностики этапов 2a/2b
     start: A1.start, startLegId: A1.firstLegId };
 }

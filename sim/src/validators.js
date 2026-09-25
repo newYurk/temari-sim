@@ -1,6 +1,6 @@
-// Валидаторы — чистые функции над результатом конвейера (или его префиксом до операции k).
-// Каждый: id, название (рус.), критерий criteria.md / основание, статус pass|fail|warn|info|n/a, числа.
-// Работа может содержать несколько обходов и нитей (A1, B1, A2 …): проверки идут по префиксу, по нитям и по обходам.
+// Validators — pure functions over the pipeline result (or its prefix up to operation k).
+// Each: id, name (English canonical; UI translates via i18n), criterion from criteria.md / basis,
+// status pass|fail|warn|info|n/a, numbers. Work may span several rounds and threads (A1, B1, A2 …).
 import { dist, norm, toSPhi, dot, unit, sub, ePole, eEast, haversineLen, point, cross, segSegDist } from './geom.js';
 import { prefix } from './layers.js';
 import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
@@ -72,7 +72,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (prev && first && ids.has(first.id)) { resumes++; resumeGap = Math.max(resumeGap, dist(first.from, path.stitches[prev.stitchIdx[prev.stitchIdx.length - 1]].X)); }
     }
     const ok = maxGap < TOL_JOIN && uGap < TOL_LEN && resumeGap < TOL_JOIN;
-    add({ id: 'V1', name: 'Каждая нить непрерывна', crit: 'K13; prior #112 (одна нить на цвет — один путь); GT14 «Return to Color A»',
+    add({ id: 'V1', name: 'Each thread is continuous', crit: 'K13; prior #112 (одна нить на цвет — один путь); GT14 «Return to Color A»',
       status: ok ? 'pass' : 'fail',
       value: `нитей ${threadIds.length} (${threadIds.join(', ')}); сегментов ${segs.length}; макс. разрыв ${f(maxGap, 12)} мм; скачок u ${f(uGap, 12)} мм; продолжений после парковки ${resumes} (разрыв ${f(resumeGap, 12)} мм)` });
   }
@@ -96,7 +96,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       hvMax = Math.max(hvMax, Math.abs(haversineLen(R, a.s, a.phi, b.s, b.phi) - s.length));
     }
     ok = ok && hvMax < 1e-9;
-    add({ id: 'V2', name: 'Баланс длины по каждой нити: u = Σ сегментов', crit: 'K13; model/spec.md §5; одна нить — один баланс (#112)',
+    add({ id: 'V2', name: 'Length balance per thread: u = Σ segments', crit: 'K13; model/spec.md §5; одна нить — один баланс (#112)',
       status: ok ? 'pass' : 'fail',
       value: threadIds.map((t) => { const p = per[t]; return `нить ${t}: Σ = ${f(p.sum)} мм = u ${f(p.du)} (${Object.entries(p.rounds).map(([r, L]) => `${r} ${f(L)}`).join(', ')}; старт ${f(p.by['hidden-start'] || 0)}, плечи ${f(p.by.leg || 0)}, захваты ${f(p.by.pickup || 0)})`; }).join('; ') +
         `; гаверсинус vs вектор: ${f(hvMax, 12)} мм`,
@@ -108,7 +108,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     const a1Segs = segs.filter((s) => s.round === A1.id);
     const a1St = stitchesDone.filter((st) => st.round === A1.id);
     const e = ref && ref.entries ? ref.entries.find((x) => x.key === refKey(A)) : null;
-    if (!e) add({ id: 'V3', name: 'Согласие A1 с calc.py', crit: 'кросс-проверка двух реализаций', status: 'info',
+    if (!e) add({ id: 'V3', name: 'A1 agrees with calc.py', crit: 'кросс-проверка двух реализаций', status: 'info',
       value: `эталона для этих параметров нет (${refKey(A)}); запустите python3 sim/tools/calc_reference.py` });
     else {
       let dXY = dist(A1.start.X0, e.X0);
@@ -121,7 +121,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       else for (const s of rowSegs) refLen += s.type === 'leg' ? e.arms[s.stitch - 1] : e.bites[s.stitch - 1];
       const hid = a1Segs.filter((s) => s.type === 'hidden-start').reduce((a, s) => a + s.length, 0);
       const ok = Math.abs(rowLen - refLen) < TOL_REF && dXY < TOL_REF && Math.abs(hid - e.hidden_start) < TOL_REF;
-      add({ id: 'V3', name: 'Согласие A1 с calc.py', crit: 'кросс-проверка двух реализаций одной геометрии',
+      add({ id: 'V3', name: 'A1 agrees with calc.py', crit: 'кросс-проверка двух реализаций одной геометрии',
         status: ok ? 'pass' : 'fail',
         value: `${full ? 'ряд 1 (плечи + захваты)' : 'префикс ряда 1'}: sim ${f(rowLen, 4)} мм, calc.py ${f(refLen, 4)} мм (Δ ${f(Math.abs(rowLen - refLen), 9)}); E/X Δmax ${f(dXY, 9)} мм; скрытый старт ${f(hid)} vs ${f(e.hidden_start)} мм`,
         numbers: { rowLen, refLen, dXY, hid, refHidden: e.hidden_start, refRow1: e.row1_total } });
@@ -138,7 +138,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (norm(st.E.map((v, i) => (v + st.X[i]) / 2)) >= R) notUnder++;
     }
     const ok = maxDev < TOL_PERP_DEG && wrongSide === 0 && notUnder === 0;
-    add({ id: 'V4', name: 'Захват ⟂ линии, против хода, под поверхностью', crit: 'OLY-BASIC «垂直に», «逆方向»; TK-LITTLE «right angle»',
+    add({ id: 'V4', name: 'Catch ⟂ to line, against grain, under surface', crit: 'OLY-BASIC «垂直に», «逆方向»; TK-LITTLE «right angle»',
       status: stitchesDone.length ? (ok ? 'pass' : 'fail') : 'n/a',
       value: `стежков ${stitchesDone.length}; макс. отклонение от 90° ${f(maxDev, 9)}°; E справа/X слева: нарушений ${wrongSide}; канал внутри шара: нарушений ${notUnder}` });
   }
@@ -160,36 +160,42 @@ export function runValidators(A, stage = '2b', ref = null) {
       spreads.push({ r: r.id, b: spread(sb), t: spread(stp) });
     }
     const ok = wrongLine === 0 && reach === 0 && spreads.every((x) => x.b <= 1 && x.t <= 0.5);
-    add({ id: 'V5', name: 'Стежки на своих линиях и уровнях', crit: 'K1 (набор A: верх на чётных; B — на нечётных), K2 (разброс низа ряда ≤ 1 мм [A]), K3 (разброс верха ≤ 0,5 мм [A])',
+    const worstB = spreads.reduce((a, x) => (x.b > a.b ? x : a), { b: 0 });
+    add({ id: 'V5', name: 'Stitches on their lines and levels', crit: 'K1 (набор A: верх на чётных; B — на нечётных), K2 (разброс низа ряда ≤ 1 мм [A]), K3 (разброс верха ≤ 0,5 мм [A])',
       status: stitchesDone.length ? (ok ? 'pass' : 'fail') : 'n/a',
-      value: `ошибок линии/уровня ${wrongLine}; разброс s по обходам: ${spreads.map((x) => `${x.r} низ ${f(x.b)}, верх ${f(x.t)}`).join('; ')} мм; захват задевает соседнюю линию: ${reach}` });
+      value: `ошибок линии/уровня ${wrongLine}; разброс s по обходам: ${spreads.map((x) => `${x.r} низ ${f(x.b)}, верх ${f(x.t)}`).join('; ')} мм; захват задевает соседнюю линию: ${reach}` +
+        (worstB.b > 1e-9 ? `. Разброс низа — «ступенька перехода»: кончик на первой нижней линии обхода ниже остальных (см. V6); макс. ${f(worstB.b)} мм в ${worstB.r}` : '') });
   }
   // V6 — симметрия лепестков внутри обхода: поворот на 2·(2π/N) переводит плечо i в плечо i+2
   {
     const done = roundsIn.filter(roundDone);
-    if (!done.length) add({ id: 'V6', name: 'Симметрия лепестков в обходе', crit: 'K1', status: 'n/a', value: 'только для полного обхода' });
+    if (!done.length) add({ id: 'V6', name: 'Petal symmetry within a round', crit: 'K1', status: 'n/a', value: 'только для полного обхода' });
     else {
       const rot = rotZ(2 * (2 * Math.PI / N));
       const parts = [];
       let ok = true;
       for (const r of done) {
         const sts = r.stitchIdx.map((i) => path.stitches[i]);
-        let dLeg = 0, dPk = 0, nCmp = 0;
+        let dLeg = 0, dPk = 0, nCmp = 0, worstPair = '';
         for (let i = 0; i < N; i++) {
           const j = (i + 2) % N;
           const special = (q) => (r.begin === 'resume' && q === 0);   // первое плечо продолженной нити идёт от X парковки
           if (special(i) || special(j)) continue;
           const a = segById.get(sts[i].legId).pts.map(rot), b = segById.get(sts[j].legId).pts;
-          for (let q = 0; q < a.length; q++) dLeg = Math.max(dLeg, dist(a[q], b[q]));
+          let dd = 0;
+          for (let q = 0; q < a.length; q++) dd = Math.max(dd, dist(a[q], b[q]));
+          if (dd > dLeg + 1e-12) worstPair = `плечо ${i + 1} → ${j + 1}`;
+          dLeg = Math.max(dLeg, dd);
           if (!sts[i].closing && !sts[j].closing) dPk = Math.max(dPk, dist(rot(sts[i].E), sts[j].E), dist(rot(sts[i].X), sts[j].X));
           nCmp++;
         }
         const reg = sts.find((st) => st.level === 'top' && !st.closing), cl = sts.find((st) => st.closing);
         const extra = reg.xOff - cl.xOff;
         if (!(dLeg < TOL_SYM && dPk < TOL_SYM && extra > 0)) ok = false;
-        parts.push(`${r.id}: плечи ${f(dLeg, 12)} мм (${nCmp} пар${r.begin === 'resume' ? ', без первого плеча от парковки' : ''}), E/X ${f(dPk, 12)} мм; замыкающий захват шире на ${f(extra, 4)} мм (охватывает начало обхода)`);
+        parts.push(`${r.id}: плечи ${dLeg < TOL_SYM ? f(dLeg, 12) : `${f(dLeg, 3)} (хуже всего ${worstPair})`} мм (${nCmp} пар${r.begin === 'resume' ? ', без первого плеча от парковки' : ''}), E/X ${f(dPk, dPk < TOL_SYM ? 12 : 3)} мм; замыкающий захват шире на ${f(extra, 4)} мм (охватывает начало обхода)`);
       }
-      add({ id: 'V6', name: 'Симметрия лепестков в обходе', crit: 'K1; TK-KIKU', status: ok ? 'pass' : 'fail', value: parts.join('; ') });
+      add({ id: 'V6', name: 'Petal symmetry within a round', crit: 'K1; TK-KIKU', status: ok ? 'pass' : 'fail',
+        value: parts.join('; ') + (ok ? '' : '. Асимметрия — «ступенька перехода»: первое плечо продолженной нити идёт от парковки (верх прошлого ряда, на w выше и уже), кончик ряда n + 1 на линии L(старт + 1) укладывается вплотную к нему и уходит ниже; TK-UWA лечит это отложенным последним стежком (вариант, не моделируется)') });
     }
   }
   // V7 — видимые плечи на поверхности (не сквозь шар), скрытые — внутри
@@ -203,7 +209,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       }
     }
     const ok = (!Number.isFinite(minR) || minR >= R * (1 - 1e-12)) && maxHidden <= R * (1 + 1e-12);
-    add({ id: 'V7', name: 'Плечи на поверхности, скрытые участки внутри', crit: 'геометрия: плечо лежит на опоре (K10), канал иглы в обмотке',
+    add({ id: 'V7', name: 'Legs on surface, hidden segments inside', crit: 'геометрия: плечо лежит на опоре (K10), канал иглы в обмотке',
       status: ok ? 'pass' : 'fail',
       value: `мин. радиус плеч − R = ${f(minR - R, 9)} мм; макс. радиус скрытых − R = ${f(maxHidden - R, 9)} мм; глубина: старт до ${f(depthStart, 2)} мм, захват до ${f(depthPk, 4)} мм (хорда — нижняя оценка)` });
   }
@@ -212,7 +218,11 @@ export function runValidators(A, stage = '2b', ref = null) {
     const pairKey = (a, b) => [a, b].sort().join('|');
     const expected = new Map();
     for (const t of threadIds) { const ts = segs.filter((s) => s.thread === t); for (let i = 1; i < ts.length; i++) expected.set(pairKey(ts[i - 1].id, ts[i].id), 'стык'); }
-    for (const c of path.crossings) if (ids.has(c.a) && ids.has(c.b) && c.allowed) expected.set(pairKey(c.a, c.b), c.kind === 'wedge' ? 'клин uwagake (поверх прежнего ряда)' : 'перекрест (над/под по правилу)');
+    const warnList = [];
+    for (const c of path.crossings) if (ids.has(c.a) && ids.has(c.b) && c.allowed) {
+      if (c.kind === 'squeeze') warnList.push(`${c.a}×${c.b} s=${f(c.s, 1)} d=${f(c.dmin, 3)} (тесное место, V19)`);
+      expected.set(pairKey(c.a, c.b), c.kind === 'wedge' ? 'клин uwagake (поверх прежнего ряда)' : c.kind === 'squeeze' ? 'WARN: тесное место у прокола — нити должны сжаться (V19)' : 'перекрест (над/под по правилу)');
+    }
     for (const st of stitchesDone) {
       for (const c of st.sides.cluster) {
         if (c.seg === 'marking') continue;
@@ -222,16 +232,27 @@ export function runValidators(A, stage = '2b', ref = null) {
         if (c.kind === 'hole-exit' && prevOfThread) expected.set(pairKey(st.pickupId, prevOfThread.id), 'захват охватывает нить у её выхода');
       }
     }
+    // тесные места (V19): у сжатого прокола рабочая нить и нить соседней точки ближе w — записано, сжатие не моделируется
+    const squeezeNear = [];
+    for (const st of stitchesDone) for (const q of (st.sides.squeeze || [])) {
+      if (q.seg === 'marking' || !segById.get(q.seg)) continue;
+      const hole = q.side === 'E' ? st.E : st.X;
+      const nb = (id) => { const x = segById.get(id); return path.segs.filter((y) => y.thread === x.thread && (y.id === id || Math.abs(y.u1 - x.u0) < 1e-9 || Math.abs(y.u0 - x.u1) < 1e-9)).map((y) => y.id); };
+      squeezeNear.push({ mine: new Set(nb(st.pickupId)), set: st.set, hole });
+    }
+    // пара «рабочая нить у сжатого прокола (канал, приходящее/уходящее плечо) × нить другого набора» у этого прокола
+    const squeezeOk = (P, Q, md) => squeezeNear.some((x) => ((x.mine.has(P.id) && Q.set !== x.set) || (x.mine.has(Q.id) && P.set !== x.set)) && Math.min(dist(md.cp, x.hole), dist(md.cq, x.hole)) < 2 * w);
     // оси: видимое плечо — нить диаметра w на поверхности (ось на R + w/2); скрытые — по каналу
     const lift = (R + w / 2) / R;
     const axis = segs.map((s) => (s.type === 'leg' ? s.pts.map((p) => [p[0] * lift, p[1] * lift, p[2] * lift]) : s.pts));
     const boxes = axis.map(bbox);
-    const found = [], bad = [], warnList = [];
+    const found = [], bad = [];
     const order = new Map(path.segs.map((x, i) => [x.id, i]));
     const nextOf = (h) => path.segs.find((x) => x.thread === h.thread && Math.abs(x.u0 - h.u1) < 1e-12);
     const classify = (P, Q, md) => {
       const k = pairKey(P.id, Q.id);
       if (expected.has(k)) return expected.get(k);
+      if (squeezeOk(P, Q, md)) { warnList.push(`${P.id}×${Q.id} s=${f(toSPhi(R, md.cp).s, 1)} d=${f(md.d, 3)} (тесное место, V19)`); return 'WARN: тесное место у прокола — нити должны сжаться (V19)'; }
       const later = order.get(P.id) > order.get(Q.id) ? P : Q, earlier = later === P ? Q : P;
       const types = [P.type, Q.type].sort().join('+');
       if (types === 'leg+pickup') {
@@ -269,7 +290,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     const wedges = path.crossings.filter((c) => c.kind === 'wedge' && ids.has(c.a) && ids.has(c.b));
     const wedgeTxt = wedges.length ? `; клинья: макс. налегание ${f(Math.max(...wedges.map((c) => w - c.dmin)), 3)} мм на длине до ${f(Math.max(...wedges.map((c) => c.lenMm)), 1)} мм от верхней точки` : '';
     const notAllowed = path.crossings.filter((c) => !c.allowed && ids.has(c.a) && ids.has(c.b));
-    add({ id: 'V8', name: 'Нет взаимопроникновения, кроме разрешённого правилами', crit: 'K14: расстояние осей ≥ w (трубка Ø w); разрешено: перекрест с записанным над/под, клин uwagake у верхней точки, захват, стык',
+    add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: расстояние осей ≥ w (трубка Ø w); разрешено: перекрест с записанным над/под, клин uwagake у верхней точки, захват, стык',
       status: bad.length || notAllowed.length ? 'fail' : warnList.length ? 'warn' : 'pass',
       value: `зон сближения < w: ${Object.entries(cnt).map(([k2, v]) => `${k2} — ${v}`).join('; ')}; неожиданных ${bad.length + notAllowed.length}` + wedgeTxt +
         (bad.length ? ': ' + bad.slice(0, 6).map((b) => `${b.a}×${b.b} s=${f(b.s, 1)} d=${f(b.d, 3)}`).join('; ') : '') +
@@ -279,10 +300,10 @@ export function runValidators(A, stage = '2b', ref = null) {
   // V9 — выведенная ширина захвата ряда 1 против источников (проверка, не навязывание)
   {
     const reg = stitchesDone.filter((st) => st.row === 1 && !st.closing).map((st) => st.eOff - st.xOff);
-    if (!reg.length) add({ id: 'V9', name: 'Выведенный захват ряда 1 vs источники', crit: 'TK-LITTLE «about 1-2 mm», TK-KAGARI «about 2mm»', status: 'n/a', value: '—' });
+    if (!reg.length) add({ id: 'V9', name: 'Derived row-1 catch vs sources', crit: 'TK-LITTLE «about 1-2 mm», TK-KAGARI «about 2mm»', status: 'n/a', value: '—' });
     else {
       const lo = Math.min(...reg), hi = Math.max(...reg), inRange = lo >= 1 - 1e-9 && hi <= 2 + 1e-9;
-      add({ id: 'V9', name: 'Выведенный захват ряда 1 vs источники', crit: 'TK-LITTLE «about 1-2 mm», TK-KAGARI «about 2mm» (проверка следствия)',
+      add({ id: 'V9', name: 'Derived row-1 catch vs sources', crit: 'TK-LITTLE «about 1-2 mm», TK-KAGARI «about 2mm» (проверка следствия)',
         status: inRange ? 'pass' : 'warn',
         value: `обычный захват = m + w = ${f(lo)}…${f(hi)} мм (m = ${f(m, 2)}, w = ${f(w, 3)}); ${inRange ? 'в диапазоне 1–2 мм' : 'ВНЕ «about 1–2 mm» — проверьте m, w'}` });
     }
@@ -290,7 +311,7 @@ export function runValidators(A, stage = '2b', ref = null) {
   // V10 — замыкание каждого обхода: последнее плечо ПОД первым плечом обхода, стежок охватывает начало обхода
   {
     const done = roundsIn.filter(roundDone);
-    if (!done.length) add({ id: 'V10', name: 'Замыкание обходов', crit: 'TK-LITTLE; TK-GT14', status: 'n/a', value: 'нет завершённых обходов' });
+    if (!done.length) add({ id: 'V10', name: 'Round closure', crit: 'TK-LITTLE; TK-GT14', status: 'n/a', value: 'нет завершённых обходов' });
     else {
       let ok = true;
       const parts = done.map((r) => {
@@ -302,7 +323,7 @@ export function runValidators(A, stage = '2b', ref = null) {
         if (!good) ok = false;
         return `${r.id}: ${cr ? `плечо ${cl.legId} ПОД ${r.firstLegId} на s = ${f(cr.s, 2)} мм (${f(cr.angleDeg, 1)}°)` : 'перекрест с первым плечом не найден'}; захват [${f(cl.xOff)}; ${f(cl.eOff)}] охватывает ${r.firstLegId}: ${captured ? 'да' : 'нет'}`;
       });
-      add({ id: 'V10', name: 'Замыкание обходов', crit: 'TK-LITTLE «Carry the working thread under the starting thread … then complete the stitch» (ряд 1, a); ряд n — тот же приём (b); TK-GT14 «Complete the stitch … park»',
+      add({ id: 'V10', name: 'Round closure', crit: 'TK-LITTLE «Carry the working thread under the starting thread … then complete the stitch» (ряд 1, a); ряд n — тот же приём (b); TK-GT14 «Complete the stitch … park»',
         status: ok ? 'pass' : 'fail', value: parts.join('; ') });
     }
   }
@@ -311,26 +332,35 @@ export function runValidators(A, stage = '2b', ref = null) {
     const okChain = A.marking.parents[0] === A.base.stamp && A.layout.parents[1] === A.marking.stamp &&
       A.rowPlan.parents[2] === A.layout.stamp && A.path.parents[3] === A.rowPlan.stamp && A.path.parents[0] === A.base.stamp;
     const Rchk = segs.every((s) => s.type !== 'leg' || Math.abs(norm(s.from) - R) < 1e-9);
-    add({ id: 'V11', name: 'Цепочка слоёв свежая', crit: 'требование параметричности: base → marking → layout → rowPlan → path',
+    add({ id: 'V11', name: 'Layer chain is fresh', crit: 'требование параметричности: base → marking → layout → rowPlan → path',
       status: okChain && Rchk ? 'pass' : 'fail',
       value: `штампы: base ${A.base.stamp} → marking ${A.marking.stamp} → layout ${A.layout.stamp} → rowPlan ${A.rowPlan.stamp} → path ${A.path.stamp}; все плечи на текущем R: ${Rchk ? 'да' : 'нет'}` });
   }
-  // V12 — план рядов (формула замысла) против выведенных уровней ряда 2
+  // V12 — план рядов (формула замысла) против выведенных уровней всех рядов; экватор; остановка наборов
   {
     const rp = A.rowPlan, last = rp.rows[rp.rows.length - 1];
-    const r2 = roundsIn.find((r) => r.row === 2 && roundDone(r));
-    let cmp = '';
-    if (r2 && rp.rows[1]) {
-      const sts = r2.stitchIdx.map((i) => path.stitches[i]);
+    const tips = [];
+    for (const r of roundsIn.filter(roundDone)) {
+      const sts = r.stitchIdx.map((i) => path.stitches[i]);
       const b = sts.find((st) => st.level === 'bottom'), t = sts.find((st) => st.level === 'top');
-      cmp = `; ряд 2 выведен: верх ${f(t.s, 3)} (план ${f(rp.rows[1].sTop, 3)}), низ ${f(b.s, 3)} (план ${f(rp.rows[1].sBot, 3)}; формула w/sin α у кончика — приближение)`;
+      tips.push({ r: r.id, set: r.set, row: r.row, sTip: b.s, sTop: t.s, plan: rp.rows[r.row - 1] });
     }
-    const beyond = rp.rows.some((r) => r.beyondLimit);
-    add({ id: 'V12', name: 'План рядов (замысел) vs выведенные уровни', crit: 'K12; TK-GT14 «Work to the equator»',
-      status: beyond ? 'warn' : 'info',
-      value: `по плану рядов: ${rp.nRows}; последний кончик s = ${f(last.sBot, 2)} мм, предел ${f(rp.limit, 2)} мм${beyond ? ' — кончики ЗА пределом' : ''}` + cmp });
+    const lim = path.limit ?? rp.limit;
+    const beyond = tips.filter((x) => x.sTip > lim + 1e-9);
+    const bySet = {};
+    for (const x of tips) (bySet[x.set] || (bySet[x.set] = [])).push(x);
+    const setTxt = Object.entries(bySet).map(([k2, xs]) => `набор ${k2}: рядов ${xs.length}, кончики ${xs.map((x) => `${x.r} ${f(x.sTip, 2)}`).join(', ')} мм`).join('; ');
+    const stopTxt = Object.entries(path.stopped || {}).map(([k2, v]) => `набор ${k2} остановлен перед рядом ${v.row}: ${v.reason}`).join('; ');
+    const planTxt = tips.filter((x) => x.row >= 2 && x.plan).slice(0, 4).map((x) => `${x.r} низ ${f(x.sTip, 2)} (план ${f(x.plan.sBot, 2)})`).join(', ');
+    add({ id: 'V12', name: 'Rows to equator: derived tips vs limit and plan', crit: 'K12; TK-GT14 «Work to the equator»; next-stage §5 (толщину не уменьшать)',
+      status: beyond.length ? 'warn' : 'info',
+      value: `предел s ≤ ${f(lim, 2)} мм (экватор ${f(A.base.Q, 2)}); ${setTxt || 'полных обходов нет'}` +
+        (beyond.length ? `; ЗА пределом: ${beyond.map((x) => `${x.r} на ${f(x.sTip - lim, 2)} мм`).join(', ')}` : '') +
+        (stopTxt ? `; ${stopTxt}` : '') +
+        `; план по формуле w/sin α: ${rp.nRows} рядов, последний кончик ${f(last.sBot, 2)} мм` + (planTxt ? ` (${planTxt}; формула у кончика — приближение)` : ''),
+      numbers: { tips, limit: lim, stopped: path.stopped, beyond } });
   }
-  // V13 — «каждый следующий верх примерно на нить ниже и шире» — СЛЕДСТВИЕ занятости, сверяется с источником
+  // V13 — «каждый следующий верх примерно на нить ниже и шире» — СЛЕДСТВИЕ занятости, сверяется с источником ПО КАЖДОМУ РЯДУ
   {
     const rows = [];
     for (const r of roundsIn.filter((q) => q.row >= 2 && roundDone(q))) {
@@ -339,22 +369,28 @@ export function runValidators(A, stage = '2b', ref = null) {
       const pst = prev.stitchIdx.map((i) => path.stitches[i]).filter((st) => st.level === 'top');
       for (const st of sts) {
         const p = pst.find((q) => q.line === st.line);
-        rows.push({ r: r.id, line: st.line, closing: st.closing, dS: st.s - p.s, dE: st.eOff - p.eOff, dX: p.xOff - st.xOff, W: st.eOff - st.xOff, Wp: p.eOff - p.xOff });
+        const foreign = st.sides.cluster.filter((c) => c.seg !== 'marking' && segById.get(c.seg).set !== st.set).map((c) => segById.get(c.seg).round);
+        rows.push({ r: r.id, set: r.set, row: r.row, line: st.line, closing: st.closing, dS: st.s - p.s, dE: st.eOff - p.eOff, dX: p.xOff - st.xOff, W: st.eOff - st.xOff, Wp: p.eOff - p.xOff, foreign });
       }
     }
-    if (!rows.length) add({ id: 'V13', name: 'Верх ряда n+1 «на нить ниже и шире» как следствие', crit: 'TK-GT14, TK-UWA (проверять, не задавать)', status: 'n/a', value: 'нужен завершённый ряд 2' });
+    if (!rows.length) add({ id: 'V13', name: 'Row n+1 top “one thread lower and wider” as consequence (per row)', crit: 'TK-GT14, TK-UWA (проверять, не задавать)', status: 'n/a', value: 'нужен завершённый ряд 2' });
     else {
-      const reg = rows.filter((x) => !x.closing), cl = rows.filter((x) => x.closing);
-      const dW = reg.map((x) => x.W - x.Wp), dS = reg.map((x) => x.dS);
-      const mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
       const lo = 0.5 * w, hi = 2.5 * w;   // «about 1 thread width»: прочтения +w в сумме (#100) и +w с каждой стороны (+2w); допуск ±w/2 [A]
-      const inside = dW.every((v) => v >= lo && v <= hi);
-      add({ id: 'V13', name: 'Верх ряда n+1 «на нить ниже и шире» как следствие', crit: 'TK-GT14 «about 1 thread width wider and below»; TK-UWA «about 1 thread-width wider and lower»; prior #100 («+w в сумме») — проверка, не вход',
+      const mean = (a) => a.reduce((s2, v) => s2 + v, 0) / a.length;
+      const per = [];
+      for (const rid of [...new Set(rows.map((x) => x.r))]) {
+        const xs = rows.filter((x) => x.r === rid && !x.closing);
+        const dW = xs.map((x) => x.W - x.Wp), dS = xs.map((x) => x.dS);
+        const minW = Math.min(...dW), maxW = Math.max(...dW);
+        const foreign = [...new Set(rows.filter((x) => x.r === rid).flatMap((x) => x.foreign))];
+        per.push({ r: rid, dS: mean(dS), dWmin: minW, dWmax: maxW, dWmean: mean(dW), W: Math.max(...xs.map((x) => x.W)), ok: minW >= lo - 1e-9 && maxW <= hi + 1e-9, foreign });
+      }
+      const inside = per.every((x) => x.ok);
+      add({ id: 'V13', name: 'Row n+1 top “one thread lower and wider” as consequence (per row)', crit: 'TK-GT14 «about 1 thread width wider and below»; TK-UWA «about 1 thread-width wider and lower»; prior #100 («+w в сумме») — проверка, не вход; допуск [0,5 w; 2,5 w] [A]',
         status: inside ? 'pass' : 'warn',
-        value: `ниже на ${f(mean(dS), 3)} мм (= w: адъюнктность каналов, вывод); шире на ${f(mean(dW), 3)} мм в сумме (${f(mean(dW) / w, 2)} w): справа +${f(mean(reg.map((x) => x.dE)), 3)}, слева +${f(mean(reg.map((x) => x.dX)), 3)} мм; ширина ${f(reg[0].Wp, 3)} → ${f(reg[0].W, 3)} мм` +
-          (cl.length ? `; замыкающий верх: ${f(cl[0].Wp, 3)} → ${f(cl[0].W, 3)} мм` : '') +
-          `. Прочтения источника: +w в сумме = ${f(w, 3)}, +w с каждой стороны = ${f(2 * w, 3)} мм. ${inside ? 'В пределах прочтений.' : 'Меньше обоих прочтений: ряды 1 перекрещиваются почти на оси линии на уровне нового верха (см. A8, U3).'}`,
-        numbers: { rows } });
+        value: per.map((x) => `${x.r}: ниже на ${f(x.dS, 3)}, шире на ${x.dWmin === x.dWmax ? f(x.dWmean, 3) : `${f(x.dWmin, 3)}…${f(x.dWmax, 3)}`} мм (${f(x.dWmean / w, 2)} w), ширина ${f(x.W, 3)}${x.ok ? '' : ' ⚠'}${x.foreign.length ? ` [в захвате нити другого набора: ${x.foreign.join(',')}]` : ''}`).join('; ') +
+          `. Прочтения источника: +w в сумме = ${f(w, 3)}, +w с каждой стороны = ${f(2 * w, 3)} мм. ${inside ? 'Все ряды в пределах прочтений.' : 'Ряды с ⚠ вне допуска: ряд 2 — плечи ряда 1 пересекают перпендикуляр нового верха почти у оси линии (мало); ряды ≥ 3 — плечи расходятся от верха, игла должна обойти их снаружи (много); см. A8, U3, U13.'}`,
+        numbers: { rows, per } });
     }
   }
   // V14 — видимая нить лежит на шаре, не парит (модель и отображаемый меш)
@@ -376,66 +412,94 @@ export function runValidators(A, stage = '2b', ref = null) {
       for (const v of tubeMesh(dg.pts, dg.radius).pos) meshMax = Math.max(meshMax, norm(v) - R);
     }
     const ok = legDev < TOL_RAD && hidOut < TOL_RAD && meshMax <= w + liftMax + TOL_MESH && axisMax <= w / 2 + liftMax + TOL_MESH && hidDispAxisMax <= TOL_MESH;
-    add({ id: 'V14', name: 'Нить не парит над шаром (модель и меш)', crit: 'K1–K3; D22 (трубка Ø w на поверхности); условный подъём в перекрестах — только изображение',
+    add({ id: 'V14', name: 'Thread does not float above the ball (model and mesh)', crit: 'K1–K3; D22 (трубка Ø w на поверхности); условный подъём в перекрестах — только изображение',
       status: ok ? 'pass' : 'fail',
       value: `модель: плечи |r − R| ≤ ${legDev.toExponential(1)} мм; скрытые не выше поверхности (max ${hidOut.toExponential(1)}), хорда старта до ${f(hidDepth, 2)} мм вглубь. `
         + `Меш: ось ≤ R + ${f(axisMax, 3)} мм, внешняя поверхность ≤ R + ${f(meshMax, 3)} мм (норма w = ${f(w, 3)} + условный подъём стопки ≤ ${f(liftMax, 3)} мм = ${DISPLAY_STACK_LIFT_W}·w·уровень). `
         + `Схема скрытого старта: глубина ${f(hidDispDepth, 3)} мм`,
       numbers: { legDev, legMax, hidOut, hidDepth, axisMax, meshMax, liftMax, hidDispAxisMax, hidDispDepth } });
   }
-  // V15 — B1 = A1, повёрнутый на 2π/N (лепестки B на соседних линиях)
+  // V15 — ряд n набора B = ряд n набора A, повёрнутый на 2π/N (лепестки B на соседних линиях) — для всех рядов
   {
-    const a1 = path.rounds.find((r) => r.id === 'A1'), b1 = path.rounds.find((r) => r.id === 'B1');
-    if (!b1 || !roundDone(b1)) add({ id: 'V15', name: 'B1 = A1, повёрнутый на 360°/N', crit: 'TK-GT14 «Enter … Color B on a marking line that has a bottom stitch of Color A … same 5mm»; TK-KIKU (2 набора)', status: 'n/a', value: 'нужен завершённый B1' });
+    const setsIn = [...new Set(path.rounds.map((r) => r.set))];
+    const pairs = [];
+    for (const rb of roundsIn.filter((r) => r.set === 'B' && roundDone(r))) {
+      const ra = path.rounds.find((r) => r.set === 'A' && r.row === rb.row);
+      if (ra && ids.has(segById.get(ra.segIds[ra.segIds.length - 1]).id)) pairs.push([ra, rb]);
+    }
+    if (!pairs.length || setsIn.length < 2) add({ id: 'V15', name: 'Bn = An rotated by 360°/N', crit: 'TK-GT14 «Enter … Color B on a marking line that has a bottom stitch of Color A … same 5mm»; TK-KIKU (2 набора)', status: 'n/a', value: 'нужны завершённые An и Bn' });
     else {
-      const rot = rotZ((b1.startLine - a1.startLine) * 2 * Math.PI / N);
-      const sa = a1.stitchIdx.map((i) => path.stitches[i]), sb = b1.stitchIdx.map((i) => path.stitches[i]);
-      let dP = 0, dL = 0, dLen = 0;
-      for (let i = 0; i < N; i++) {
-        dP = Math.max(dP, dist(rot(sa[i].E), sb[i].E), dist(rot(sa[i].X), sb[i].X));
-        const la = segById.get(sa[i].legId), lb = segById.get(sb[i].legId);
-        for (let q = 0; q < la.pts.length; q++) dL = Math.max(dL, dist(rot(la.pts[q]), lb.pts[q]));
+      const parts = [];
+      let unexplained = 0, explained = 0;
+      for (const [ra, rb] of pairs) {
+        const rot = rotZ((rb.startLine - ra.startLine) * 2 * Math.PI / N);
+        const sa = ra.stitchIdx.map((i) => path.stitches[i]), sb = rb.stitchIdx.map((i) => path.stitches[i]);
+        let dP = 0, dL = 0;
+        const diffSt = [];
+        for (let i = 0; i < N; i++) {
+          const dpi = Math.max(dist(rot(sa[i].E), sb[i].E), dist(rot(sa[i].X), sb[i].X));
+          dP = Math.max(dP, dpi);
+          if (dpi >= TOL_SYM) diffSt.push(sb[i]);
+          const la = segById.get(sa[i].legId), lb = segById.get(sb[i].legId);
+          for (let q = 0; q < la.pts.length; q++) dL = Math.max(dL, dist(rot(la.pts[q]), lb.pts[q]));
+        }
+        const dLen = Math.abs(ra.length - rb.length);
+        let dH = 0;
+        if (ra.row === 1) {
+          const hA = segs.filter((s2) => s2.round === ra.id && s2.type === 'hidden-start'), hB = segs.filter((s2) => s2.round === rb.id && s2.type === 'hidden-start');
+          hA.forEach((s2, q) => { dH = Math.max(dH, dist(rot(s2.from), hB[q].from), dist(rot(s2.to), hB[q].to)); });
+        }
+        const same = dP < TOL_SYM && dL < TOL_SYM && dLen < TOL_LEN && dH < TOL_SYM;
+        // объяснение асимметрии: в захвате стежка есть нить ДРУГОГО набора (занятость, а не ошибка)
+        const foreignOf = (st) => [...st.sides.cluster.filter((c) => c.seg !== 'marking' && segById.get(c.seg).set !== st.set).map((c) => `${segById.get(c.seg).round}(${c.kind})`),
+          ...(st.sides.squeeze || []).filter((q) => q.seg !== 'marking').map((q) => `${segById.get(q.seg).round}(тесно, зазор ${f(q.gap, 3)})`)];
+        const why = [...new Set([...diffSt, ...sa.filter((_, i) => diffSt.includes(sb[i]))].flatMap(foreignOf))];
+        const firstDiff = sb.findIndex((st, i) => st.i && Math.max(dist(rot(sa[i].E), st.E), dist(rot(sa[i].X), st.X)) >= TOL_SYM);
+        const upstream = firstDiff < 0 || sb.slice(0, firstDiff + 1).some((st) => foreignOf(st).length) || sa.slice(0, firstDiff + 1).some((st) => foreignOf(st).length);
+        if (!same) { if (why.length || upstream) explained++; else unexplained++; }
+        parts.push(`${rb.id} vs ${ra.id}: ${same ? 'совпадает' : `ОТЛИЧАЕТСЯ — E/X Δmax ${f(dP, 3)} мм на ${diffSt.length} стежках (${diffSt.map((st) => `L${st.line}`).join(',')}), плечи Δmax ${f(dL, 3)} мм, длина ${f(ra.length)} vs ${f(rb.length)} мм${why.length ? `; причина — в захвате нить другого набора: ${why.join(', ')}` : ''}`}`);
       }
-      dLen = Math.abs(a1.length - b1.length);
-      const hA = segs.filter((s) => s.round === 'A1' && s.type === 'hidden-start'), hB = segs.filter((s) => s.round === 'B1' && s.type === 'hidden-start');
-      let dH = 0; hA.forEach((s, q) => { dH = Math.max(dH, dist(rot(s.from), hB[q].from), dist(rot(s.to), hB[q].to)); });
-      const ok = dP < TOL_SYM && dL < TOL_SYM && dLen < TOL_LEN && dH < TOL_SYM;
-      add({ id: 'V15', name: `B1 = A1, повёрнутый на ${f(360 / N, 1)}°`, crit: 'TK-GT14 «Enter … Color B on a marking line that has a bottom stitch of Color A … same 5mm»; TK-KIKU (2 набора); нить A у линий B не лежит в окне иглы — занятость не меняет B1',
-        status: ok ? 'pass' : 'fail',
-        value: `E/X Δmax ${f(dP, 12)} мм; плечи Δmax ${f(dL, 12)} мм; скрытый старт Δ ${f(dH, 12)} мм; длина обхода A1 ${f(a1.length)} vs B1 ${f(b1.length)} мм (Δ ${f(dLen, 12)})` });
+      add({ id: 'V15', name: 'Bn = An rotated by 360°/N (per row)', crit: 'TK-GT14 (B на соседних линиях, то же расстояние от СП); равенство ожидается, пока нить другого набора не попадает в окно иглы; отличие с такой причиной — результат занятости (warn), без причины — ошибка (fail)',
+        status: unexplained ? 'fail' : explained ? 'warn' : 'pass', value: parts.join('; ') });
     }
   }
-  // V16 — игла не прокалывает нить: каждый прокол (E, X, отверстия старта) не ближе w/2 к оси любой уже лежащей нити
+  // V16 — игла не прокалывает нить: каждый прокол (E, X, отверстия старта) не ближе w/2 к оси любой уже лежащей
+  //        нити — плеча или канала прежнего стежка (канал проецируется на поверхность: он лежит сразу под ней)
   {
-    let minMargin = Infinity, worst = null, nHoles = 0, bad = 0;
-    const legsBefore = (uIdxSeg) => segs.filter((s) => s.type === 'leg' && path.segs.indexOf(s) < uIdxSeg);
+    let minMargin = Infinity, worst = null, nHoles = 0, bad = 0, badNoRoom = 0;
+    const noRoomHoles = stitchesDone.flatMap((st) => (st.sides.squeeze || []).filter((q) => q.noRoom).map((q) => (q.side === 'E' ? st.E : st.X)));
+    const order = new Map(path.segs.map((x, i) => [x.id, i]));
+    const surf = new Map(segs.filter((x) => x.type === 'pickup').map((x) => [x.id, x.pts.map((q) => { const n0 = norm(q); return q.map((v) => v * R / n0); })]));
+    const before = (idxSeg) => segs.filter((x) => (x.type === 'leg' || x.type === 'pickup') && order.get(x.id) < idxSeg);
     const check = (p, idxSeg, exclude, what) => {
       nHoles++;
-      for (const L of legsBefore(idxSeg)) {
+      for (const L of before(idxSeg)) {
         if (exclude.includes(L.id)) continue;
-        const d = ptPolyDist(p, L.pts);
+        const d = ptPolyDist(p, L.type === 'pickup' ? surf.get(L.id) : L.pts);
         const margin = d - w / 2;
-        if (margin < minMargin) { minMargin = margin; worst = `${what} — ${L.id}/${L.round}: ${f(d, 3)} мм`; }
-        if (margin < -1e-9) bad++;
+        if (margin < minMargin) { minMargin = margin; worst = `${what} — ${L.id}/${L.round} (${L.type === 'pickup' ? 'канал' : 'плечо'}): ${f(d, 3)} мм`; }
+        if (margin < -1e-9) { bad++; if (noRoomHoles.some((h) => dist(h, p) < 1e-9)) badNoRoom++; }
       }
     };
     for (const st of stitchesDone) {
-      const iPk = path.segs.findIndex((s) => s.id === st.pickupId);
-      check(st.E, iPk, [st.legId], `E ${st.round}/${st.i}`);
-      check(st.X, iPk, [st.legId], `X ${st.round}/${st.i}`);
+      const iPk = order.get(st.pickupId);
+      // свои: приходящее плечо (кончается в E) и соседние по нити сегменты, которые начинаются/кончаются в этих отверстиях
+      const own = path.segs.filter((x) => x.thread === st.thread && (dist(x.from, st.E) < 1e-9 || dist(x.to, st.E) < 1e-9 || dist(x.from, st.X) < 1e-9 || dist(x.to, st.X) < 1e-9)).map((x) => x.id);
+      check(st.E, iPk, [st.legId, ...own], `E ${st.round}/${st.i}`);
+      check(st.X, iPk, [st.legId, ...own], `X ${st.round}/${st.i}`);
     }
-    for (const s of segs.filter((q) => q.type === 'hidden-start')) {
-      const iS = path.segs.indexOf(s);
-      check(s.from, iS, [], `старт ${s.round} вход`); check(s.to, iS, [], `старт ${s.round} выход`);
+    for (const s2 of segs.filter((q) => q.type === 'hidden-start')) {
+      const iS = order.get(s2.id);
+      check(s2.from, iS, [], `старт ${s2.round} вход`); check(s2.to, iS, [], `старт ${s2.round} выход`);
     }
-    add({ id: 'V16', name: 'Игла не прокалывает нить', crit: 'prior #105 (между нитями, не сквозь); TK-LITTLE «jiwari should not be split»; радиус иглы не моделируется (0) [A]',
+    add({ id: 'V16', name: 'Needle does not pierce thread (legs and channels)', crit: 'prior #105 (между нитями, не сквозь); TK-LITTLE «jiwari should not be split»; радиус иглы не моделируется (0) [A]',
       status: bad ? 'fail' : 'pass',
-      value: `проколов ${nHoles}; мин. запас до края чужой нити ${f(minMargin, 3)} мм (${worst || '—'}); нарушений ${bad}` });
+      value: `проколов ${nHoles}; мин. запас до края чужой нити ${f(minMargin, 3)} мм (${worst || '—'}); нарушений ${bad}` + (bad ? ` (из них в проколах без места — V19: ${badNoRoom})` : '') });
   }
   // V17 — uwagake: у верхних точек ряда n ≥ 2 игла проходит ПОД ВСЕМИ нитями прежних рядов этой точки
   {
     const tops = stitchesDone.filter((st) => st.row >= 2 && st.level === 'top');
-    if (!tops.length) add({ id: 'V17', name: 'Игла под всеми прежними рядами у верха (uwagake)', crit: 'TK-UWA «take a stitch around all of them»; SUESS «under and around all previous stitches»; prior #105', status: 'n/a', value: 'нет верхних стежков ряда ≥ 2' });
+    if (!tops.length) add({ id: 'V17', name: 'Needle under all previous rows at top (uwagake)', crit: 'TK-UWA «take a stitch around all of them»; SUESS «under and around all previous stitches»; prior #105', status: 'n/a', value: 'нет верхних стежков ряда ≥ 2' });
     else {
       let missing = 0, total = 0;
       const lines = [];
@@ -453,14 +517,14 @@ export function runValidators(A, stage = '2b', ref = null) {
         total += incident.length; missing += miss.length;
         lines.push(`${st.round}/L${st.line}: под ${incident.length - miss.length}/${incident.length}${miss.length ? ` (не охвачены ${miss.join(',')})` : ''}`);
       }
-      add({ id: 'V17', name: 'Игла под всеми прежними рядами у верха (uwagake)', crit: 'TK-UWA «take a stitch around all of them»; SUESS «under and around all previous stitches»; prior #105 (дефект «третий подхват не охватывает»)',
+      add({ id: 'V17', name: 'Needle under all previous rows at top (uwagake)', crit: 'TK-UWA «take a stitch around all of them»; SUESS «under and around all previous stitches»; prior #105 (дефект «третий подхват не охватывает»)',
         status: missing ? 'fail' : 'pass', value: `охвачено ${total - missing} из ${total} плеч прежних рядов; ${lines.join('; ')}` });
     }
   }
   // V18 — порядок над/под выведен из хронологии и правил; переплетение наборов (kousa) — следствие
   {
     const cs = path.crossings.filter((c) => ids.has(c.a) && ids.has(c.b));
-    if (!cs.length) add({ id: 'V18', name: 'Над/под по правилу; переплетение наборов', crit: 'G8; prior #102, #104; TK-GT14 «over», «kousa»', status: 'n/a', value: 'перекрестов нет' });
+    if (!cs.length) add({ id: 'V18', name: 'Over/under by rule; set interweave', crit: 'G8; prior #102, #104; TK-GT14 «over», «kousa»', status: 'n/a', value: 'перекрестов нет' });
     else {
       let viol = 0;
       const tally = {};
@@ -473,18 +537,51 @@ export function runValidators(A, stage = '2b', ref = null) {
         const key = `${segById.get(c.over).round} над ${segById.get(c.under).round}`;
         tally[key] = (tally[key] || 0) + 1;
       }
-      // переплетение: для каждого плеча B1 — пересекающие его плечи A1 снизу, A2 сверху
+      // переплетение: для каждого плеча Bn — какие ряды A под ним, какие над ним (следствие хронологии)
       let weaveLegs = 0, weaveOk = 0;
-      for (const b of segs.filter((s) => s.round === 'B1' && s.type === 'leg')) {
+      for (const b of segs.filter((s2) => s2.round === 'B1' && s2.type === 'leg')) {
         const withA = cs.filter((c) => (c.a === b.id || c.b === b.id) && c.kind === 'crossing').map((c) => ({ other: segById.get(c.a === b.id ? c.b : c.a), over: c.over }));
         const a1 = withA.filter((x) => x.other.round === 'A1'), a2 = withA.filter((x) => x.other.round === 'A2');
         if (a1.length && a2.length) { weaveLegs++; if (a1.every((x) => x.over === b.id) && a2.every((x) => x.over !== b.id)) weaveOk++; }
       }
-      add({ id: 'V18', name: 'Над/под по правилу; переплетение наборов', crit: 'G8, prior #102 (позже — сверху, если рецепт не велит под); #104/TK-UWA (поверх прежних рядов); TK-LITTLE (замыкание под); TK-GT14 «interweave … kousa style» — как следствие',
+      const orderIdx = new Map(path.rounds.map((r, i) => [r.id, i]));
+      const matrix = {};
+      for (const c of cs.filter((c2) => c2.kind === 'crossing')) {
+        const ra = segById.get(c.a).round, rb = segById.get(c.b).round;
+        if (segById.get(c.a).set === segById.get(c.b).set) continue;
+        const [rA, rB] = segById.get(c.a).set === 'A' ? [ra, rb] : [rb, ra];
+        const key = `${rA}×${rB}`;
+        const m = matrix[key] || (matrix[key] = { aOver: 0, bOver: 0, n: 0, expect: orderIdx.get(rA) > orderIdx.get(rB) ? 'A' : 'B' });
+        m.n++; if (segById.get(c.over).set === 'A') m.aOver++; else m.bOver++;
+      }
+      const bRows = [...new Set(Object.keys(matrix).map((k2) => k2.split('×')[1]))].sort((x, y) => orderIdx.get(x) - orderIdx.get(y));
+      const weaveTxt = bRows.map((rb) => {
+        const under = Object.entries(matrix).filter(([k2, m]) => k2.endsWith('×' + rb) && m.aOver === 0).map(([k2]) => k2.split('×')[0]);
+        const over = Object.entries(matrix).filter(([k2, m]) => k2.endsWith('×' + rb) && m.bOver === 0).map(([k2]) => k2.split('×')[0]);
+        return `${rb} над ${under.join(',') || '—'}${over.length ? `, под ${over.join(',')}` : ''}`;
+      }).join('; ');
+      add({ id: 'V18', name: 'Over/under by rule; set interweave', crit: 'G8, prior #102 (позже — сверху, если рецепт не велит под); #104/TK-UWA (поверх прежних рядов); TK-LITTLE (замыкание под); TK-GT14 «interweave … kousa style» — как следствие',
         status: viol ? 'fail' : 'pass',
         value: `перекрестов и клиньев ${cs.length}: ${Object.entries(tally).map(([k2, v]) => `${k2} — ${v}`).join('; ')}; нарушений правила ${viol}` +
-          (weaveLegs ? `; переплетение: плеч B1, у которых A1 снизу и A2 сверху: ${weaveOk}/${weaveLegs}` : '') });
+          (weaveLegs ? `; переплетение: плеч B1, у которых A1 снизу и A2 сверху: ${weaveOk}/${weaveLegs}` : '') +
+          (weaveTxt ? `; наборы в перекрёстах (свободные плечи): ${weaveTxt}` : ''),
+        numbers: { matrix, tally } });
     }
+  }
+  // V19 — место для рабочей нити у каждого прокола: если до занятости СОСЕДНЕЙ точки (за биссектрисой) меньше w,
+  //        игла идёт между нитями посередине зазора, и нити должны сжаться на (w − зазор)/2 с каждой стороны
+  {
+    const sq = stitchesDone.flatMap((st) => (st.sides.squeeze || []).map((q) => ({ st, q })));
+    const noRoom = sq.filter((x) => x.q.noRoom);
+    const nameOf = (id) => (id === 'marking' ? 'соседняя разметка' : `${id}/${segById.get(id)?.round}`);
+    const byRound = {};
+    for (const x of sq) (byRound[x.st.round] || (byRound[x.st.round] = [])).push(x);
+    add({ id: 'V19', name: 'Room for needle between threads (compression in tight spots)', crit: 'prior #105 (игла между нитями); сжатие нити не моделируется (U14, spec Ф4) — тесные места только перечисляются; зазор ≤ 0 — места нет',
+      status: noRoom.length ? 'fail' : sq.length ? 'warn' : 'pass',
+      value: sq.length ? `тесных проколов ${sq.length}: ` + Object.entries(byRound).map(([r, xs]) => `${r}: ${xs.length} (${[...new Set(xs.map((x) => `${x.q.side} у L${x.st.line}`))].slice(0, 4).join(', ')}…), зазор ${f(Math.min(...xs.map((x) => x.q.gap)), 3)}…${f(Math.max(...xs.map((x) => x.q.gap)), 3)} мм до ${[...new Set(xs.map((x) => nameOf(x.q.seg)))].slice(0, 3).join(', ')}, сжатие до ${f(Math.max(...xs.map((x) => x.q.comp)), 3)} мм с каждой стороны`).join('; ') +
+        (noRoom.length ? `; МЕСТА НЕТ: ${noRoom.map((x) => `${x.st.round}/L${x.st.line}`).join(', ')}` : '')
+        : 'у всех проколов зазор до соседней точки ≥ w (нить ложится вплотную к своему кластеру)',
+      numbers: { squeezes: sq.map((x) => ({ round: x.st.round, line: x.st.line, i: x.st.i, ...x.q })) } });
   }
   return out;
 }

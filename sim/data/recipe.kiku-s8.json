@@ -1,6 +1,6 @@
 {
   "id": "kiku-s8-gt14",
-  "title": "Кику S8 (八重菊, 2 набора × N/2 лепестков) — 上掛け千鳥かがり, по TemariKai GT14: обходы A1, B1, A2",
+  "title": "Кику S8 (八重菊, 2 набора × N/2 лепестков) — 上掛け千鳥かがり, по TemariKai GT14; порядок рядов — замысел (по ряду GT14 / блоками Suess 2014)",
   "derivedFrom": "samples/kiku-s8/recipe.md (шаги 3–9), thread-path.md (шаги 1–9)",
   "note": "Рецепт хранит ЗАМЫСЕЛ и операции иглы, а не координаты. Все координаты выводит генератор пути из параметров и из того, что уже лежит на шаре (последовательное шитьё). Ширины захвата и сдвигов верха/низа здесь нет (D16, D24): E/X, уровни рядов n ≥ 2 и порядок над/под выводятся.",
   "conventions": {
@@ -94,36 +94,6 @@
       ],
       "basis": "TK-GT14 «Work to the equator»; TK-STRETCH/OLY-TM7-V (уложить → колоть в пересечении); TK-UWA «about 2mm»",
       "note": "План уровней по формуле (замысел «сколько рядов»). Фактические уровни рядов n ≥ 2 выводит генератор пути (levels.next) и сверяет с планом."
-    },
-    {
-      "id": "A1",
-      "type": "round",
-      "thread": "A",
-      "set": "A",
-      "row": 1,
-      "startLine": 0,
-      "begin": "hiddenStart",
-      "basis": "TK-GT14 «With Color A, enter … just to the left of one marking line, 5 mm down from the NP»; recipe.md шаги 4–9"
-    },
-    {
-      "id": "B1",
-      "type": "round",
-      "thread": "B",
-      "set": "B",
-      "row": 1,
-      "startLine": 1,
-      "begin": "hiddenStart",
-      "basis": "TK-GT14 «Enter a length of Color B on a marking line that has a bottom stitch of Color A. Keep to the same 5mm distance from the NP … Repeat the Chidori sequence … Complete the stitch but then allow the thread to park»"
-    },
-    {
-      "id": "A2",
-      "type": "round",
-      "thread": "A",
-      "set": "A",
-      "row": 2,
-      "startLine": 0,
-      "begin": "resume",
-      "basis": "TK-GT14 «Return to Color A. Stitch a second row, laying thread parallel to first round»; TK-UWA «Thread is taken over previous rounds»"
     }
   ],
   "stages": {
@@ -154,6 +124,13 @@
       "throughOp": {
         "round": "A2",
         "kind": "park"
+      }
+    },
+    "all": {
+      "text": "вся работа (все обходы в заданном порядке)",
+      "throughOp": {
+        "round": "*",
+        "kind": "end"
       }
     }
   },
@@ -241,13 +218,57 @@
     }
   },
   "work": {
-    "order": [
-      "A1",
-      "B1",
-      "A2"
+    "text": "Работа = последовательность обходов (рядов) двух наборов. Обходы НЕ перечислены числами: генератор пути строит их из шаблонов наборов, замысла «сколько рядов» (rowsMode/rowsCount) и замысла порядка (order). Каждый обход шьётся по тем же правилам поверх того, что уже на шаре.",
+    "sets": [
+      {
+        "set": "A",
+        "thread": "A",
+        "startLine": 0,
+        "row1": {
+          "begin": "hiddenStart",
+          "basis": "TK-GT14 «With Color A, enter … just to the left of one marking line, 5 mm down from the NP»; recipe.md шаги 4–9"
+        },
+        "next": {
+          "begin": "resume",
+          "basis": "TK-GT14 «Return to Color A. Stitch a second row, laying thread parallel to first round»; TK-UWA «Thread is taken over previous rounds»"
+        }
+      },
+      {
+        "set": "B",
+        "thread": "B",
+        "startLine": 1,
+        "row1": {
+          "begin": "hiddenStart",
+          "basis": "TK-GT14 «Enter a length of Color B on a marking line that has a bottom stitch of Color A. Keep to the same 5mm distance from the NP … Repeat the Chidori sequence … Complete the stitch but then allow the thread to park»"
+        },
+        "next": {
+          "begin": "resume",
+          "basis": "TK-GT14 «Continue to alternate rounds» (нить B продолжена из своей парковки, как A: G9, TK-UWA); Suess 2014 — ряды B кладутся поверх рядов A тем же способом"
+        }
+      }
     ],
-    "text": "порядок обходов: A1 → парковка → B1 → парковка → A2 (далее B2, A3 … — этап 2d)",
-    "basis": "TK-GT14 «Park the thread … Enter a length of Color B … Return to Color A. Stitch a second row … Continue to alternate rounds»",
+    "orders": {
+      "alternate": {
+        "text": "по ряду: A1, B1, A2, B2, … (обход каждого набора по очереди)",
+        "basis": "TK-GT14 «Park the thread … Enter a length of Color B … Return to Color A. Stitch a second row … Continue to alternate rounds»; SUESS-2014 на шаре 16 делений — тоже по ряду",
+        "tag": "a"
+      },
+      "blocks": {
+        "text": "блоками: k рядов набора A подряд, затем k рядов набора B (и так далее, пока наборы не кончатся)",
+        "basis": "SUESS-2014 (Barbara B. Suess, TemariChallenge stitch along «kiku herringbone», 2014, youtube ceyC3uYHPxQ), разминочный шар S8: 5 рядов A подряд, затем 5 рядов B поверх; затем ещё по ряду каждого набора другим цветом — здесь не моделируется",
+        "tag": "a"
+      },
+      "sequence": {
+        "text": "явная последовательность наборов, например AAAAABBBBB: каждая буква — следующий ряд этого набора",
+        "basis": "замысел пользователя (обобщение двух порядков выше)",
+        "tag": "intent"
+      }
+    },
+    "rows": {
+      "text": "сколько рядов в наборе: «ровно N» — N рядов, даже если кончики уйдут за экватор (V12 warn, толщина нити не уменьшается); «до экватора» — ряд не шьётся, если его кончик (низ, выведенный из занятости) лёг бы ниже предела; «последовательность» — число букв набора",
+      "basis": "TK-GT14 «Work to the equator»; SUESS-2014 «5 rows» (разминочный шар); next-stage.md §5 (не подгонять число рядов толщиной)",
+      "tag": "a+intent"
+    },
     "tag": "a"
   }
 }

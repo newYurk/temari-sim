@@ -3,7 +3,7 @@
 <head>
   <link rel="icon" href="data:,">
 <meta charset="utf-8">
-<title>Темари · кику S8 · симулятор нитей (этапы 2a–2c: A1, B1, A2)</title>
+<title data-i18n="doc.title">Темари · кику S8 · симулятор нитей (этапы 2a–2c: A1, B1, A2)</title>
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
 { "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
@@ -13,64 +13,71 @@
 <div id="app">
   <div id="view"><div id="caption" class="caption"></div></div>
   <aside id="panel">
-    <h1>Кику S8 · пути нитей A и B</h1>
-    <div class="sub">рецепт → явный путь (последовательное шитьё: A1 → B1 → A2) → (механика — позже) → рендер. Этап 2c.</div>
+    <div class="panel-head">
+      <h1 data-i18n="panel.title">Кику S8 · пути нитей A и B</h1>
+      <div class="lang-toggle" role="group" data-i18n-title="lang.title" title="Язык интерфейса">
+        <button type="button" data-lang="ru" class="lang-btn active" aria-pressed="true">RU</button>
+        <button type="button" data-lang="en" class="lang-btn" aria-pressed="false">EN</button>
+      </div>
+    </div>
+    <div class="sub" data-i18n="panel.sub">рецепт → явный путь (последовательное шитьё: A1 → B1 → A2) → (механика — позже) → рендер. Этап 2c.</div>
 
     <section>
-      <h2>Этап и шаг</h2>
+      <h2 data-i18n="section.stage">Этап и шаг</h2>
       <div class="row">
-        <button data-stage="2a" class="stage" title="скрытый старт A и первый проход">2a · проход</button>
-        <button data-stage="2b" class="stage" title="обход A1, парковка A">A1</button>
-        <button data-stage="B1" class="stage" title="+ обход B1 (нить B), парковка B">+ B1</button>
-        <button data-stage="A2" class="stage" title="+ обход A2: нить A снова в работе, верх поверх ряда 1">+ A2</button>
+        <button data-stage="2a" class="stage" data-i18n="stage.2a" data-i18n-title="stage.2a.title" title="скрытый старт A и первый проход">2a · проход</button>
+        <button data-stage="2b" class="stage" data-i18n="stage.2b" data-i18n-title="stage.2b.title" title="обход A1, парковка A">A1</button>
+        <button data-stage="B1" class="stage" data-i18n="stage.B1" data-i18n-title="stage.B1.title" title="+ обход B1 (нить B), парковка B">+ B1</button>
+        <button data-stage="A2" class="stage" data-i18n="stage.A2" data-i18n-title="stage.A2.title" title="+ обход A2: нить A снова в работе, верх поверх ряда 1">+ A2</button>
       </div>
       <div class="row">
-        <button id="first" title="в начало">⏮</button><button id="prev" title="назад">◀</button>
+        <button id="first" data-i18n-title="nav.first" title="в начало">⏮</button><button id="prev" data-i18n-title="nav.prev" title="назад">◀</button>
         <input id="step" type="range" min="0" max="0" value="0">
-        <button id="next" title="вперёд">▶</button><button id="last" title="в конец">⏭</button>
+        <button id="next" data-i18n-title="nav.next" title="вперёд">▶</button><button id="last" data-i18n-title="nav.last" title="в конец">⏭</button>
       </div>
       <div id="opinfo" class="opinfo"></div>
     </section>
 
     <section>
-      <h2>Вид</h2>
+      <h2 data-i18n="section.view">Вид</h2>
       <div class="row">
-        <button data-view="top">Сверху (СП)</button><button data-view="oblique">Косо</button>
-        <button data-view="side">Сбоку</button><button data-view="bottom">Снизу</button>
+        <button data-view="top" data-i18n="view.top">Сверху (СП)</button><button data-view="oblique" data-i18n="view.oblique">Косо</button>
+        <button data-view="side" data-i18n="view.side">Сбоку</button><button data-view="bottom" data-i18n="view.bottom">Снизу</button>
       </div>
       <div class="row wrap">
-        <label><input type="checkbox" id="optTransparent"> прозрачный шар</label>
-        <label><input type="checkbox" id="optHidden" checked> скрытые участки</label>
-        <label title="В модели скрытый старт — прямая хорда иглы (до 4 мм вглубь). По умолчанию он показан схемой у поверхности."><input type="checkbox" id="optChord"> старт хордой (как в модели)</label>
-        <label><input type="checkbox" id="optLabels" checked> подписи</label>
-        <label><input type="checkbox" id="optPins" checked> булавки</label>
+        <label><input type="checkbox" id="optTransparent"> <span data-i18n="opt.transparent">прозрачный шар</span></label>
+        <label><input type="checkbox" id="optHidden" checked> <span data-i18n="opt.hidden">скрытые участки</span></label>
+        <label data-i18n-title="opt.chord.title" title="В модели скрытый старт — прямая хорда иглы (до 4 мм вглубь). По умолчанию он показан схемой у поверхности."><input type="checkbox" id="optChord"> <span data-i18n="opt.chord">старт хордой (как в модели)</span></label>
+        <label><input type="checkbox" id="optLabels" checked> <span data-i18n="opt.labels">подписи</span></label>
+        <label><input type="checkbox" id="optPins" checked> <span data-i18n="opt.pins">булавки</span></label>
       </div>
       <div class="row wrap">
-        окраска: <label><input type="radio" name="color" value="round" checked> по обходу (A1, B1, A2 …)</label>
-        <label><input type="radio" name="color" value="u"> по длине нити u</label>
-        <label><input type="radio" name="color" value="set"> по набору (A / B)</label>
-        <label><input type="radio" name="color" value="type"> по типу участка</label>
+        <span data-i18n="color.prefix">окраска:</span>
+        <label><input type="radio" name="color" value="round" checked> <span data-i18n="color.round">по обходу (A1, B1, A2 …)</span></label>
+        <label><input type="radio" name="color" value="u"> <span data-i18n="color.u">по длине нити u</span></label>
+        <label><input type="radio" name="color" value="set"> <span data-i18n="color.set">по набору (A / B)</span></label>
+        <label><input type="radio" name="color" value="type"> <span data-i18n="color.type">по типу участка</span></label>
       </div>
       <div id="legend" class="legend"></div>
     </section>
 
     <section>
-      <h2>Длина нити</h2>
+      <h2 data-i18n="section.lengths">Длина нити</h2>
       <table id="lengths" class="tbl"></table>
     </section>
 
     <section>
-      <h2>Проверки (валидаторы)</h2>
+      <h2 data-i18n="section.validators">Проверки (валидаторы)</h2>
       <div id="vsum" class="vsum"></div>
       <ul id="validators" class="vlist"></ul>
     </section>
 
     <section>
-      <h2>Параметры</h2>
-      <div class="note">Все входы — органы управления. Изменение любого входа пересчитывает все слои по порядку:
+      <h2 data-i18n="section.params">Параметры</h2>
+      <div class="note" data-i18n="params.note">Все входы — органы управления. Изменение любого входа пересчитывает все слои по порядку:
         шар → разметка → булавки → план рядов → путь (A1, B1, A2) → проверки. Ширины захвата и сдвигов рядов нет: E/X, уровни ряда 2 и над/под выводятся из того, что уже лежит на шаре.</div>
       <form id="params"></form>
-      <div class="row"><button id="recompute" class="primary">Пересчитать</button><button id="reset">Сброс</button></div>
+      <div class="row"><button id="recompute" class="primary" data-i18n="btn.recompute">Пересчитать</button><button id="reset" data-i18n="btn.reset">Сброс</button></div>
       <div id="perr" class="err"></div>
       <div id="plan" class="note"></div>
     </section>
