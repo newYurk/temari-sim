@@ -6,7 +6,7 @@ import { sub, unit, dot } from './geom.js';
 
 /** Elbow / kink thresholds on discrete turn angles along a leg polyline (deg). */
 export const ELBOW_OK_DEG = 3;
-export const ELBOW_FAIL_DEG = 10; // warn band: [ELBOW_OK_DEG, ELBOW_FAIL_DEG)
+export const ELBOW_FAIL_DEG = 10; // info band: [ELBOW_OK_DEG, ELBOW_FAIL_DEG); fail ≥ FAIL
 
 /** Tip-drop craft / geodesic guide bands (mm). Result only — never a free input. */
 export const TIP_CRAFT_LO_MM = 1.5;
@@ -58,7 +58,8 @@ export function measureElbows(path) {
 
 function elbowSeverity(maxTurnDeg) {
   if (maxTurnDeg >= ELBOW_FAIL_DEG) return 'fail';
-  if (maxTurnDeg >= ELBOW_OK_DEG) return 'warn';
+  // ELBOW_OK_DEG is an informational reference (sample-step dependent), not acceptance.
+  if (maxTurnDeg >= ELBOW_OK_DEG) return 'info';
   return 'ok';
 }
 
@@ -85,11 +86,11 @@ function pathDepartment(A) {
     };
   }
   if (severity === 'ok') {
-    summary = `max turn ${maxStr}° · ok (< ${ELBOW_OK_DEG}°)`;
-    detail = `Worst discrete turn on legs is ${maxStr}° at seg ${m.worstSegId} (${m.worstRound}), frac ${m.worstFrac.toFixed(3)} (~${fracPct}% along leg). Thresholds: ok < ${ELBOW_OK_DEG}°, warn ${ELBOW_OK_DEG}–${ELBOW_FAIL_DEG}°, fail ≥ ${ELBOW_FAIL_DEG}°. Current shoulderForm=${form}.`;
-  } else if (severity === 'warn') {
-    summary = `max turn ${maxStr}° · kink warn · ${m.worstSegId}`;
-    detail = `Elbow / polyline kink: max turn ${maxStr}° (≥ ${ELBOW_OK_DEG}°, < ${ELBOW_FAIL_DEG}°) at seg ${m.worstSegId} (round ${m.worstRound}), frac ${m.worstFrac.toFixed(3)} along the leg. Linked params: ${params.join(', ')}. layLeg uses tipEnv × Φ3 softmin vs available latitude, then spherical Laplacian smooth (pin endpoints).`;
+    summary = `max turn ${maxStr}° · ok (< ${ELBOW_OK_DEG}° info ref)`;
+    detail = `Worst discrete turn on legs is ${maxStr}° at seg ${m.worstSegId} (${m.worstRound}), frac ${m.worstFrac.toFixed(3)} (~${fracPct}% along leg). ${ELBOW_OK_DEG}° is an informational reference (discrete turn vs sample step; not acceptance); fail ≥ ${ELBOW_FAIL_DEG}°. Current shoulderForm=${form}.`;
+  } else if (severity === 'info') {
+    summary = `max turn ${maxStr}° · discrete-turn info · ${m.worstSegId}`;
+    detail = `Informational: max discrete turn ${maxStr}° (≥ ${ELBOW_OK_DEG}° reference, < ${ELBOW_FAIL_DEG}°) at seg ${m.worstSegId} (round ${m.worstRound}), frac ${m.worstFrac.toFixed(3)} along the leg. The ${ELBOW_OK_DEG}° band depends on sample step and is not an acceptance goal; geodesic κ_g is typically ~0.67–0.88°. Linked params: ${params.join(', ')}. layLeg uses tipEnv × Φ3 softmin vs available latitude, then spherical Laplacian smooth (pin endpoints).`;
   } else {
     summary = `max turn ${maxStr}° · kink fail · ${m.worstSegId}`;
     detail = `Severe elbow: max turn ${maxStr}° (≥ ${ELBOW_FAIL_DEG}°) at seg ${m.worstSegId} (round ${m.worstRound}), frac ${m.worstFrac.toFixed(3)}. Linked params: ${params.join(', ')}.`;
@@ -98,7 +99,7 @@ function pathDepartment(A) {
     id: 'path',
     severity,
     titleKey: 'diag.dept.path',
-    summaryKey: severity === 'ok' ? 'diag.elbow.summary.ok' : severity === 'warn' ? 'diag.elbow.summary.warn' : 'diag.elbow.summary.fail',
+    summaryKey: severity === 'ok' ? 'diag.elbow.summary.ok' : severity === 'info' ? 'diag.elbow.summary.info' : 'diag.elbow.summary.fail',
     summary,
     detailKey: 'diag.elbow.detail',
     detail,
