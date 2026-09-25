@@ -1,3 +1,13 @@
 node_modules/
 __pycache__/
 *.pyc
+.DS_Store
+
+# Local raw / third-party media (links + excerpts stay in repo)
+sources/video/
+sources/raw/
+sources/photos/
+
+# Local scratch
+/tmp/
+*.log
