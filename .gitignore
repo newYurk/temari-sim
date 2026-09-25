@@ -12,3 +12,6 @@ sources/photos/
 # Local scratch
 /tmp/
 *.log
+
+# Diagnostic tool output (regenerate with sim/tools/diag_leg_kg.mjs)
+sim/out/

@@ -10,7 +10,22 @@ import {
   closeZones, angle, unit, sub, mul, cross, eEast, perpPt, segSegDist, polyLen,
 } from './geom.js';
 
-const LEG_SAMPLES = 96;
+/** Default polyline samples per visible leg. Tools may override via setLegSamples — default layout unchanged. */
+const LEG_SAMPLES_DEFAULT = 96;
+let _legSamples = LEG_SAMPLES_DEFAULT;
+
+/** Override leg sample count for diagnostics (null resets to 96). Does not change default layout. */
+export function setLegSamples(n) {
+  if (n == null || n === '' || (typeof n === 'number' && Number.isNaN(n))) {
+    _legSamples = LEG_SAMPLES_DEFAULT;
+    return _legSamples;
+  }
+  const v = Math.floor(Number(n));
+  if (!Number.isFinite(v) || v < 2) throw new Error(`legSamples must be >= 2, got ${n}`);
+  _legSamples = v;
+  return _legSamples;
+}
+export function getLegSamples() { return _legSamples; }
 
 /**
  * Занятость на линии иглы у линии разметки k на уровне s. Линия иглы — большой круг через точку линии,
@@ -247,12 +262,12 @@ function layLeg(R, from, to, phiMark, shoulderForm, mu) {
   const phi3CapMm = phi3LateralCapMm(R, geoLen, mu);
   if (shoulderForm !== 'bowToMarking' || phi3CapMm < 1e-12) {
     return {
-      pts: slerp(R, from, to, LEG_SAMPLES), length: geoLen,
+      pts: slerp(R, from, to, getLegSamples()), length: geoLen,
       shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm, phi3Warn: false,
     };
   }
   const nMer = [-Math.sin(phiMark), Math.cos(phiMark), 0];
-  const n = LEG_SAMPLES;
+  const n = getLegSamples();
   const geo = slerp(R, from, to, n);
   let pts = geo.map((p, i) => {
     if (i === 0 || i === n) return p; // pin endpoints — no lateral move at ends
