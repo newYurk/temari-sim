@@ -7,7 +7,7 @@ import { parseSequence } from './params.js';
 import { t, fmtNum } from './i18n.js';
 import {
   point, offsetPt, slerp, lineSeg, geodLen, dist, rotateToward, toSPhi, wrapPi, tangentTo, ePole, dot,
-  closeZones, angle, unit, sub, mul, cross, eEast, perpPt, segSegDist, polyLen,
+  closeZones, angle, unit, add, sub, mul, cross, eEast, perpPt, segSegDist, polyLen,
 } from './geom.js';
 
 /** Default polyline samples per visible leg. Tools may override via setLegSamples — default layout unchanged. */
@@ -228,73 +228,97 @@ function legZones(A, B, w) {
   return zones;
 }
 
-/** Φ3 lateral sagitta cap (mm): constant-κ_g bow L²·μ/(8R) on shoulder length L (spec Φ3). */
-function phi3LateralCapMm(R, L, mu) {
-  return (L * L * Math.max(0, mu)) / (8 * R);
+/** Planar Φ3 sagitta estimate (mm): L²·λ/(8R) — diagnostic / reporting only. */
+function phi3SagittaMm(R, L, lambda) {
+  return (L * L * Math.max(0, lambda)) / (8 * R);
 }
 
-/** Tip-weighted envelope on [0,1] with peak 1 near arrival (t·sin(πt) normalized). */
-const TIP_ENV_NORM = 0.5792303272991085;
-function tipEnv(t) {
-  return (t * Math.sin(Math.PI * t)) / TIP_ENV_NORM;
-}
-
-/** Softmin blend width (mm): softMin(a,b) ≈ min(a,b) without a hard C0 switch. */
-const BOW_SOFTMIN_K_MM = 0.05;
-/** Spherical Laplacian smooth after softmin bow (rounds meridian-crossing elbows). */
-const BOW_SMOOTH_PASSES = 20;
-const BOW_SMOOTH_LAMBDA = 0.5;
-
-/** Softmin with floor at 0 (numerically stable). */
-function softMinMm(a, b, k = BOW_SOFTMIN_K_MM) {
-  const m = Math.min(a, b);
-  return Math.max(0, m - k * Math.log(Math.exp((m - a) / k) + Math.exp((m - b) / k)));
+/** Resolve shoulder form: alias bowToMarking → bow (D40). */
+function resolveShoulderForm(form) {
+  if (form === 'bowToMarking') return 'bow';
+  return form === 'bow' ? 'bow' : 'geodesic';
 }
 
 /**
- * Visible leg polyline: geodesic (slerp) or bowToMarking — tip-weighted lateral offset toward the
- * destination marking meridian, softmin-saturated by available latitude and Φ3 δ_max(μ), then light
- * spherical Laplacian smooth (pin endpoints). bowLateralMm = max actual offset from the geodesic plane
- * after smooth (not a control-point fiction). Tip-drop Δ is NOT an input — only shoulder form + μ.
+ * Small-circle center P (unit): ∠(P,a)=∠(P,b)=ρ, on the pole side of plane Oab
+ * (sign(P·(a×b)) = sign(N·(a×b)), N=(0,0,1)). Port of bow_theory.small_circle_center.
  */
-function layLeg(R, from, to, phiMark, shoulderForm, mu) {
+function smallCircleCenter(a, b, rho) {
+  const ua = unit(a), ub = unit(b);
+  const mid = unit(add(ua, ub));
+  const n = unit(cross(ua, ub));
+  const half = angle(ua, ub) / 2;
+  const cosHalf = Math.cos(half);
+  if (Math.abs(cosHalf) < 1e-15) return null;
+  const c = Math.cos(rho) / cosHalf;
+  if (Math.abs(c) > 1) return null;
+  const t = Math.acos(Math.max(-1, Math.min(1, c)));
+  const cands = [
+    unit(add(mul(mid, Math.cos(t)), mul(n, Math.sin(t)))),
+    unit(add(mul(mid, Math.cos(t)), mul(n, -Math.sin(t)))),
+  ];
+  const xe = cross(ua, ub);
+  const poleSign = Math.sign(dot([0, 0, 1], xe)) || 1;
+  const match = cands.filter((p) => (Math.sign(dot(p, xe)) || 1) === poleSign);
+  if (match.length) return match.sort((p, q) => q[2] - p[2])[0];
+  return cands.sort((p, q) => q[2] - p[2])[0];
+}
+
+/** Rodrigues rotation of v about unit axis k by angle t. */
+function rotateAbout(v, k, t) {
+  const c = Math.cos(t), s = Math.sin(t);
+  return add(add(mul(v, c), mul(cross(k, v), s)), mul(k, dot(k, v) * (1 - c)));
+}
+
+/**
+ * Samples of the small circle about Pc from a to b (uniform in angle about P).
+ * Endpoints pinned to from/to; all points on radius R.
+ */
+function smallCircleArc(R, from, to, Pc, n) {
+  const a = unit(from), b = unit(to), k = unit(Pc);
+  const pa = unit(add(a, mul(k, -dot(a, k))));
+  const pb = unit(add(b, mul(k, -dot(b, k))));
+  let T = angle(pa, pb);
+  if (dot(cross(pa, pb), k) < 0) T = -T;
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const u = rotateAbout(a, k, T * (i / n));
+    out.push(mul(unit(u), R));
+  }
+  out[0] = from.slice ? from.slice() : [...from];
+  out[n] = to.slice ? to.slice() : [...to];
+  return out;
+}
+
+/**
+ * Visible leg polyline: geodesic (slerp) or small-circle bow (D40 / leg-shape-spec).
+ * λ = bowFrac·μWrap; ρ = arccot(λ); center P on pole side of OXE; samples uniform in angle about P.
+ * If λ < 1e-9 → geodesic. Tip-drop Δ is NOT an input — only shoulder form + μWrap + bowFrac.
+ */
+function layLeg(R, from, to, phiMark, shoulderForm, muWrap, bowFrac = 1) {
+  void phiMark; // destination meridian used by V21; bow geometry uses X,E,P only
   const geoLen = geodLen(R, from, to);
-  const phi3CapMm = phi3LateralCapMm(R, geoLen, mu);
-  if (shoulderForm !== 'bowToMarking' || phi3CapMm < 1e-12) {
+  const form = resolveShoulderForm(shoulderForm);
+  const lambda = form === 'bow' ? Math.max(0, (bowFrac ?? 1) * Math.max(0, muWrap ?? 0)) : 0;
+  const phi3CapMm = phi3SagittaMm(R, geoLen, lambda);
+  if (form !== 'bow' || lambda < 1e-9) {
     return {
       pts: slerp(R, from, to, getLegSamples()), length: geoLen,
-      shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm, phi3Warn: false,
+      shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
+      bowCenter: null, phi3Warn: false,
     };
   }
-  const nMer = [-Math.sin(phiMark), Math.cos(phiMark), 0];
-  const n = getLegSamples();
-  const geo = slerp(R, from, to, n);
-  let pts = geo.map((p, i) => {
-    if (i === 0 || i === n) return p; // pin endpoints — no lateral move at ends
-    const t = i / n;
-    const u = unit(p);
-    const onMer = unit(sub(u, mul(nMer, dot(u, nMer))));
-    const lat = R * angle(u, onMer);
-    const desired = tipEnv(t) * phi3CapMm;
-    const move = softMinMm(desired, lat);
-    if (move < 1e-12) return p;
-    return rotateToward(R, p, mul(onMer, R), move / R);
-  });
-  // Spherical Laplacian smooth; endpoints stay pinned.
-  const lam = BOW_SMOOTH_LAMBDA;
-  for (let pass = 0; pass < BOW_SMOOTH_PASSES; pass++) {
-    const next = pts.slice();
-    for (let i = 1; i < n; i++) {
-      const mid = unit([
-        pts[i - 1][0] + pts[i + 1][0],
-        pts[i - 1][1] + pts[i + 1][1],
-        pts[i - 1][2] + pts[i + 1][2],
-      ]);
-      next[i] = rotateToward(R, pts[i], mul(mid, R), lam * angle(unit(pts[i]), mid));
-    }
-    pts = next;
+  const rho = Math.atan(1 / lambda); // arccot(λ)
+  const Pc = smallCircleCenter(from, to, rho);
+  if (!Pc) {
+    return {
+      pts: slerp(R, from, to, getLegSamples()), length: geoLen,
+      shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
+      bowCenter: null, phi3Warn: false,
+    };
   }
-  // Honest lateral: max distance of the finished curve from the geodesic plane (from×to).
+  const n = getLegSamples();
+  const pts = smallCircleArc(R, from, to, Pc, n);
   const nGeo = unit(cross(from, to));
   let bowLateralMm = 0;
   for (let i = 1; i < n; i++) {
@@ -302,30 +326,33 @@ function layLeg(R, from, to, phiMark, shoulderForm, mu) {
     if (off > bowLateralMm) bowLateralMm = off;
   }
   return {
-    pts, length: polyLen(pts), shoulderForm: 'bowToMarking',
-    bowLateralMm, phi3CapMm, phi3Warn: false,
+    pts, length: polyLen(pts), shoulderForm: 'bow',
+    bowLateralMm, phi3CapMm, lambda, rho, bowCenter: Pc, phi3Warn: false,
   };
 }
 
 /**
  * Packing plane normal for an already-laid arm.
- * Geodesic arms: from×to (all samples coplanar).
- * Bowed arms: tip-region GC through the last ~5% of the polyline → endpoint, so packThenPierce
- * sees the local approach angle after Φ3 tip bow (chord distance to the polyline falsely roots at Δ≈w).
+ * Geodesic: from×to.
+ * Small-circle bow: local great-circle plane at E matching the arc tangent T=P×E,
+ * so n = E × T = E × (P × E) (equiv. P projected off E). Spec §4.3 “P×E” names the
+ * tangent; packThenPierce needs the GC plane normal (NOT the last-5% sample slice).
  */
 function armPackNormal(arm) {
   const nRef = unit(cross(arm.from, arm.to));
-  const pts = arm.pts;
-  if (!pts || pts.length < 4) return nRef;
-  const i0 = Math.max(0, Math.floor((pts.length - 1) * 0.95));
-  let nTip = unit(cross(pts[i0], pts[pts.length - 1]));
-  if (dot(nTip, nRef) < 0) nTip = nTip.map((v) => -v);
-  return nTip;
+  if (arm.bowCenter) {
+    const E = unit(arm.to);
+    const T = cross(arm.bowCenter, E); // arc tangent at E
+    let n = unit(cross(E, T));         // local GC plane normal
+    if (dot(n, nRef) < 0) n = n.map((v) => -v);
+    return n;
+  }
+  return nRef;
 }
 
 /** Bottom level of row n≥2: lay flush → pierce at intersection.
- *  Uses tip-region great-circle of the laid prev arm (equals from×to when geodesic) so a Φ3 tip bow
- *  changes where the next row pierces → derived tip Δ. No free Δ tip input.
+ *  Packing normal from arc tangent plane at E (P×E for small circle; from×to for geodesic).
+ *  Derived tip Δ only — no free Δ tip input.
  *  sidesAt(s) → needleSides at level s. */
 function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
   const nRef = unit(cross(prevArm.from, prevArm.to));
@@ -380,8 +407,10 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   const R = base.R, N = marking.N, w = P.w_mm, m = P.m_mm, Q = base.Q;
   const T = recipe.kagari, conv = recipe.conventions, LV = recipe.levels;
   // Shoulder form: param overrides recipe convention; tip-drop Δ is always derived (never a free input).
-  const shoulderForm = P.shoulderForm || conv.shoulderForm?.value || conv.lay?.value || 'geodesic';
-  const mu = P.mu ?? 0;
+  const shoulderForm = resolveShoulderForm(P.shoulderForm || conv.shoulderForm?.value || conv.lay?.value || 'geodesic');
+  const muWrap = P.muWrap ?? P.mu ?? 0;
+  const bowFrac = P.bowFrac ?? 1;
+  const mu = muWrap; // tipDrop report field (compat); Φ3 uses muWrap
   const limit = rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? Q - 7 : Q);
   const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [],
     shoulderForm, tipDrop: null };
@@ -404,7 +433,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     return { s, levelInfo: { rule: 'packThenPierce', sPrev: prevSt.s, sPrevCross: pp.sPrevCross, sLaidCross: pp.sLaidCross, sPack: pp.s, sChan,
       channelBinding: sChan > pp.s, dS: s - prevSt.s, prevArm: prevArm.id, basis: LV.bottom.next.basis,
       shoulderForm: prevArm.shoulderForm || 'geodesic',
-      bowLateralMm: prevArm.bowLateralMm || 0, phi3CapMm: prevArm.phi3CapMm || 0 } };
+      bowLateralMm: prevArm.bowLateralMm || 0, phi3CapMm: prevArm.phi3CapMm || 0,
+      lambda: prevArm.lambda || 0 } };
   };
 
   const seq = roundSequence(recipe, P);
@@ -500,15 +530,16 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       const E = perpPt(R, s, phiOf(k), sides.eOff);
       const X = perpPt(R, s, phiOf(k), sides.xOff);
       for (const q of sides.squeeze) W.squeezes.push({ hole: q.side === 'E' ? E : X, set: spec.set, round: RD.id, line: k, i, ...q });
-      // (в) lay thread: geodesic or Φ3-capped bow toward destination marking (shoulderForm)
-      const legShape = layLeg(R, cur, E, phiOf(k), shoulderForm, mu);
+      // (в) lay thread: geodesic or small-circle bow λ=bowFrac·μWrap (shoulderForm)
+      const legShape = layLeg(R, cur, E, phiOf(k), shoulderForm, muWrap, bowFrac);
       const legPts = legShape.pts;
-      const layBasis = shoulderForm === 'bowToMarking'
+      const layBasis = shoulderForm === 'bow'
         ? (conv.shoulderForm?.basis || conv.lay.basis)
         : conv.lay.basis;
       const leg = addSeg({ type: 'leg', from: cur, to: E, pts: legPts, length: legShape.length, stitch: i, line: k, level,
         source: layBasis, tag: conv.lay.tag, crossings: [],
-        shoulderForm: legShape.shoulderForm, bowLateralMm: legShape.bowLateralMm, phi3CapMm: legShape.phi3CapMm });
+        shoulderForm: legShape.shoulderForm, bowLateralMm: legShape.bowLateralMm, phi3CapMm: legShape.phi3CapMm,
+        lambda: legShape.lambda ?? 0, rho: legShape.rho, bowCenter: legShape.bowCenter || null });
       if (i === 1) RD.firstLegId = leg.id;
       // перекресты и прилегания со ВСЕМИ ранее уложенными плечами (обе нити): правило над/под
       for (const other of legs()) {
@@ -599,16 +630,13 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       const tipDrop_mm = a2.s - a1.s;
       const phi3CapMm = prevLeg?.phi3CapMm ?? 0;
       const bowLateralMm = prevLeg?.bowLateralMm ?? 0;
-      // Craft guide band ~1.5–2.5 mm (GT14/TK-UWA); if bowToMarking cannot reach it within Φ3, warn — do not force 2 mm.
-      const aimHi = 2.5;
-      const phi3Warn = shoulderForm === 'bowToMarking' && tipDrop_mm > aimHi + 1e-6;
+      const lambda = prevLeg?.lambda ?? 0;
+      // Craft band ~1.5–2.5 mm may be *reported* in diagnostics; do not assert or fail on it (D40).
       W.tipDrop = {
         set: 'A', rowFrom: 1, rowTo: 2,
         sBottom1: a1.s, sBottom2: a2.s, tipDrop_mm,
-        shoulderForm, bowLateralMm, phi3CapMm, mu, phi3Warn,
-        warn: phi3Warn
-          ? `derived tipDrop ${tipDrop_mm.toFixed(3)} mm exceeds ~${aimHi} mm craft band; Φ3 cap ${phi3CapMm.toFixed(3)} mm at μ=${mu} — do not force 2 mm past friction cone`
-          : null,
+        shoulderForm, bowLateralMm, phi3CapMm, mu: muWrap, muWrap, bowFrac, lambda,
+        phi3Warn: false, warn: null,
       };
     }
   }

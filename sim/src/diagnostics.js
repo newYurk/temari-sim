@@ -67,7 +67,7 @@ function pathDepartment(A) {
   const m = measureElbows(A.path);
   const form = A.params?.shoulderForm || A.path?.tipDrop?.shoulderForm || 'geodesic';
   const severity = elbowSeverity(m.maxTurnDeg);
-  const params = form === 'bowToMarking' ? ['shoulderForm', 'mu'] : ['shoulderForm'];
+  const params = form === 'bow' || form === 'bowToMarking' ? ['shoulderForm', 'muWrap', 'bowFrac'] : ['shoulderForm'];
   const maxStr = m.maxTurnDeg.toFixed(2);
   const fracPct = (m.worstFrac * 100).toFixed(0);
   let summary;
@@ -90,7 +90,7 @@ function pathDepartment(A) {
     detail = `Worst discrete turn on legs is ${maxStr}° at seg ${m.worstSegId} (${m.worstRound}), frac ${m.worstFrac.toFixed(3)} (~${fracPct}% along leg). ${ELBOW_OK_DEG}° is an informational reference (discrete turn vs sample step; not acceptance); fail ≥ ${ELBOW_FAIL_DEG}°. Current shoulderForm=${form}.`;
   } else if (severity === 'info') {
     summary = `max turn ${maxStr}° · discrete-turn info · ${m.worstSegId}`;
-    detail = `Informational: max discrete turn ${maxStr}° (≥ ${ELBOW_OK_DEG}° reference, < ${ELBOW_FAIL_DEG}°) at seg ${m.worstSegId} (round ${m.worstRound}), frac ${m.worstFrac.toFixed(3)} along the leg. The ${ELBOW_OK_DEG}° band depends on sample step and is not an acceptance goal; geodesic κ_g is typically ~0.67–0.88°. Linked params: ${params.join(', ')}. layLeg uses tipEnv × Φ3 softmin vs available latitude, then spherical Laplacian smooth (pin endpoints).`;
+    detail = `Informational: max discrete turn ${maxStr}° (≥ ${ELBOW_OK_DEG}° reference, < ${ELBOW_FAIL_DEG}°) at seg ${m.worstSegId} (round ${m.worstRound}), frac ${m.worstFrac.toFixed(3)} along the leg. The ${ELBOW_OK_DEG}° band depends on sample step and is not an acceptance goal; geodesic κ_g is typically ~0.67–0.88°. Linked params: ${params.join(', ')}. layLeg uses small-circle arc λ=bowFrac·μWrap (D40) or geodesic.`;
   } else {
     summary = `max turn ${maxStr}° · kink fail · ${m.worstSegId}`;
     detail = `Severe elbow: max turn ${maxStr}° (≥ ${ELBOW_FAIL_DEG}°) at seg ${m.worstSegId} (round ${m.worstRound}), frac ${m.worstFrac.toFixed(3)}. Linked params: ${params.join(', ')}.`;
@@ -121,8 +121,8 @@ function pathDepartment(A) {
 function tipDepartment(A) {
   const td = A.path?.tipDrop;
   const form = td?.shoulderForm || A.params?.shoulderForm || 'geodesic';
-  const params = form === 'bowToMarking'
-    ? ['shoulderForm', 'mu']
+  const params = (form === 'bow' || form === 'bowToMarking')
+    ? ['shoulderForm', 'muWrap', 'bowFrac']
     : ['shoulderForm'];
   // Packing is read-only context (not a free tip-drop input).
   const packingNote = true;
@@ -154,7 +154,7 @@ function tipDepartment(A) {
       severity = 'info';
       summaryKey = 'diag.tip.summary.geoOk';
       summary = `Δ ${dStr} mm · expected for geodesic (~${TIP_GEODESIC_LO_MM}–${TIP_GEODESIC_HI_MM})`;
-      detail = `Derived tip drop A1→A2 is ${dStr} mm under shoulderForm=geodesic. Geodesic arms do not bow toward markings, so Δ ≈ ${TIP_GEODESIC_LO_MM}–${TIP_GEODESIC_HI_MM} mm is typical (packing / pierce geometry). Craft band ~${TIP_CRAFT_LO_MM}–${TIP_CRAFT_HI_MM} mm needs bowToMarking + μ (Φ3). Packing note: tip position also depends on flush lay / pierce — not a free Δ input.`;
+      detail = `Derived tip drop A1→A2 is ${dStr} mm under shoulderForm=geodesic. Geodesic arms do not bow toward markings, so Δ ≈ ${TIP_GEODESIC_LO_MM}–${TIP_GEODESIC_HI_MM} mm is typical (packing / pierce geometry). Craft band ~${TIP_CRAFT_LO_MM}–${TIP_CRAFT_HI_MM} mm needs shoulderForm=bow + μWrap (Φ3 / D40). Packing note: tip position also depends on flush lay / pierce — not a free Δ input.`;
     } else {
       severity = 'warn';
       summaryKey = 'diag.tip.summary.geoWarn';
@@ -162,19 +162,20 @@ function tipDepartment(A) {
       detail = `Derived tip drop ${dStr} mm is outside the geodesic guide band ${TIP_GEODESIC_LO_MM}–${TIP_GEODESIC_HI_MM} mm. Linked: shoulderForm. Packing / pierce may also affect Δ.`;
     }
   } else {
-    // bowToMarking — craft band ~1.5–2.5 mm; honor existing phi3Warn
+    // bow (D40): report Δ vs craft guide band for info only — do not fail the suite on it.
     const inCraft = d >= TIP_CRAFT_LO_MM && d <= TIP_CRAFT_HI_MM;
-    if (td.phi3Warn || !inCraft) {
-      severity = 'warn';
+    const muW = td.muWrap ?? td.mu;
+    if (!inCraft) {
+      severity = 'info';
       summaryKey = 'diag.tip.summary.bowWarn';
-      summary = `Δ ${dStr} mm · craft band ${TIP_CRAFT_LO_MM}–${TIP_CRAFT_HI_MM}${td.phi3Warn ? ' · Φ3 warn' : ''}`;
-      detail = (td.warn || `Derived tipDrop ${dStr} mm is outside craft band ~${TIP_CRAFT_LO_MM}–${TIP_CRAFT_HI_MM} mm for bowToMarking.`)
-        + ` Φ3 cap ${Number(td.phi3CapMm).toFixed(3)} mm at μ=${td.mu}. bowLateral ${Number(td.bowLateralMm).toFixed(3)} mm. Do not force 2 mm past the friction cone. Packing note: flush lay / pierce also set the tip — Δ is a result, not an input.`;
+      summary = `Δ ${dStr} mm · craft guide ${TIP_CRAFT_LO_MM}–${TIP_CRAFT_HI_MM} (report only)`;
+      detail = `Derived tipDrop ${dStr} mm vs craft guide ~${TIP_CRAFT_LO_MM}–${TIP_CRAFT_HI_MM} mm (report only; not a suite assert).`
+        + ` λ=${Number(td.lambda ?? 0).toFixed(3)}, μWrap=${muW}, bowLateral ${Number(td.bowLateralMm).toFixed(3)} mm. Packing note: Δ is a result of λ, not an input.`;
     } else {
       severity = 'ok';
       summaryKey = 'diag.tip.summary.bowOk';
-      summary = `Δ ${dStr} mm · within craft band`;
-      detail = `Derived tip drop ${dStr} mm is inside craft band ~${TIP_CRAFT_LO_MM}–${TIP_CRAFT_HI_MM} mm (bowToMarking, μ=${td.mu}, Φ3 cap ${Number(td.phi3CapMm).toFixed(3)} mm). Packing is read-only context.`;
+      summary = `Δ ${dStr} mm · near craft guide`;
+      detail = `Derived tip drop ${dStr} mm near craft guide ~${TIP_CRAFT_LO_MM}–${TIP_CRAFT_HI_MM} mm (bow, μWrap=${muW}, λ=${Number(td.lambda ?? 0).toFixed(3)}). Packing is read-only context.`;
     }
   }
 
