@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
- * Diagnostics (no form change): κ_g along worst legs of A8 / B8 / upper B3,
+ * Diagnostics (no form change): geodesic κ_g along worst legs of A8 / B8 / upper B3,
  * Φ3 limit μ/R as horizontal line, stick-to-axis length at lower A2.
+ *
+ * Built-in control: peak |κ_g| on a geodesic leg (and a synthetic great circle)
+ * must be ≪ μ/R (numerical noise). FAIL if still ~1/R (total-curvature bug).
  *
  * Usage (from repo root or sim/tools):
  *   node sim/tools/diag_leg_kg.mjs
@@ -13,14 +16,18 @@
  *
  * Does not modify layLeg / bowToMarking / tipDrop algorithm.
  */
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { loadRecipe } from '../src/recipe.js';
 import { computeAll } from '../src/layers.js';
-import { turnDeg } from '../src/diagnostics.js';
-import { angle, unit, sub, mul, dot } from '../src/geom.js';
+import { unit, sub, mul, dot } from '../src/geom.js';
+import {
+  geodesicCurvatureAlong,
+  cumArcMm,
+  syntheticGreatCircle,
+} from './geodesic_curvature.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '../..');
@@ -37,6 +44,8 @@ const mu = Number(argVal('--mu', 0.32));
 const shoulderForm = argVal('--form', 'bowToMarking');
 /** Latitude (mm) below which a sample counts as glued to the marking meridian. */
 const STICK_LAT_MM = Number(argVal('--stick-lat', 0.05));
+/** Fail control if geodesic peak |κ_g| exceeds this (mm⁻¹). ≪ μ/R; 1e-3 ≪ 1/R≈0.026. */
+const GEO_CONTROL_MAX = Number(argVal('--geo-control-max', 1e-3));
 
 mkdirSync(outDir, { recursive: true });
 
@@ -44,46 +53,23 @@ const recipe = await loadRecipe();
 const A = computeAll(recipe, { C_mm, w_mm, shoulderForm, mu });
 const R = A.base.R;
 const muOverR = mu / R;
+const oneOverR = 1 / R;
 
-function cumArc(pts) {
-  const cum = [0];
-  let s = 0;
-  for (let i = 1; i < pts.length; i++) {
-    s += R * angle(pts[i - 1], pts[i]);
-    cum.push(s);
-  }
-  return cum;
-}
-
-/** Discrete geodesic curvature κ_g (1/mm) along a spherical polyline. */
 function kgAlong(pts) {
-  const cum = cumArc(pts);
-  const rows = [];
-  let maxKg = 0;
-  let maxI = 0;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const turn = turnDeg(pts[i - 1], pts[i], pts[i + 1]) * (Math.PI / 180);
-    const ds = (cum[i + 1] - cum[i - 1]) / 2;
-    const kg = ds > 1e-12 ? turn / ds : 0;
-    if (kg > maxKg) {
-      maxKg = kg;
-      maxI = i;
-    }
-    rows.push({
-      i,
-      frac: i / (pts.length - 1),
-      s_mm: +cum[i].toFixed(6),
-      kg: +kg.toFixed(8),
-      turn_deg: +(turn * 180 / Math.PI).toFixed(4),
-    });
-  }
+  const g = geodesicCurvatureAlong(pts, R);
   return {
-    rows,
-    maxKg,
-    maxI,
-    maxFrac: maxI / (pts.length - 1),
-    length_mm: cum[cum.length - 1],
-    ratio_vs_muR: maxKg / muOverR,
+    rows: g.rows.map((r) => ({
+      i: r.i,
+      frac: r.frac,
+      s_mm: +r.s_mm.toFixed(6),
+      kg: +r.absKg.toFixed(8),
+      turn_deg: +Math.abs(r.turn_deg).toFixed(4),
+    })),
+    maxKg: g.maxAbsKg,
+    maxI: g.maxI,
+    maxFrac: g.maxFrac,
+    length_mm: g.length_mm,
+    ratio_vs_muR: g.maxAbsKg / muOverR,
   };
 }
 
@@ -91,12 +77,12 @@ function latToMeridianMm(p, phiMark) {
   const nMer = [-Math.sin(phiMark), Math.cos(phiMark), 0];
   const u = unit(p);
   const onMer = unit(sub(u, mul(nMer, dot(u, nMer))));
-  return R * angle(u, onMer);
+  return R * Math.acos(Math.max(-1, Math.min(1, dot(u, onMer))));
 }
 
 /** Contiguous tip-region stick-to-axis length (mm along leg) where lat < thr. */
 function stickToAxisMm(seg, phiMark, thrMm) {
-  const cum = cumArc(seg.pts);
+  const cum = cumArcMm(seg.pts, R);
   const lats = seg.pts.map((p) => latToMeridianMm(p, phiMark));
   const n = lats.length - 1;
   const runs = [];
@@ -141,6 +127,39 @@ function worstLeg(round, { level = null } = {}) {
   ranked.sort((a, b) => b.kg.maxKg - a.kg.maxKg);
   return ranked[0];
 }
+
+// ── Built-in geodesic control (must be ≈ 0; FAIL if still ~1/R) ──────────────
+const Ageo = computeAll(recipe, { C_mm, w_mm, shoulderForm: 'geodesic', mu });
+let geoPeak = 0;
+let geoWorst = null;
+for (const seg of Ageo.path.segs.filter((s) => s.type === 'leg' && s.pts?.length >= 3)) {
+  const g = geodesicCurvatureAlong(seg.pts, R);
+  if (g.maxAbsKg > geoPeak) {
+    geoPeak = g.maxAbsKg;
+    geoWorst = { id: seg.id, round: seg.round, frac: g.maxFrac };
+  }
+}
+const synPts = syntheticGreatCircle(R, 96, 0.25);
+const synPeak = geodesicCurvatureAlong(synPts, R).maxAbsKg;
+const geoOk = geoPeak < GEO_CONTROL_MAX && synPeak < GEO_CONTROL_MAX;
+const lookLikeTotal = Math.abs(geoPeak - oneOverR) / oneOverR < 0.05;
+
+console.log('Geodesic control (κ_g must be ≈ 0; total curvature would be 1/R):');
+console.log(`  1/R = ${oneOverR.toFixed(8)} mm⁻¹   μ/R = ${muOverR.toFixed(8)} mm⁻¹`);
+console.log(
+  `  geodesic form peak |κ_g| = ${geoPeak.toExponential(3)}`
+  + (geoWorst ? `  (${geoWorst.round}/${geoWorst.id} frac ${geoWorst.frac.toFixed(3)})` : ''),
+);
+console.log(`  synthetic great-circle peak |κ_g| = ${synPeak.toExponential(3)}`);
+if (!geoOk) {
+  console.error(
+    lookLikeTotal
+      ? `FAIL: geodesic peak |κ_g| ≈ 1/R — still measuring total curvature, not geodesic κ_g`
+      : `FAIL: geodesic peak |κ_g| = ${geoPeak} exceeds control max ${GEO_CONTROL_MAX}`,
+  );
+  process.exit(1);
+}
+console.log(`  PASS: peak |κ_g| ≪ μ/R (control < ${GEO_CONTROL_MAX})\n`);
 
 const series = [];
 const pick = [
@@ -189,7 +208,7 @@ for (const seg of a2Bottoms) {
     stitch: seg.stitch,
     line: st.line,
     i: st.i,
-    length_mm: +cumArc(seg.pts).at(-1).toFixed(4),
+    length_mm: +cumArcMm(seg.pts, R).at(-1).toFixed(4),
     tipStick_mm: +stick.tipStick_mm.toFixed(4),
     thr_mm: stick.thr_mm,
     tipRun: stick.tipRun
@@ -217,7 +236,15 @@ for (const r of stickRows) {
 const tipDrop = A.path.tipDrop;
 const report = {
   generated: new Date().toISOString(),
-  params: { C_mm, w_mm, mu, shoulderForm, R_mm: R, mu_over_R: muOverR, stick_lat_mm: STICK_LAT_MM },
+  params: { C_mm, w_mm, mu, shoulderForm, R_mm: R, mu_over_R: muOverR, one_over_R: oneOverR, stick_lat_mm: STICK_LAT_MM },
+  curvature: 'geodesic',
+  geodesicControl: {
+    peakAbsKg: geoPeak,
+    worst: geoWorst,
+    syntheticGreatCirclePeakAbsKg: synPeak,
+    controlMax: GEO_CONTROL_MAX,
+    pass: geoOk,
+  },
   tipDrop_mm: tipDrop?.tipDrop_mm ?? null,
   phi3CapMm: tipDrop?.phi3CapMm ?? null,
   series: series.map(({ s_mm, frac, kg, ...meta }) => ({
@@ -259,11 +286,13 @@ for i, s in enumerate(data["series"]):
     )
 ax.axhline(muR, color="#222", ls="--", lw=1.2, label=f'Φ3 limit μ/R = {muR:.5f} mm⁻¹')
 ax.set_xlabel("fraction along leg (0=from → 1=to/tip)")
-ax.set_ylabel("discrete κ_g (mm⁻¹)")
+ax.set_ylabel("geodesic |κ_g| (mm⁻¹)")
+gc = data.get("geodesicControl", {})
 ax.set_title(
-    f'κ_g along worst legs  ·  bowToMarking μ={data["params"]["mu"]}  C={data["params"]["C_mm"]}  '
-    f'w={data["params"]["w_mm"]}\\n'
-    f'lower A2 stick-to-axis (lat<{data["params"]["stick_lat_mm"]} mm): '
+    f'geodesic κ_g along worst legs  ·  {data["params"]["shoulderForm"]} μ={data["params"]["mu"]}  '
+    f'C={data["params"]["C_mm"]}  w={data["params"]["w_mm"]}\\n'
+    f'geodesic control peak |κ_g|={gc.get("peakAbsKg", float("nan")):.2e}  ·  '
+    f'lower A2 stick (lat<{data["params"]["stick_lat_mm"]} mm): '
     f'{data["stickLowerA2"]["canonical_i1_mm"]:.2f} mm  ·  tipDrop={data["tipDrop_mm"]:.3f} mm'
 )
 ax.legend(loc="upper left", fontsize=8)
@@ -287,6 +316,7 @@ process.stdout.write(py.stdout);
 
 console.log('\nSummary');
 console.log(`  μ/R = ${muOverR.toFixed(6)} mm⁻¹`);
+console.log(`  geodesic control peak |κ_g| = ${geoPeak.toExponential(3)}`);
 for (const s of series) {
   console.log(`  ${s.label}: peak κ_g ${s.maxKg.toFixed(6)} = ${s.ratio_vs_muR.toFixed(1)}× μ/R`);
 }

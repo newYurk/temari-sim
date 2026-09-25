@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 /**
  * LEG_SAMPLES grid convergence instrument (diagnostics only).
- * Runs tipDrop + row count (+ max κ_g / max discrete turn) at several sample counts
+ * Runs tipDrop + row count (+ max geodesic κ_g / max discrete turn) at several sample counts
  * via setLegSamples — does not edit path.js constants by hand and does not change
  * default layout (96).
+ *
+ * κ_g is geodesic curvature (tangent-plane turn / ds), not total curvature (which
+ * includes sphere normal curvature 1/R). See geodesic_curvature.mjs / D39.
  *
  * Usage:
  *   node sim/tools/leg_samples_convergence.mjs
@@ -18,8 +21,8 @@ import { fileURLToPath } from 'node:url';
 import { loadRecipe } from '../src/recipe.js';
 import { computeAll } from '../src/layers.js';
 import { setLegSamples, getLegSamples } from '../src/path.js';
-import { turnDeg, measureElbows } from '../src/diagnostics.js';
-import { angle } from '../src/geom.js';
+import { measureElbows } from '../src/diagnostics.js';
+import { geodesicCurvatureAlong } from './geodesic_curvature.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '../..');
@@ -52,21 +55,10 @@ function maxKgOnLegs(A) {
   let maxKg = 0;
   let worst = null;
   for (const seg of A.path.segs.filter((s) => s.type === 'leg' && s.pts?.length >= 3)) {
-    const pts = seg.pts;
-    const cum = [0];
-    let s = 0;
-    for (let i = 1; i < pts.length; i++) {
-      s += R * angle(pts[i - 1], pts[i]);
-      cum.push(s);
-    }
-    for (let i = 1; i < pts.length - 1; i++) {
-      const turn = turnDeg(pts[i - 1], pts[i], pts[i + 1]) * (Math.PI / 180);
-      const ds = (cum[i + 1] - cum[i - 1]) / 2;
-      const kg = ds > 1e-12 ? turn / ds : 0;
-      if (kg > maxKg) {
-        maxKg = kg;
-        worst = { id: seg.id, round: seg.round, frac: i / (pts.length - 1) };
-      }
+    const g = geodesicCurvatureAlong(seg.pts, R);
+    if (g.maxAbsKg > maxKg) {
+      maxKg = g.maxAbsKg;
+      worst = { id: seg.id, round: seg.round, frac: g.maxFrac };
     }
   }
   return { maxKg, worst };
@@ -79,7 +71,7 @@ function rowCount(A) {
 }
 
 const rows = [];
-console.log(`LEG_SAMPLES convergence  form=${shoulderForm} μ=${mu} C=${C_mm} w=${w_mm}`);
+console.log(`LEG_SAMPLES convergence  form=${shoulderForm} μ=${mu} C=${C_mm} w=${w_mm}  (geodesic κ_g)`);
 console.log(
   'samples'.padStart(8),
   'tipDrop_mm'.padStart(12),
@@ -132,6 +124,7 @@ if (jsonOut) {
       {
         generated: new Date().toISOString(),
         params: { C_mm, w_mm, mu, shoulderForm },
+        curvature: 'geodesic',
         defaultLegSamples: 96,
         rows,
       },
