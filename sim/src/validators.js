@@ -1294,7 +1294,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (s.type === 'leg') { legDev = Math.max(legDev, Math.abs(r)); legMax = Math.max(legMax, r); }
       else { hidOut = Math.max(hidOut, r); if (s.type === 'hidden-start') hidDepth = Math.max(hidDepth, -r); }
     }
-    let meshMax = -Infinity, axisMax = -Infinity, hidDispAxisMax = -Infinity, hidDispDepth = 0, liftMax = 0;
+    let nonFinite = null, meshMax = -Infinity, axisMax = -Infinity, hidDispAxisMax = -Infinity, hidDispDepth = 0, liftMax = 0;
     for (const dg of displayGeometry(A, ids, { hidMode: 'surf' })) {
       if (dg.hidden) {
         for (const p of dg.pts) { const r = norm(p) - R; hidDispAxisMax = Math.max(hidDispAxisMax, r); if (dg.seg.type === 'hidden-start') hidDispDepth = Math.max(hidDispDepth, -r); }
@@ -1302,15 +1302,21 @@ export function runValidators(A, stage = '2b', ref = null) {
       }
       liftMax = Math.max(liftMax, dg.liftMax || 0);
       for (const p of dg.pts) axisMax = Math.max(axisMax, norm(p) - R);
-      for (const v of tubeMesh(dg.pts, dg.radius).pos) meshMax = Math.max(meshMax, norm(v) - R);
+      for (const v of tubeMesh(dg.pts, dg.radius).pos) {
+        const r = norm(v) - R;
+        // A non-finite vertex (zero tangent: a 180° there-and-back in the polyline) is a defect, named, not a NaN comparison.
+        if (!Number.isFinite(r)) { if (!nonFinite) nonFinite = `${dg.seg.round ?? ''} ${dg.seg.type} i${dg.seg.stitch ?? ''}`; continue; }
+        meshMax = Math.max(meshMax, r);
+      }
     }
-    const ok = legDev < TOL_RAD && hidOut < TOL_RAD && meshMax <= w + liftMax + TOL_MESH && axisMax <= w / 2 + liftMax + TOL_MESH && hidDispAxisMax <= TOL_MESH;
+    const ok = !nonFinite && legDev < TOL_RAD && hidOut < TOL_RAD && meshMax <= w + liftMax + TOL_MESH && axisMax <= w / 2 + liftMax + TOL_MESH && hidDispAxisMax <= TOL_MESH;
     add({ id: 'V14', name: 'Thread does not float above the ball (model and mesh)', crit: 'K1–K3; D22 (tube Ø w on the surface); schematic lift at crossings — display only',
       status: ok ? 'pass' : 'fail',
       value: `model: legs |r − R| ≤ ${legDev.toExponential(1)} mm; hidden not above surface (max ${hidOut.toExponential(1)}), khorda starta to ${f(hidDepth, 2)} mm vglub. `
         + `Mesh: axis ≤ R + ${f(axisMax, 3)} mm, outer surface ≤ R + ${f(meshMax, 3)} mm (norm w = ${f(w, 3)} + allvnyy podem stopki ≤ ${f(liftMax, 3)} mm = ${DISPLAY_STACK_LIFT_W}·w·uroven). `
-        + `Hidden-start scheme: depth ${f(hidDispDepth, 3)} mm`,
-      numbers: { legDev, legMax, hidOut, hidDepth, axisMax, meshMax, liftMax, hidDispAxisMax, hidDispDepth } });
+        + `Hidden-start scheme: depth ${f(hidDispDepth, 3)} mm`
+        + (nonFinite ? `. Non-finite tube mesh (zero tangent, 180° reversal) at ${nonFinite}` : ''),
+      numbers: { nonFinite, legDev, legMax, hidOut, hidDepth, axisMax, meshMax, liftMax, hidDispAxisMax, hidDispDepth } });
   }
   // V15 — row n of set B = row n of set A rotated by 2π/N (B petals on neighboring lines) — for all rows
   {

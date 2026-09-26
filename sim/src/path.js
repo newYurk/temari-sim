@@ -1194,14 +1194,19 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   const legArcs = [];
   // (10′) free lower leg: the whole leg is the chord X_n → E_n⁰ (class 'free' — the body the next rail is built on).
   if (splice > 1e-15) { const sp0 = arcGC(X, Tpt, entryKind === 'free' ? 'free' : entryKind === 'contradiction' ? 'contradiction' : 'splice'); if (sp0) legArcs.push(sp0); }
-  legArcs.push(...rail.sub(sT0, best.s));
+  // (10′) free / contradiction entry: the chord already ends at E_n⁰, so nothing follows it. Appending the rail from E's
+  // foot to the exit search result plus the tail back to E_n made a there-and-back hairpin at E (≈0.15 mm, 180°) on
+  // closing top legs at λ 0.1 / 0.2; at λ 0.2 m 1 the return point hit the previous vertex exactly under C×(1+1e−9)
+  // → zero tangent in the tube mesh (NaN, V14 flip). The leg is the chord only, as the spec says.
+  const chordOnly = (entryKind === 'free' || entryKind === 'contradiction') && legArcs.length > 0;
+  if (!chordOnly) legArcs.push(...rail.sub(sT0, best.s));
   const Eend = unit(to);
   // Bottom leg ('atE', §3.2(12)): E_n is the packing root on the rail, so the rail itself ends at E_n
   // (|d_E| is round-off of the root on the same analytic rail; the arcs end at E_n's foot).
   // Past the sampled extension (latE clamped) the continuation to E_n is appended instead (#40).
   const gapE = R * ang(exitQ, Eend); // exact (acos has a ≈1e-6 mm floor here, #36)
   let offRailPiece = null;
-  if (!(exitKind === 'atE' && !latE.clamped) && gapE > Math.max(1e-9 * R, 1e-6 * ((w || W0_MM) / W0_MM))) {
+  if (!chordOnly && !(exitKind === 'atE' && !latE.clamped) && gapE > Math.max(1e-9 * R, 1e-6 * ((w || W0_MM) / W0_MM))) {
     // The exit root is a tangency by construction (§3.2(13)); drain and free exits are real corners.
     // A bottom leg ('offRail') has no tail arc (a contradiction, flagged); its polyline still reaches E_n.
     // A bottom leg whose packing root lies past the sampled extension (latE clamped, #40) continues along the

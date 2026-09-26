@@ -2195,6 +2195,27 @@ if (G('8q'))
     check(v6.status === 'pass' && spread <= 1e-6 * w && Object.keys(by).length > 0,
       `V6 λ0.1 m${m}: pass (clean class and B = rot(A) ≤ 1.4e−6·w); free-exit point equal on rotation-equivalent stitches within 1e−6·w (${spread.toExponential(1)} mm)`);
   }
+  // (10′) chord-only free entry (ec5be64 acceptance, stability matrix): a free / contradiction lower entry is the chord X_n → E_n⁰
+  // and nothing else. Before, the rail from E's foot plus the tail back to E were appended (a 180° hairpin at E on closing top
+  // legs at λ 0.1 / 0.2); at λ 0.2 m 1 (sTop 5 mm, pitch 2) under C×(1+1e−9) the return point equalled the previous vertex →
+  // zero tangent in the tube mesh → NaN → V14 pass → fail. Statuses must be identical under that perturbation.
+  {
+    const raw0 = { C_mm: 240, w_mm: 0.714, m_mm: 1, startRun_mm: 35, sTop_mm: 5, pitch_mm: 2, topMode: 'mm', rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: 0.2, muWrap: 0.32 };
+    const st = (raw) => { const A = computeAll(recipe, raw); return [A, Object.fromEntries(runValidators(A, A.path.ops.length - 1, null).map((v) => [v.id, v.status]))]; };
+    const [A0, s0] = st(raw0), [A1, s1] = st({ ...raw0, C_mm: 240 * (1 + 1e-9) });
+    const flips = Object.keys(s0).filter((k) => s0[k] !== s1[k]);
+    const v14 = runValidators(A1, A1.path.ops.length - 1, null).find((v) => v.id === 'V14');
+    check(flips.length === 0 && s0.V14 === 'pass' && Number.isFinite(v14.numbers.meshMax),
+      `λ0.2 m1 (sTop 5, pitch 2) C×(1+1e−9): 0 validator flips (${flips.join(', ') || 'none'}); V14 ${s0.V14}/${s1.V14}, mesh finite (${v14.numbers.meshMax})`);
+    for (const [lam, m] of [[0.1, 1.0], [0.2, 1.0], [0.2, 0.5]]) {
+      const A = computeAll(recipe, cfg(lam, m));
+      const free = A.path.segs.filter((q) => q.type === 'leg' && (q.entryKind === 'free' || q.entryKind === 'contradiction'));
+      const turn = A.path.segs.filter((q) => q.type === 'leg').reduce((x, q) => Math.max(x, q.rawTurnMaxDeg ?? 0), 0);
+      const R = A.base.R;
+      const chord = free.every((q) => { const E = q.pts[q.pts.length - 1], X = q.pts[0]; return Math.abs(q.length - R * angle(X, E)) <= 1e-9 * R; });
+      check(free.length > 0 && chord && turn <= 20, `λ${lam} m${m}: ${free.length} free-entry legs are the chord X→E only (length = R·∠XE), max raw turn ${turn.toFixed(1)}° ≤ 20° (no hairpin)`);
+    }
+  }
 }
 
 if (G('9'))
