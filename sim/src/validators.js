@@ -8,6 +8,7 @@ import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
 import { tubeMesh } from './tube.js';
 import { resolveBowLambda } from './params.js';
 import { widthDecomposition, u14Onset } from './diag-width.js';
+import { EPS_C, DEG_MAX_W } from './path.js';
 
 const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : String(x));
 
@@ -446,11 +447,19 @@ export function runValidators(A, stage = '2b', ref = null) {
   const { ops, segs, ids } = prefix(path, kEnd);
   const R = A.base.R, w = A.params.w_mm, m = A.params.m_mm, N = A.marking.N;
   const out = [];
-  const add = (v) => out.push(v);
+  // (9б′) (#46): V5, V6, V8, K16 of an invalid build print the exclusion (invTxt, defined below, read at call time).
+  const add = (v) => { if (invTxt && ['V5', 'V6', 'V8', 'K16'].includes(v.id) && typeof v.value === 'string' && !v.value.includes('build invalid')) v.value += invTxt; out.push(v); };
   const segById = new Map(path.segs.map((s) => [s.id, s]));
   const stitchesDone = path.stitches.filter((st) => ids.has(st.pickupId));
   const roundsIn = path.rounds.filter((r) => ops.some((o) => o.round === r.id));
   const roundDone = (r) => kEnd >= r.opLast;
+  // (9б′) (#46): a contradiction entry marks the build invalid from its row — rows ≥ n are left out of V5, V6, V8, K16
+  // (and of the row count, path.rowsValid); V22 fails and prints the leg, d_n and the chord clearance.
+  const invRow = path.invalidFrom ? path.invalidFrom.row : Infinity;
+  const rowOk = (x) => !((x?.row ?? 0) >= invRow);
+  const segsOk = segs.filter(rowOk), stOk = stitchesDone.filter(rowOk), roundsOk = roundsIn.filter(rowOk);
+  const idsOk = Number.isFinite(invRow) ? new Set([...ids].filter((id) => { const x = segById.get(id); return !x || rowOk(x); })) : ids;
+  const invTxt = Number.isFinite(invRow) ? ` [build invalid from row ${invRow} (V22): rows ≥ ${invRow} left out]` : '';
   const threadIds = [...new Set(segs.map((s) => s.thread))];
 
   // V1 — each thread is continuous (K13); resume from park point
@@ -546,7 +555,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (full) refLen = e.row1_open;
       else for (const s of rowSegs) refLen += s.stitch === 0 ? e.start_channel : s.type === 'leg' ? e.arms[s.stitch - 1] : e.bites[s.stitch - 1];
       const hid = a1Segs.filter((s) => s.type === 'hidden-start').reduce((a, s) => a + s.length, 0);
-      // #47: calc.py (and refKey) model geodesic legs (λ = 0). For a bow build (λ > 0, now the site default) the row-1
+      // #47 (temporary weakening, tracked in #48 — bow length reference): calc.py (and refKey) model geodesic legs (λ = 0). For a bow build (λ > 0, now the site default) the row-1
       // length is not comparable — it is printed, not compared; stitch E/X, E₀/X₀ and the hidden start (independent of
       // the leg shape) are still compared. Geodesic builds: unchanged.
       const form = A.params.shoulderForm;
@@ -579,6 +588,7 @@ export function runValidators(A, stage = '2b', ref = null) {
   // ROW — the closing stitch of round n is the L0 top of row n+1, the start stitch (s_T(1)) the L0 top of row 1; the last
   // round's closing (s_T(N+1), no outgoing leg, not in the row count) is left out.
   {
+    const stitchesDone = stOk, roundsIn = roundsOk;
     let wrongLine = 0, reach = 0;
     const tol = 0.1 * w;
     const botBy = new Map(), topBy = new Map();
@@ -608,12 +618,12 @@ export function runValidators(A, stage = '2b', ref = null) {
     const worst = spreads.reduce((acc, x) => (Math.max(x.b, x.t) > Math.max(acc.b, acc.t) ? x : acc), /** @type {any} */ ({ r: '—', b: 0, t: 0 }));
     add({ id: 'V5', name: 'Stitches on their lines and levels', crit: 'K1 (set A: top on even lines; B on odd); spec (12′) (#45): bottoms of a row and tops of a row (closing of round n = L0 top of row n+1) spread ≤ 0.1·w',
       status: stitchesDone.length ? (ok ? 'pass' : 'fail') : 'n/a',
-      value: `line/level errors ${wrongLine}; spread by rows (w): ${spreads.map((x) => `${x.r} bot ${f(x.b / w, 3)}, top ${f(x.t / w, 3)}`).join('; ')}; max ${f(Math.max(worst.b, worst.t) / w, 3)}w (${worst.r}); catch reaches neighbour marking: ${reach}`,
+      value: `line/level errors ${wrongLine}; spread by rows (w): ${spreads.map((x) => `${x.r} bot ${f(x.b / w, 3)}, top ${f(x.t / w, 3)}`).join('; ')}; max ${f(Math.max(worst.b, worst.t) / w, 3)}w (${worst.r}); catch reaches neighbour marking: ${reach}` + invTxt,
       numbers: { spreads, wrongLine, reach, tolW: 0.1 } });
   }
   // V6 — petal symmetry by the classes of spec v3.2 §6.11 (#25): clean classes exact, affected legs against expectations.
   {
-    const done = roundsIn.filter(roundDone);
+    const done = roundsOk.filter(roundDone);
     if (!done.length) add({ id: 'V6', name: 'Petal symmetry within a round', crit: 'K1', status: 'n/a', value: 'full round only' });
     else {
       const M6 = v6Metrics(A, done);
@@ -623,7 +633,7 @@ export function runValidators(A, stage = '2b', ref = null) {
         `; step ${f(q.step.actual / w, 3)}w; i1−rot(i3) ${f(q.shape / w, 3)}w; i2−rot(i4) ${f(q.i2 / w, 3)}w` +
         (q.L0 ? `; L0 (${q.L0.src}) vs L2: x ${f(q.L0.dx / w, 3)}w, s ${f(q.L0.ds / w, 3)}w, e ${f(q.L0.de / w, 3)}w (arrival-direction residual (spiral), class (iii), ≤ ${V6_TOL.eW}w)` : ''));
       add({ id: 'V6', name: 'Petal symmetry within a round', crit: 'K1; TK-KIKU; spec v3.2 §6.11 (#25), (12′)–(12‴) (#45): step 0 ± 0.1w, L0-vs-L2 x/s ± 0.1w, e ± 0.2w, i1 vs rot(i3) ≤ 0.1w', status: J.status,
-        value: rows.join('; ') + (J.reasons.length ? `. ${J.reasons.join('; ')}` : ''),
+        value: rows.join('; ') + (J.reasons.length ? `. ${J.reasons.join('; ')}` : '') + invTxt,
         numbers: { rounds: M6.rounds, l0: M6.rounds.map((q) => ({ round: q.id, row: q.row, ...(q.L0 ? { dxW: q.L0.dx / w, dsW: q.L0.ds / w, deW: q.L0.de / w } : {}) })), reasons: J.reasons } });
     }
   }
@@ -644,6 +654,7 @@ export function runValidators(A, stage = '2b', ref = null) {
   }
   // V8 — no interpenetration of laid threads except where rules allow (crossing, uwagake wedge, catch, join)
   {
+    const segs = segsOk, stitchesDone = stOk, ids = idsOk;
     const pairKey = (a, b) => [a, b].sort().join('|');
     const expected = new Map();
     for (const t of threadIds) { const ts = segs.filter((s) => s.thread === t); for (let i = 1; i < ts.length; i++) expected.set(pairKey(ts[i - 1].id, ts[i].id), 'join'); }
@@ -931,6 +942,7 @@ export function runValidators(A, stage = '2b', ref = null) {
 
   // K16 (6a.16 / 6a.17 / 6a.20) — tip coverage; K16b at λ=0 is two-sided Clairaut-window diagnostic
   {
+    const stitchesDone = stOk, segs = segsOk, ids = idsOk;
     const bottoms = stitchesDone.filter((st) => st.level === 'bottom' && !st.closing);
     const order = new Map(path.segs.map((x, i) => [x.id, i]));
     const bySet = {};
@@ -1065,6 +1077,9 @@ export function runValidators(A, stage = '2b', ref = null) {
                 }
               }
             }
+            const dE = minDistToRow(st.E, set, n + 2);
+            const dX = minDistToRow(st.X, set, n + 2);
+            const covE = dE <= w / 2 * 1.1, covX = dX <= w / 2 * 1.1;
             const sTipE = tipLevelMm(st.E, R), sTipX = tipLevelMm(st.X, R);
             let promisedE = false, promisedX = false;
             if (outgoing && outgoing.from) {
@@ -1074,7 +1089,7 @@ export function runValidators(A, stage = '2b', ref = null) {
               const winE = k16bCoverageWindow({ m, w, alpha: Math.atan(tanA), deltaSum, xE, tanAlpha: tanA });
               promisedE = winE.coveredE;
               bRows.push({ set, row: n, line: st.line, hole: 'E', alphaDeg: Math.atan(tanA) * 180 / Math.PI,
-                prod: deltaSum * tanA, win: [(m + w) - winE.half, (m + w) + winE.half], xLeg: winE.xLeg, dxE: winE.dxE, promised: promisedE });
+                prod: deltaSum * tanA, win: [(m + w) - winE.half, (m + w) + winE.half], xLeg: winE.xLeg, dxE: winE.dxE, promised: promisedE, covered: covE, distW: dE / w });
             } else {
               // Fallback: shared row angle (should be rare)
               const tanA = clairautAvgTan(alphaK, (later?.s ?? st.s + deltaSum), st.s, R);
@@ -1087,14 +1102,11 @@ export function runValidators(A, stage = '2b', ref = null) {
               // coveredX uses +(m+w)/2 − Δ·tanα (incoming mirror); share call with dummy xE.
               promisedX = k16bCoverageWindow({ m, w, alpha: Math.atan(tanA), deltaSum, xE, tanAlpha: tanA, xX }).coveredX;
               bRows.push({ set, row: n, line: st.line, hole: 'X', alphaDeg: Math.atan(tanA) * 180 / Math.PI,
-                prod: deltaSum * tanA, promised: promisedX });
+                prod: deltaSum * tanA, promised: promisedX, covered: covX, distW: dX / w });
             } else {
               const tanA = clairautAvgTan(alphaK, (later?.s ?? st.s + deltaSum), st.s, R);
               promisedX = k16bCoverageWindow({ m, w, alpha: Math.atan(tanA), deltaSum, xE, tanAlpha: tanA, xX }).coveredX;
             }
-            const dE = minDistToRow(st.E, set, n + 2);
-            const dX = minDistToRow(st.X, set, n + 2);
-            const covE = dE <= w / 2 * 1.1, covX = dX <= w / 2 * 1.1;
             // #31: promise per pair at every λ (no λ=0 switch): fail only where the window promises and the model does not cover.
             if (promisedE) { bPromised++; if (covE) bOk++; else bMiss++; }
             if (promisedX) { bPromised++; if (covX) bOk++; else bMiss++; }
@@ -1164,7 +1176,7 @@ export function runValidators(A, stage = '2b', ref = null) {
   }
   // V10 — each round closes: last leg UNDER the round’s first leg; stitch covers round start
   {
-    const done = roundsIn.filter(roundDone);
+    const done = roundsOk.filter(roundDone);
     if (!done.length) add({ id: 'V10', name: 'Round closure', crit: 'TK-LITTLE; TK-GT14', status: 'n/a', value: 'no completed rounds' });
     else {
       let ok = true;
@@ -1580,6 +1592,9 @@ export function runValidators(A, stage = '2b', ref = null) {
           continue; // rail+climb excluded from κ_g
         }
         if (s.joinMode === 'onRail') continue;
+        // (9б′): a degenerate entry turns at M like a climb (≤ 20°, expected ≤ atan(|d|/ℓ_m) + rail turn); a contradiction is V22's.
+        if (s.joinMode === 'degenerate') { if (hole > 20 + 1e-6 || merge > 20 + 1e-6) badKink++; continue; }
+        if (s.joinMode === 'contradiction') continue;
         if (s.joinMode === 'tangent') {
           const splice = Math.max(0, s.spliceMm ?? 0);
           // Degenerate short splice (<w): hole and merge coincide — only hole ≤20° (not exterior ≤1°).
@@ -1665,29 +1680,51 @@ export function runValidators(A, stage = '2b', ref = null) {
     const bad = [];
     const counts = {};
     const joinDiag = [];
+    const entryBad = [];
+    const entryKinds = {};
+    let freeGapMin = Infinity, degDMax = 0;
     for (const s of legs) {
       const role = s.level === 'bottom' ? 'lower' : 'upper';
       const lam0 = !!s.lam0;
-      const ok = role === 'lower' ? (lam0 ? ['free'] : ['atE']) : (lam0 ? ['drain', 'free'] : ['root', 'drain', 'free']);
+      // (10′) (#46): a lower λ > 0 leg with no tangency on any rail piece is free when its chord X_n → E_n⁰ clears row n−1
+      // (≥ w(1 − εc)): the only lawful lower free at λ > 0. No tangency and a chord closer than that — fail (printed below).
+      const lowerFree = role === 'lower' && !lam0 && s.entryKind === 'free' && (s.entryMinGapW ?? 0) >= 1 - EPS_C;
+      const ok = role === 'lower' ? (lam0 ? ['free'] : lowerFree ? ['free'] : ['atE']) : (lam0 ? ['drain', 'free'] : ['root', 'drain', 'free']);
       const key = `${role} λ${lam0 ? '=0' : '>0'} ${SPEC[s.exitKind] ?? s.exitKind}`;
       counts[key] = (counts[key] || 0) + 1;
       // (9б) diagnostic, not a fail: joinMode against the band of d_n (8′). At λ > 0 a station outside by d > 0.02 w with no
       // tangency on the finite rail (L_j beyond the rail, or outside the entry parallel but inside the core's continuation)
       // falls back to climb — printed for Fable (#39 item 3), rule (9б) does not cover it.
       if (role === 'lower' || lam0) {
-        const d = s.lateralMm ?? 0, tolD = 0.02 * wMm;
-        const band = d < -tolD ? 'climb' : d <= tolD ? 'onRail' : (lam0 ? 'free' : 'tangent');
-        if (s.joinMode !== band) joinDiag.push(`${s.id}/${s.round} ${s.joinMode}≠${band} d=${f(d / wMm, 3)} w`);
+        const d = s.lateralMm ?? 0;
+        // (9а) at λ = 0: the d_n band ±0.02·w. (9б′) at λ > 0 (#46): no band — |d| ≤ 1e−9·w is round-off (X on the rail,
+        // tangency at the foot), d < 0 climb, d > 0 by construction: tangent | free | degenerate (|d| ≤ 0.1·w) | contradiction.
+        const tolD = lam0 ? 0.02 * wMm : 1e-9 * wMm;
+        const band = d < -tolD ? 'climb' : d <= tolD ? (lam0 ? 'onRail' : 'tangent') : (lam0 ? 'free' : 'tangent');
+        const byConstruction = !lam0 && d > tolD && ['free', 'degenerate', 'contradiction'].includes(s.joinMode);
+        if (role === 'lower' && !lam0 && d > tolD && s.joinMode === 'climb') entryBad.push(`${s.id}/${s.round} climb from exterior d=${f(d / wMm, 3)} w`);
+        if (!lam0 && s.entryKind === 'degenerate' && !(d <= DEG_MAX_W * wMm + 1e-12)) entryBad.push(`${s.id}/${s.round} degenerate with d=${f(d / wMm, 3)} w > ${DEG_MAX_W} w`);
+        if (!lam0 && s.entryFail) entryBad.push(`${s.id}/${s.round} contradiction: no tangency, chord X→E⁰ min clearance ${f(s.entryMinGapW, 3)} w at ${f(s.entryGapAtMm, 2)} mm; d_n=${f(d / wMm, 3)} w > ${DEG_MAX_W} w; λr=${f(s.lambda ?? 0, 3)}`
+          + (s.entryBest ? `; best cand sin ${f(s.entryBest.sin, 4)} res ${f(s.entryBest.resMm, 4)} mm on ${s.entryBest.cls}` : '; no root on any piece'));
+        if (s.entryScan?.mismatch) entryBad.push(`${s.id}/${s.round} closed-form tangency ${s.entryScan.closedS ?? '—'} vs grid scan ${s.entryScan.scanS ?? '—'}`);
+        if (s.joinMode !== band && !byConstruction && !(band === 'tangent' && s.joinMode === 'free')) joinDiag.push(`${s.id}/${s.round} ${s.joinMode}≠${band} d=${f(d / wMm, 3)} w`);
+        if (!lam0 && s.entryKind) entryKinds[s.entryKind] = (entryKinds[s.entryKind] || 0) + 1;
+        if (!lam0 && s.entryKind === 'free') freeGapMin = Math.min(freeGapMin, s.entryMinGapW ?? Infinity);
+        if (!lam0 && s.entryKind === 'degenerate') degDMax = Math.max(degDMax, d / wMm);
       }
       if (!ok.includes(s.exitKind)) bad.push({ id: s.id, round: s.round, role, lam0, lambda: s.lambda ?? 0, exitKind: s.exitKind, joinMode: s.joinMode, dW: (s.lateralMm ?? 0) / wMm });
     }
     add({ id: 'V22', name: 'Leg end kind by construction (9г)',
       crit: 'spec v3.2 §3.2(9г): lower λ>0 root (code atE), lower λ=0 free; upper tangent (code root, λ>0) / drain / free; anything else fail',
-      status: bad.length ? 'fail' : 'pass',
-      value: (bad.length ? `fail ${bad.length}: ` + bad.slice(0, 8).map((b) => `${b.id}/${b.round} ${b.role} λ${b.lam0 ? '=0' : '>0'} (${f(b.lambda, 3)}) exitKind ${b.exitKind} join ${b.joinMode} d=${f(b.dW, 3)} w`).join('; ') + '; ' : '')
+      status: bad.length || entryBad.length ? 'fail' : 'pass',
+      value: (entryBad.length ? `(10′) entry fail ${entryBad.length}: ${entryBad.slice(0, 6).join('; ')}; ` : '') + (bad.length ? `fail ${bad.length}: ` + bad.slice(0, 8).map((b) => `${b.id}/${b.round} ${b.role} λ${b.lam0 ? '=0' : '>0'} (${f(b.lambda, 3)}) exitKind ${b.exitKind} join ${b.joinMode} d=${f(b.dW, 3)} w`).join('; ') + '; ' : '')
         + Object.entries(counts).map(([k, v]) => `${k} ${v}`).join(', ')
+        + (Object.keys(entryKinds).length ? `; (10′)/(9б′) entries λ>0: ${Object.entries(entryKinds).map(([k, v]) => `${k} ${v}`).join(', ')}` : '')
+        + (Number.isFinite(freeGapMin) ? `; free legs min chord clearance ${f(freeGapMin, 3)} w` : '')
+        + (degDMax > 0 ? `; degenerate max |d| ${f(degDMax, 3)} w` : '')
+        + (path.invalidFrom ? `; BUILD INVALID from row ${path.invalidFrom.row} (${path.invalidFrom.leg}/${path.invalidFrom.round}.i${path.invalidFrom.stitch}, d ${f(path.invalidFrom.dW, 3)} w, min clearance ${f(path.invalidFrom.gapW, 3)} w)` : '')
         + (joinDiag.length ? `; (9б) join vs d_n band, diagnostic ${joinDiag.length}: ${joinDiag.slice(0, 4).join('; ')}` : ''),
-      numbers: { bad, counts, joinDiag } });
+      numbers: { bad, counts, joinDiag, entryBad, entryKinds, freeGapMinW: Number.isFinite(freeGapMin) ? freeGapMin : null, degDMaxW: degDMax, invalidFrom: path.invalidFrom || null } });
   }
 
   // V21 — transversality (Fable v2 / Errata §6a / 6a.9.2 / 6a.19 / 6a.20). Criteria:
@@ -1778,7 +1815,10 @@ export function runValidators(A, stage = '2b', ref = null) {
         }
       }
 
-      // α_exp from reference curve at crossing (6a.9.2)
+      // α_exp from reference curve at crossing (6a.9.2). Each leg against its own construction class (#46, coordinator):
+      // a (10′) free chord (λ > 0, entryKind free: the whole leg is the geodesic X_n → E_n⁰, exitKind free) is compared with
+      // the geodesic angle, like the free legs at λ = 0; the rail angle (parallel of row n−1) applies only to legs on the rail.
+      const freeChord = s.row >= 2 && !s.lam0 && s.entryKind === 'free' && s.exitKind === 'free';
       let alphaExp = alphaGeo;
       {
         const splice = (s.layMode === 'rail') ? Math.max(0, s.spliceMm ?? 0) : 0;
@@ -1823,7 +1863,7 @@ export function runValidators(A, stage = '2b', ref = null) {
           if (Math.hypot(...Tarc) > 1e-12 && Math.hypot(...Tmer) > 1e-12) {
             alphaExp = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(Tarc), unit(Tmer))))));
           }
-        } else if (s.row >= 2) {
+        } else if (s.row >= 2 && !freeChord) {
           // 6a.9.2 / 6a.12: support = axis ∩ independent offset of ACCEPTED row n−1 (not under-test).
           const prev = segs.find((x) => x.type === 'leg' && x.set === s.set && x.row === s.row - 1 && x.stitch === s.stitch);
           let C = null, Tref = null;
@@ -1944,12 +1984,12 @@ export function runValidators(A, stage = '2b', ref = null) {
       const aDeg = alpha * 180 / Math.PI, gDeg = alphaGeo * 180 / Math.PI;
       // 6a.19/6a.20: free = row 1 (any λ) and joinMode/railKind=free (λ=0 free-exit).
       // Residual climb/rail at λ=0 uses α_ref = parallel of accepted n−1 (rail rule).
-      const isFree = s.row === 1 || s.joinMode === 'free' || s.railKind === 'free';
+      const isFree = s.row === 1 || s.joinMode === 'free' || s.railKind === 'free' || freeChord;
       const isRail = !isFree && s.row >= 2;
       // 6a.20: free α_ref = analytic arc tangent at axis crossing (λ>0) or ref geodesic there (λ=0).
       // α_geo+θ is tables-only — not the validator reference.
       const alphaRef = isFree
-        ? (lamCmd > 1e-15 ? alphaExp : alphaGeo)
+        ? (lamCmd > 1e-15 && !freeChord ? alphaExp : alphaGeo)
         : alphaExp;
       const sinAct = Math.sin(alpha), sinRef = Math.sin(Math.max(alphaRef, 1e-12));
       const sinRatio = sinAct / sinRef;
@@ -1957,7 +1997,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       angleRows.push({
         id: s.id, row: s.row, set: s.set, angleDeg: aDeg, alphaGeoDeg: gDeg,
         alphaRefDeg: alphaRef * 180 / Math.PI, alphaExpDeg: alphaExp * 180 / Math.PI,
-        sinRatio, deficitDeg, layMode: s.layMode, joinMode: s.joinMode, isRail, isFree,
+        sinRatio, deficitDeg, layMode: s.layMode, joinMode: s.joinMode, isRail, isFree, freeChord,
       });
       if (minAngleDeg == null || aDeg < minAngleDeg) { minAngleDeg = aDeg; minAngleGeoDeg = gDeg; }
       // 6a.19/6a.20: |sin α_act / sin α_ref − 1| ≤ 0.03 for rail and free (bilateral).

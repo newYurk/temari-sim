@@ -789,13 +789,51 @@ export function exitCandidates(exitRes, sLo, sHi, nScan) {
  *  offset chord (sin 0.0047 at residual 0.21·w is not a tangency). Used by the entry (10) and the exit (13). */
 export const TANGENCY_SIN_MAX = 0.01;
 export const TANGENCY_RES_W = 0.02;
+/** εc of (9д)/(10′): clearance ≥ w(1 − εc) (the same 1 % as the free-exit re-entry check). */
+export const EPS_C = 0.01;
+/** (9б′) largest |d_n| of a legal degenerate entry, in w. */
+export const DEG_MAX_W = 0.1;   // §2 class (iii): axis position budget 0.1·w (coordinator, #46)
+/** Test hook (#46): overrides DEG_MAX_W (null → the rule value) to drive the contradiction branch on real geometry. */
+let DEG_MAX_OVR = null;
+export function setDegMaxW(v) { DEG_MAX_OVR = v == null ? null : +v; }
 export function tangencyOk(sin, resMm, w) {
   return sin <= TANGENCY_SIN_MAX && resMm <= TANGENCY_RES_W * w;
 }
 
+/** Spec (10′) (#46): closed-form tangency from X to a piecewise-analytic rail, piece by piece in travel order from the
+ *  foot s0 toward sE. A point T on a small circle (pole k, radius ρ) is a tangency iff X lies in the plane of T and the
+ *  circle's tangent at T: X·(k − T cos ρ) = 0, i.e. X·T = X·k / cos ρ (the right spherical triangle X–T–k, ∠ at T).
+ *  A great circle (cos ρ = 0) has no tangency from a point off it. Corner arcs (radius w) are small circles too.
+ *  Returns every root inside the window, ordered along travel: { s, j, cls }. */
+export function entryTangencyRoots(R, rail, X, s0, sE) {
+  const fwd = sE >= s0, lo = Math.min(s0, sE), hi = Math.max(s0, sE);
+  const out = [];
+  for (let j = 0; j < rail.arcs.length; j++) {
+    const a0 = rail.cum[j], a1 = rail.cum[j + 1];
+    if (a1 < lo || a0 > hi) continue;
+    const A = rail.arcs[j], cr = Math.cos(A.rho), sr = Math.sin(A.rho);
+    if (Math.abs(cr) < 1e-12) continue;                       // point – great circle: no tangency
+    const k = A.k, xk = dot(X, k);
+    const e1 = unit(sub(A.a, mul(k, cr))), e2 = cross(k, e1);
+    const Aa = sr * dot(X, e1), Bb = sr * dot(X, e2), C = xk / cr - cr * xk;
+    const H = Math.hypot(Aa, Bb);
+    if (!(H > 0) || Math.abs(C) > H) continue;
+    const base = Math.atan2(Bb, Aa), dl = Math.acos(Math.max(-1, Math.min(1, C / H)));
+    for (const c of [base - dl, base + dl]) {
+      let psi = c % (2 * Math.PI); if (psi < 0) psi += 2 * Math.PI;
+      if (psi > A.psi + 1e-12) continue;
+      const sr0 = a0 + R * sr * Math.min(psi, A.psi);
+      if (sr0 < lo - 1e-12 || sr0 > hi + 1e-12) continue;
+      out.push({ s: sr0, j, cls: A.cls });
+    }
+  }
+  out.sort((p, q) => (fwd ? p.s - q.s : q.s - p.s));
+  return out;
+}
+
 /** Row n ≥ 2 leg along the rail of the previous arm. endLevel = level of the hole the leg ends at:
  *  'bottom' (E_n is the packing root on the rail, spec v3 §3.2(12)) or 'top' (E_n given, §3.2(13)). */
-function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
+export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   const n = getLegSamples();
   const prevPts = prevArm?.pts;
   if (!prevPts || prevPts.length < 2) {
@@ -836,19 +874,24 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   const hitE = rail.closest(E);
 
   let Tpt, sT, splice, joinMode;
+  // (10′) entry diagnostics (#46): entryKind tangent | free | noTangency (V22 fail) | onRail | climb (interior only)
+  let entryRoots = null, entrySkipped = 0, entryKind = null, entryPiece = null, entryMinGapW = null, entryGapAtMm = null, entryFail = false, entryBest = null, entryScan = null;
   // Scale with w so xk similarity does not flip onRail/climb (absolute 1e-6 mm thresh).
   // v3.2 §3.2(9б), §6.4 (#39, #22): |d_n| ≤ 0.02·w is the degenerate entry — X_n is on the rail within the band, no
   // tangency search. The leg starts at X_n itself (as at λ = 0): a jog X_n → foot, or X_n replacing the foot as vertex 0,
   // would be a false travel direction at the hole whose turn grows with the output grid (#22: 9.8° at 384). The
   // thread joins the rail at M, ℓ_m = max(w, 3|d_n|) along the rail from the foot toward E (the (11a) construction
   // with δ inside the band), turning there by atan(|d_n|/ℓ_m) ≤ atan(0.02) = 1.15°.
-  if (Math.abs(dLat) <= onRailTol) {
-    const Lm = Math.max(w || 0, 3 * Math.abs(dLat));
-    const dirE = hitE.s >= lat.s ? 1 : -1;
-    sT = dirE > 0 ? Math.min(lat.s + Lm, Math.max(lat.s + 1e-9, hitE.s * 0.999)) : Math.max(lat.s - Lm, hitE.s);
+  // (9б′) (#46): the 0.02·w band is gone — a degenerate entry is defined by construction (no tangency AND the chord
+  // X_n → E_n⁰ cuts the tube). Only round-off of d (|d| ≤ 1e−9·w: X_n lies on the rail, e.g. top legs) is "on the rail":
+  // the tangency is the foot itself (T = X_n, no splice), so no sliver splice piece is produced.
+  const onRailEps = 1e-9 * Math.max(w || W0_MM, 1e-9);
+  if (Math.abs(dLat) <= onRailEps) {
+    sT = lat.s;
     Tpt = rail.at(sT).q;
-    splice = R * angle(X, Tpt);
-    joinMode = 'onRail';
+    splice = 0;   // X_n on the rail within round-off (|X_n − foot| ~ 1e−9·w; angle() noise ~1e−6 mm): the rail from X_n, no splice
+    joinMode = 'tangent';
+    entryKind = 'onRail';
   } else if (dLat < 0) {
     // 6a.7(3) climb/merge: M at ℓ_m = max(w, 3δ) forward toward E
     const Lm = Math.max(w || 0, 3 * delta);
@@ -858,6 +901,7 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     Tpt = rail.at(sT).q;
     splice = R * angle(X, Tpt);
     joinMode = 'climb';
+    entryKind = 'climb';
   } else {
     // 6a.7(2)/6a.11: exterior geodesic tangent to rail at T (turn at T ≤ 1°).
     // Tangency: X lies in the great-circle plane spanned by q and Ta ⇒ dot(X, q×Ta)=0.
@@ -911,7 +955,7 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
         if (flo * fm <= 0) hi = mid; else { lo = mid; flo = fm; }
       }
       const sm = 0.5 * (lo + hi);
-      cands.push({ s: sm, ...tangRes(sm) });
+      cands.push({ s: sm, ...tangRes(sm), root: true });
     }
     for (let k = 1; k < nScan; k++) {
       const a = scan[k - 1], b = scan[k], c = scan[k + 1];
@@ -924,74 +968,87 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       const sm = 0.5 * (lo + hi);
       cands.push({ s: sm, ...tangRes(sm) });
     }
-    let best = null;
+    // Grid scan: a check only (10′). Its best tangency in the travel window [foot, E] is compared with the closed form.
+    // Only sign-changing residual roots are tangencies; a |res| minimum without a sign change (a graze, e.g. at an inflection
+    // joint between pieces curving opposite ways) is printed as a near miss, not taken.
+    let scanBest = null, scanGraze = null;
     for (const c of cands) {
-      if (!entryOk(c)) continue;
-      const r = Math.abs(c.res) * R, rb = best ? Math.abs(best.res) * R : Infinity;
-      if (!best || r < rb - 1e-9 * wE || (Math.abs(r - rb) <= 1e-9 * wE && Math.abs(c.s - s0) < Math.abs(best.s - s0))) best = c;
+      if (!entryOk(c) || (c.s - s0) * towardE < -1e-9 || (sE - c.s) * towardE < -1e-9) continue;
+      if (!c.root) { if (!scanGraze || Math.abs(c.res) < Math.abs(scanGraze.res)) scanGraze = c; continue; }
+      if (!scanBest || (c.s - s0) * towardE < (scanBest.s - s0) * towardE) scanBest = c;
     }
-    if (!best) {
-      // No co-directional tangency in the window — climb/merge path below (not a reverse tangent).
-      best = { s: s0, score: 0, cost: Infinity, res: 0 };
+    // Spec (10′) (#46): the tangency is found in closed form on each piece of the rail (entry-segment parallel, corner
+    // arcs, core, continuation), in travel order from the foot; the first one meeting (13б) is taken. No silent climb:
+    // a climb from an exterior point is impossible (the kink at M has nothing holding it), so neither "no tangency →
+    // climb" nor "> 1° → climb" exists any more. No tangency on any piece → the chord X_n → E_n⁰ is checked for
+    // clearance to the laid row n−1: ≥ w(1 − εc) everywhere → a free leg (E_n = E_n⁰); otherwise a V22 fail (printed).
+    const roots = entryTangencyRoots(R, rail, X, s0, sE);
+    let best = null;
+    const rootInfo = [];
+    // (10′) with (9д), mirror of the exit rule (13а) (#45): on a rail with inflection joints more than one tangency can
+    // exist; only a SUPPORTING one is a taut thread — its chord X_n → T keeps ≥ w(1 − εc) from the laid row n−1 (away
+    // from both ends by w). The first root in travel order meeting (13б) and clear wins; skipped roots are counted.
+    let laidEntry = null;
+    const chordGapW = (Q) => {
+      const om = angle(X, Q), L = R * om; if (L <= 2 * wE) return Infinity;
+      laidEntry = laidEntry || laidChain(R, prevArm); let g = Infinity;
+      const nC = Math.max(8, Math.ceil(L / (0.1 * wE)));
+      for (let k = 1; k < nC; k++) { const tt = k / nC; if (tt * L < wE || (1 - tt) * L < wE) continue;
+        const P = unit(add(mul(X, Math.sin((1 - tt) * om) / Math.sin(om)), mul(Q, Math.sin(tt * om) / Math.sin(om)))); g = Math.min(g, laidEntry.closest(P).distMm); }
+      return g / wE;
+    };
+    for (const r of roots) {
+      const c = { s: r.s, ...tangRes(r.s) };
+      const sinA = Math.sqrt(Math.max(0, 1 - c.score * c.score)), resMm = R * Math.asin(Math.min(1, Math.abs(c.res)));
+      const ok = entryOk(c), gap = ok && !best ? chordGapW(rail.at(r.s).q) : null;
+      rootInfo.push({ s: r.s, cls: r.cls, score: c.score, sin: sinA, resMm, ok, chordGapW: gap });
+      if (!best && ok) { if (gap >= 1 - EPS_C) best = { ...c, cls: r.cls, chordGapW: gap }; else entrySkipped++; }
     }
-    sT = rail.at(best.s).s;
-    Tpt = rail.at(sT).q;
-    splice = R * angle(X, Tpt);
-    // 6a.17 / block-B: exterior tangent ≤1°. If search landed >1° from parallel, use climb/merge instead.
-    {
-      const Trail = rail.at(sT).T;
-      const Tarrive = mul(tangentTo(unit(Tpt), unit(X)), -1);
-      const nrm = unit(Tpt);
-      const proj = (v) => {
-        const p = sub(v, mul(nrm, dot(v, nrm)));
-        const len = Math.hypot(p[0], p[1], p[2]);
-        return len < 1e-15 ? null : mul(p, 1 / len);
-      };
-      const tIn = proj(Tarrive), tOut = proj(Trail);
-      let angDeg = 0;
-      if (tIn && tOut) {
-        const c = Math.max(-1, Math.min(1, dot(tIn, tOut)));
-        angDeg = Math.acos(c) * 180 / Math.PI;
+    entryRoots = rootInfo;
+    entryScan = { closedS: best ? best.s : null, scanS: scanBest ? scanBest.s : null,
+      grazeS: scanGraze ? scanGraze.s : null, grazeResMm: scanGraze ? R * Math.asin(Math.min(1, Math.abs(scanGraze.res))) : null,
+      dsMm: best && scanBest ? Math.abs(best.s - scanBest.s) : null,
+      mismatch: !!scanBest !== !!best || (best && scanBest && Math.abs(best.s - scanBest.s) > Math.max(0.02 * wE, sSpan / nScan)) };
+    if (best) {
+      sT = rail.at(best.s).s;
+      Tpt = rail.at(sT).q;
+      splice = R * angle(X, Tpt);
+      joinMode = 'tangent';
+      entryKind = 'tangent';
+      entryPiece = best.cls;
+    } else {
+      // No tangency: chord X_n → E_n⁰ against the laid row n−1 (axis distance ≥ w(1 − εc) everywhere).
+      const laid = laidChain(R, prevArm);
+      const om = angle(X, E), L = R * om;
+      const nChk = Math.max(16, Math.ceil(L / (0.1 * wE)));
+      let gMin = Infinity, gAt = 0;
+      for (let k = 0; k <= nChk; k++) {
+        const tt = k / nChk;
+        const g = om < 1e-15 ? X : unit(add(mul(X, Math.sin((1 - tt) * om) / Math.sin(om)), mul(E, Math.sin(tt * om) / Math.sin(om))));
+        const d = laid.closest(g).distMm;
+        if (d < gMin) { gMin = d; gAt = tt * L; }
       }
-      if (angDeg > 1 + 1e-6) {
-        // Fall back to climb/merge (≤20°). Grow ℓ_m until merge angle ≤20° (6a.7 / block-B).
-        const deltaHere = Math.max(0, -dLat);
-        let Lm = Math.max(w || 0, 3 * deltaHere, mmAtW(2, w || W0_MM));
-        const sFoot = lat.s;
-        const sE2 = hitE.s;
-        const dir = sE2 >= sFoot ? 1 : -1;
-        const angAt = (sM) => {
-          const P = rail.at(sM);
-          const q = P.q;
-          const Tarr = mul(tangentTo(q, unit(X)), -1);
-          const n2 = q;
-          const pr = (v) => {
-            const p = sub(v, mul(n2, dot(v, n2)));
-            const len = Math.hypot(p[0], p[1], p[2]);
-            return len < 1e-15 ? null : mul(p, 1 / len);
-          };
-          const a = pr(Tarr), b = pr(P.T);
-          if (!a || !b) return 180;
-          // Co-directional merge angle (no abs — reverse would read as ~0°).
-          return Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * 180 / Math.PI;
-        };
-        let sM = Math.max(0, sFoot + dir * Lm);
-        let aM = angAt(sM);
-        for (let k = 0; k < 10 && aM > 20 + 1e-6; k++) {
-          Lm *= 1.6;
-          sM = Math.max(0, sFoot + dir * Lm);
-          // stay before E
-          if (dir > 0 && sM > sE2) { sM = sE2; aM = angAt(sM); break; }
-          if (dir < 0 && sM < Math.min(sFoot, sE2)) { sM = Math.min(sFoot, sE2); aM = angAt(sM); break; }
-          aM = angAt(sM);
-        }
-        sT = rail.at(sM).s;
-        Tpt = rail.at(sT).q;
-        splice = R * angle(X, Tpt);
-        joinMode = 'climb';
+      entryMinGapW = gMin / wE;
+      entryGapAtMm = gAt;
+      let cand = null;
+      for (const r of rootInfo) if (r.score > 0 && (!cand || r.resMm < cand.resMm)) cand = r;
+      entryBest = cand;
+      const cuts = gMin < wE * (1 - EPS_C);
+      if (!cuts) {
+        // free lower leg: E_n = E_n⁰, the whole leg is the chord
+        entryKind = 'free'; sT = hitE.s; Tpt = E; splice = R * angle(X, E);
+      } else if (dLat <= (DEG_MAX_OVR ?? DEG_MAX_W) * wE) {
+        // (9б′) degenerate entry: chord X_n → M, ℓ_m = max(w, 3|d_n|) from the foot in travel order, then the rail (#22 rule at M).
+        entryKind = 'degenerate';
+        const Lm = Math.max(w || 0, 3 * Math.abs(dLat));
+        const dirE = sE >= s0 ? 1 : -1;
+        sT = dirE > 0 ? Math.min(s0 + Lm, Math.max(s0 + 1e-9, sE * 0.999)) : Math.max(s0 - Lm, sE);
+        Tpt = rail.at(sT).q; splice = R * angle(X, Tpt);
       } else {
-        joinMode = 'tangent';
+        // (9б′) |d_n| > 0.1·w: contradiction — chord X_n → E_n⁰ laid as is, V22 fail, build invalid from this row.
+        entryKind = 'contradiction'; entryFail = true; sT = hitE.s; Tpt = E; splice = R * angle(X, E);
       }
+      joinMode = entryKind;
     }
   }
 
@@ -1107,13 +1164,16 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       if (exitFail) exitKind = 'contradiction';
     }
   }
+  // (10′): a lower leg with no tangency and a clear chord is free, E_n = E_n⁰ — the only lower free exit at λ > 0.
+  if (entryKind === 'free' || entryKind === 'contradiction') { exitKind = entryFail ? 'contradiction' : 'free'; exitFail = exitFail || entryFail; }
   const exitSin = eOnRail ? 0 : best.sin, exitResMm = eOnRail ? Math.abs(dE) : best.resMm; // at E: tangent at the foot
   const exitAlongMm = Math.abs(best.s - sT0);
   const exitQ = best.q;
   // Analytic pieces of the leg: splice X_n → M (climb / degenerate) or X_n → T₁ (tangent), the rail T₁ … exit point,
   // the tail exit point → E_n (root: tangent; drain / free: a corner; bottom leg past the extension: continuation).
   const legArcs = [];
-  if (splice > 1e-15) legArcs.push(arcGC(X, Tpt, 'splice'));
+  // (10′) free lower leg: the whole leg is the chord X_n → E_n⁰ (class 'free' — the body the next rail is built on).
+  if (splice > 1e-15) { const sp0 = arcGC(X, Tpt, entryKind === 'free' ? 'free' : entryKind === 'contradiction' ? 'contradiction' : 'splice'); if (sp0) legArcs.push(sp0); }
   legArcs.push(...rail.sub(sT0, best.s));
   const Eend = unit(to);
   // Bottom leg ('atE', §3.2(12)): E_n is the packing root on the rail, so the rail itself ends at E_n
@@ -1221,15 +1281,16 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   const rho = Pc ? angle(Pc, E) : Math.PI / 2;
   const lambda = (Pc && Math.sin(rho) > 1e-15) ? Math.abs(Math.cos(rho) / Math.sin(rho)) : 0;
 
+  const railTurnFootToMDegV = (() => { const a = rail.at(lat.s), b = rail.at(sT0); const tb = sub(a.T, mul(b.q, dot(a.T, b.q))); const l = Math.hypot(...tb); return l < 1e-15 ? 0 : Math.atan2(dot(cross(mul(tb, 1 / l), b.T), b.q), dot(mul(tb, 1 / l), b.T)) * 180 / Math.PI; })();
   return {
     pts, length: len,
     shoulderForm: prevArm.shoulderForm === 'bow' ? 'bow' : 'geodesic',
     bowLateralMm: 0, phi3CapMm: 0, lambda, rho,
     bowCenter: Pc, phi3Warn: false, layMode: 'rail',
     spliceMm: splice, lateralMm: dLat, turnAtTDeg,
-    // X inside the rail beyond the onRail band (the climb branch, d ≤ −0.02·w). On-rail X (d ≈ 0 by
-    // construction for top legs) is not interior: the old test d < −1e−6·w took the sign of ≈0 (#35).
-    interiorXn: dLat < -onRailTol, lam0: false,
+    // X inside the rail (the climb branch, d < −1e−9·w, (9б′) #46). On-rail X (|d| ≤ 1e−9·w, round-off, e.g. top legs) is
+    // not interior: the old test d < −1e−6·w took the sign of ≈0 (#35).
+    interiorXn: dLat < -onRailEps, lam0: false,
     // Diagnostic: X_n's lateral to the laying rail (core + continuation) — differs from d_n (8′) before the core start of a drain entry.
     railLateralMm: lat.signedMm ?? null, railFootClamped: lat.clamped || null,
     joinMode,
@@ -1243,8 +1304,11 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     exitDeMm: dE, arcs: legArcs,
     // #22 diagnostics: foot of X_n and M on the rail (arc length), the rail's own turn between them (deg) and the
     // constructed turn at M (chord → rail tangent).
-    footS: lat.s, mS: sT0, railTurnFootToMDeg: (() => { const a = rail.at(lat.s), b = rail.at(sT0); const tb = sub(a.T, mul(b.q, dot(a.T, b.q))); const l = Math.hypot(...tb); return l < 1e-15 ? 0 : Math.atan2(dot(cross(mul(tb, 1 / l), b.T), b.q), dot(mul(tb, 1 / l), b.T)) * 180 / Math.PI; })(),
+    footS: lat.s, mS: sT0, railTurnFootToMDeg: railTurnFootToMDegV,
     joinTurnConDeg, mIdx: iM, mTurnExpDeg, railCornerFootToM, clearFreeW, clearChordW,
+    // (9б′) degenerate entry: expected turn at M ≤ atan(|d_n|/ℓ_m) + the rail's own turn foot → M (#22 rule)
+    mTurnBoundDeg: entryKind === 'degenerate' ? Math.atan(Math.abs(dLat) / Math.max(w || 0, 3 * Math.abs(dLat))) * 180 / Math.PI + Math.abs(railTurnFootToMDegV) : null,
+    entryRoots, entrySkipped, entryChordGapW: entryKind === 'tangent' && entryRoots ? (entryRoots.find((r) => r.chordGapW >= 1 - EPS_C)?.chordGapW ?? null) : null, entryKind, entryPiece, entryMinGapW, entryGapAtMm, entryFail, entryBest, entryScan,
   };
 }
 
@@ -1594,8 +1658,10 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         rawTurnMaxDeg: legShape.rawTurnMaxDeg ?? null, rawTurnAtMm: legShape.rawTurnAtMm ?? null,
         exitDeMm: legShape.exitDeMm ?? null, arcs: legShape.arcs,
         joinTurnConDeg: legShape.joinTurnConDeg ?? null, railTurnFootToMDeg: legShape.railTurnFootToMDeg ?? null,
-        mIdx: legShape.mIdx ?? null, mTurnExpDeg: legShape.mTurnExpDeg ?? null, railCornerFootToM: legShape.railCornerFootToM ?? 0,
+        mIdx: legShape.mIdx ?? null, mTurnExpDeg: legShape.mTurnExpDeg ?? null, mTurnBoundDeg: legShape.mTurnBoundDeg ?? null, railCornerFootToM: legShape.railCornerFootToM ?? 0,
         clearFreeW: legShape.clearFreeW ?? null, clearChordW: legShape.clearChordW ?? null, footS: legShape.footS ?? null, mS: legShape.mS ?? null,
+        entrySkipped: legShape.entrySkipped ?? 0, entryChordGapW: legShape.entryChordGapW ?? null, entryKind: legShape.entryKind ?? null, entryPiece: legShape.entryPiece ?? null, entryMinGapW: legShape.entryMinGapW ?? null, entryGapAtMm: legShape.entryGapAtMm ?? null,
+        entryFail: !!legShape.entryFail, entryBest: legShape.entryBest ?? null, entryScan: legShape.entryScan ?? null,
         lam0: legShape.lam0 ?? null, railLateralMm: legShape.railLateralMm ?? null, exitTurnDeg: legShape.exitTurnDeg ?? null, minGapMm: legShape.minGapMm ?? null });
       if (i === 1) RD.firstLegId = leg.id;
       if (i === 1 && spec.begin === 'hiddenStart' && !W.virtualArrive[spec.set]) {
@@ -1766,6 +1832,15 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         };
       }
     }
+  }
+  // (9б′) (#46): a contradiction entry (no tangency, chord X_n → E_n⁰ cuts the tube, |d_n| > 0.1·w) marks the build invalid
+  // from its row: rows ≥ n are left out of the row count and of V5, V6, V8, K16 (no cascade acceptance); V22 prints it.
+  {
+    const bad = W.segs.filter((x) => x.type === 'leg' && x.entryKind === 'contradiction');
+    const first = bad.reduce((a, x) => (!a || x.row < a.row ? x : a), null);
+    W.invalidFrom = first ? { row: first.row, leg: first.id, round: first.round, stitch: first.stitch, dW: first.lateralMm / (w || W0_MM), gapW: first.entryMinGapW, legs: bad.map((x) => x.id) } : null;
+    W.rowsValid = {};
+    for (const r of W.rounds) if (!(first && r.row >= first.row)) W.rowsValid[r.set] = Math.max(W.rowsValid[r.set] || 0, r.row);
   }
   return W;
 }

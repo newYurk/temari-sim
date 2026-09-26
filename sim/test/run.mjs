@@ -15,13 +15,24 @@ const turnAtVtx = (P, i) => {
   const a = pr(sub(P[i], P[i - 1])), b = pr(sub(P[i + 1], P[i]));
   return Math.atan2(dot(cross(a, b), n), dot(a, b)) * 180 / Math.PI;
 };
+// #46 (9б′): at λ > 0 there is no d_n band any more. Round-off (|d_n| ≤ 1e−9·w, entryKind 'onRail'): the rail from X_n —
+// spliceMm 0 and the first piece is the rail (rail / ext / corner), no angle-at-M check. Degenerate (entryKind 'degenerate',
+// no tangency, chord X_n → E⁰ cuts, |d_n| ≤ 0.1·w): chord X_n → M, ℓ_m = max(w, 3|d_n|), spliceMm = |X_n M| ±1e−6 mm, turn
+// at M ≤ mTurnBoundDeg (atan(|d|/ℓ_m) + the rail's own turn foot → M) + 0.2°.
 const degenEntryBad = (s, R, w) => {
-  if (s.joinMode !== 'onRail' || s.lam0) return null;
+  if (s.lam0) return null;
+  if (s.entryKind === 'onRail') {
+    if ((s.spliceMm ?? 0) > 1e-9) return `${s.id} round-off with splice ${s.spliceMm}`;
+    const a0 = s.arcs?.[0];
+    if (!a0 || !['rail', 'ext', 'corner'].includes(a0.cls)) return `${s.id} round-off first piece ${a0?.cls}`;
+    return null;
+  }
+  if (s.entryKind !== 'degenerate') return null;
   const i = s.mIdx;
   if (!(i > 0 && i < s.pts.length - 1)) return `${s.id} no M vertex`;
   const XM = R * angle(s.pts[0], s.pts[i]);
-  const lm = Math.max(w, 3 * Math.abs(s.lateralMm));
-  const t = Math.abs(turnAtVtx(s.pts, i)), tMax = Math.atan2(Math.abs(s.lateralMm), lm) * 180 / Math.PI + 0.2;
+  const t = Math.abs(turnAtVtx(s.pts, i));
+  const tMax = (s.mTurnBoundDeg ?? Math.atan2(Math.abs(s.lateralMm), Math.max(w, 3 * Math.abs(s.lateralMm))) * 180 / Math.PI) + 0.2;
   if (Math.abs(s.spliceMm - XM) > 1e-6) return `${s.id} splice ${s.spliceMm} vs |XM| ${XM}`;
   if (t > tMax) return `${s.id} turn ${t.toFixed(3)}° > ${tMax.toFixed(3)}°`;
   return null;
@@ -751,8 +762,10 @@ if (G('8b2'))
           const psi = Math.atan2(bb, aa) + sgn * Math.acos(cc / H);
           const P = U3(k.map((kk, i) => Math.cos(pc.rho) * kk + Math.sin(pc.rho) * (Math.cos(psi) * u[i] + Math.sin(psi) * v[i])));
           const T = U3(c3(k, P)), arr = U3(P.map((q, i) => q * d3(X, P) - X[i]));
-          const along = R * Math.sin(pc.rho) * (((Math.atan2(d3(P, v), d3(P, u)) - Math.atan2(d3(a0, v), d3(a0, u))) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI));
-          if (d3(arr, T) * Math.sign(pc.psi || 1) > 0 && along <= R * Math.sin(pc.rho) * Math.abs(pc.psi) + 1e-9) return R * a3(X, P);
+          let ang = (((Math.atan2(d3(P, v), d3(P, u)) - Math.atan2(d3(a0, v), d3(a0, u))) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+          if (ang > 2 * Math.PI - 1e-9) ang -= 2 * Math.PI;   // T at the piece's start (round-off below zero)
+          const along = R * Math.sin(pc.rho) * ang;
+          if (d3(arr, T) * Math.sign(pc.psi || 1) > 0 && along >= -1e-9 && along <= R * Math.sin(pc.rho) * Math.abs(pc.psi) + 1e-9) return R * a3(X, P);
         }
       }
       return NaN;
@@ -768,13 +781,12 @@ if (G('8b2'))
       ljN++; if (Math.abs(got - expect) <= 1e-6 * A.params.w_mm) ljOk++;
     }
     if (ljN === 0) {
-      // Exterior with d≈0: tangent join length is negligible (6a.4 — no splice threshold). A degenerate entry
-      // (|d_n| ≤ 0.02·w, onRail) is not a tangent join: since #22 its chord X_n → M has ℓ_m = max(w, 3|d_n|) (was
-      // spliceMm 0 at the foot); it is checked as |X_n M| and the turn at M instead.
-      const tang = ext.filter((s) => s.joinMode !== 'onRail'), deg = ext.filter((s) => s.joinMode === 'onRail');
+      // Exterior with d≈0: tangent join length is negligible (6a.4 — no splice threshold). #46: a round-off entry
+      // (entryKind onRail) is the rail from X_n (splice 0); a degenerate entry is checked as |X_n M| and the turn at M.
+      const tang = ext.filter((s) => s.entryKind !== 'onRail' && s.entryKind !== 'degenerate'), deg = ext.filter((s) => s.entryKind === 'onRail' || s.entryKind === 'degenerate');
       const bad = deg.map((s) => degenEntryBad(s, A.base.R, A.params.w_mm)).filter(Boolean);
       check(tang.every((s) => (s.spliceMm ?? 0) < 0.07 * (A.params.w_mm / 0.714)) && bad.length === 0,
-        `exterior d≈0 ⇒ tangent spliceMm ≈ 0 (no false L_j); ${deg.length} degenerate entries: spliceMm = |X_n M| ±1e−6 mm, turn at M ≤ atan(|d|/ℓm)+0.2° (bad ${bad.join(',') || 0})`);
+        `exterior d≈0 ⇒ tangent spliceMm ≈ 0 (no false L_j); ${deg.length} round-off / degenerate entries: rail from X_n (splice 0) / spliceMm = |X_n M| ±1e−6 mm, turn at M ≤ bound+0.2° (bad ${bad.join(',') || 0})`);
     } else {
       check(ljOk === ljN, `L_j = closed-form tangency on the actual rail piece(s) within 1e−6·w for all ${ljN} exterior tangent joins (10′)`);
     }
@@ -1132,14 +1144,20 @@ if (G('8d0c'))
     const badRoot = roots.filter((s) => !(s.exitSin <= TANGENCY_SIN_MAX && s.exitResMm <= TANGENCY_RES_W * w));
     console.log(`  λ=${lam}: root exits ${roots.length}, max sin ${fmt(Math.max(0, ...roots.map((s) => s.exitSin)), 4)}, max res ${fmt(Math.max(0, ...roots.map((s) => s.exitResMm)) / w, 4)}·w`);
     check(badRoot.length === 0, `λ=${lam}: every root exit meets sin≤0.01 AND res≤0.02w (bad ${badRoot.map((s) => `${s.id} sin ${fmt(s.exitSin, 4)} res ${fmt(s.exitResMm / w, 3)}w`).join(',') || 0})`);
-    // v3.1 §3.2(9б), §6.4 (#39): |d_n| ≤ 0.02·w is the degenerate entry — on the rail at the foot, no tangency search.
-    const degen = A.path.segs.filter((s) => s.type === 'leg' && s.row >= 2 && s.joinMode && s.joinMode !== 'free'
+    // #46 (9б′) replaces the ±0.02·w band of (9б) at λ > 0: |d_n| ≤ 1e−9·w round-off (rail from X_n, splice 0); d < 0 climb;
+    // d > 0 tangent | free | degenerate | contradiction — never onRail, never a climb from outside. Every round-off and
+    // degenerate entry passes degenEntryBad (rail from X_n / |X_n M| and the turn at M).
+    const small = A.path.segs.filter((s) => s.type === 'leg' && s.row >= 2 && s.layMode === 'rail' && !s.lam0 && s.level === 'bottom'
       && Math.abs(s.lateralMm ?? Infinity) <= TANGENCY_RES_W * w);
-    // #22 (coordinator): the degenerate entry starts at X_n and joins the rail at M (ℓ_m = max(w, 3|d_n|)); was spliceMm === 0.
-    const degBad = degen.map((s) => (s.joinMode !== 'onRail' ? `${s.id} ${s.joinMode}` : degenEntryBad(s, A.base.R, w))).filter(Boolean);
-    const degTurn = Math.max(0, ...degen.map((s) => (s.mIdx > 0 ? Math.abs(turnAtVtx(s.pts, s.mIdx)) : 0)));
-    check(degen.length > 0 && degBad.length === 0,
-      `λ=${lam}: every |d_n| ≤ 0.02·w entry is degenerate on-rail, spliceMm = |X_n M| ±1e−6 mm, turn at M ≤ atan(|d|/ℓm)+0.2° (${degen.length}; max turn ${fmt(degTurn, 4)}°; bad ${degBad.join(',') || 0})`);
+    const wrongKind = small.filter((s) => {
+      const d = s.lateralMm, r = 1e-9 * w;
+      return d < -r ? s.joinMode !== 'climb' : d <= r ? s.entryKind !== 'onRail' : !['tangent', 'free', 'degenerate', 'contradiction'].includes(s.joinMode);
+    });
+    const kindsSmall = {}; for (const s of small) kindsSmall[s.entryKind ?? s.joinMode] = (kindsSmall[s.entryKind ?? s.joinMode] || 0) + 1;
+    const degBad = A.path.segs.filter((s) => s.type === 'leg' && s.row >= 2).map((s) => degenEntryBad(s, A.base.R, w)).filter(Boolean);
+    const onRailN = A.path.segs.filter((s) => s.type === 'leg' && s.row >= 2 && s.entryKind === 'onRail').length;
+    check(wrongKind.length === 0 && degBad.length === 0,
+      `λ=${lam}: lower legs with |d_n| ≤ 0.02·w by (9б′) ${JSON.stringify(kindsSmall)}; round-off ${onRailN} with rail from X_n, degenerate |X_n M| and turn at M (wrong ${wrongKind.map((s) => `${s.id} ${s.joinMode}/${s.entryKind} d ${fmt(s.lateralMm / w, 4)}`).join(',') || 0}; bad ${degBad.join(',') || 0})`);
     // Lower end (bottom legs, v3 §3.2(12)): E_n is the packing root on the rail — the thread stays on the rail to E_n.
     const botOff = rail.filter((s) => s.level === 'bottom' && s.exitKind !== 'atE');
     check(botOff.length === 0, `λ=${lam}: bottom legs end on the rail at E_n (atE; off ${botOff.map((s) => s.id).join(',') || 0})`);
@@ -1295,8 +1313,14 @@ if (G('8d'))
     const inWin = br.filter((b) => b.prod >= b.win[0] - 1e-9 && b.prod <= b.win[1] + 1e-9).length;
     const r1 = br.filter((b) => b.row === 1);
     console.log(`  K16b λ=${lam}: ${['A', 'B'].map((k) => `${k} promised ${ps[k].bPromised}/${ps[k].bN} covered ${ps[k].bRaw}`).join(', ')}; row-1 tips α ${fmt(Math.min(...r1.map((b) => b.alphaDeg)), 2)}–${fmt(Math.max(...r1.map((b) => b.alphaDeg)), 2)}°, Δsum·tan α ${fmt(Math.min(...r1.map((b) => b.prod)), 3)}–${fmt(Math.max(...r1.map((b) => b.prod)), 3)} in [${fmt(r1[0].win[0], 3)}; ${fmt(r1[0].win[1], 3)}]`);
-    check(V.status === 'pass' && ['A', 'B'].every((k) => ps[k].bRaw === ps[k].bN) && br.every((b) => b.promised) && inWin === br.length,
-      `K16b λ=${lam}: every pair covered; every pair except the ${excl.length} closing-leg pairs promised by the window with the actual-leg α (in window ${inWin}/${br.length})`);
+    // #46: the raw coverage (≤ 0.55·w) of the closing-leg pairs is printed, not required — they are outside the (15) promise
+    // (#45), and since (10′) the closing leg spans the concave stretch of its rail near X_n on a supporting chord
+    // (λ 0.6: E_n → leg 0.47–0.50·w → 0.50–0.58·w, rows 9–11 past 0.55·w).
+    const brAllH = V.numbers.bRows, uncov = brAllH.filter((b) => !b.covered);
+    const uncovNonClosing = uncov.filter((b) => !isClosingPair(b));
+    console.log(`  K16b λ=${lam}: raw-uncovered pairs ${uncov.length}: ${uncov.map((b) => `${b.set}${b.row} L${b.line} ${b.hole} ${fmt(b.distW, 3)}w${isClosingPair(b) ? ' (closing)' : ''}`).join('; ') || 'none'}`);
+    check(V.status === 'pass' && uncovNonClosing.length === 0 && br.every((b) => b.promised) && inWin === br.length,
+      `K16b λ=${lam}: every non-closing pair covered (raw-uncovered non-closing ${uncovNonClosing.length}, closing ${uncov.length - uncovNonClosing.length}); every pair except the ${excl.length} closing-leg pairs promised by the window with the actual-leg α (in window ${inWin}/${br.length})`);
   }
   const v8 = vals.V8;
   const tipN = (v8?.details?.found || []).filter((r) => /tipCross/.test(r.why)).length;
@@ -1858,9 +1882,14 @@ if (G('8n'))
       const unexp = v8.details.badRest.length + v8.details.naRest.length;
       const cl = A4.path.segs.filter((x) => x.type === 'leg' && x.stitch === A4.marking.N && x.row >= 2 && x.exitKind === 'root');
       const skipped = cl.filter((x) => x.exitSkipped > 0).map((x) => `${x.round}.i${x.stitch} (${x.exitSkipped})`);
-      const along = cl.filter((x) => x.set === 'A').map((x) => x.exitAlongMm);
-      console.log(`  #45 exit λ${lam} m${m}: V8 ${v8.status}, unexpected ${unexp}; closing legs with a non-supporting root skipped: ${skipped.join(', ') || 'none'}; A exit along ${along.map((x) => fmt(x, 2)).join(' → ')} mm`);
-      check(v8.status !== 'fail' && unexp === 0 && along.every((x) => x > 20) && (lam !== 0.4 || skipped.some((x) => x.startsWith('A10.i8'))), `#45 λ${lam} m${m}: closing legs exit at a supporting tangent (V8 ${v8.status}, unexpected ${unexp}, exit along ≥ 20 mm${lam === 0.4 ? '; A10.i8 skips the non-supporting root' : ''})`);
+      // #46: exitAlongMm runs from the entry point, which (10′) moved from the foot to the closed-form tangency; the exit
+      // itself is measured from the foot (unchanged within 3 µm by #46: A10.i8 at λ 0.4 exits 29.15 mm past the foot).
+      const along = cl.filter((x) => x.set === 'A').map((x) => Math.abs((x.mS ?? 0) - (x.footS ?? 0)) + x.exitAlongMm);
+      const a10 = cl.find((x) => x.round === 'A10');
+      console.log(`  #45 exit λ${lam} m${m}: V8 ${v8.status}, unexpected ${unexp}; closing legs with a non-supporting root skipped: ${skipped.join(', ') || 'none'}; A exit from the foot ${along.map((x) => fmt(x, 2)).join(' → ')} mm`);
+      const a10Exit = a10 ? Math.abs(a10.mS - a10.footS) + a10.exitAlongMm : NaN;
+      check(v8.status !== 'fail' && unexp === 0 && along.every((x) => x > 20) && (lam !== 0.4 || (Math.abs(a10Exit - 29.15) < 0.02 && (skipped.some((x) => x.startsWith('A10.i8')) || a10.mS - a10.footS > 20))),
+        `#45 λ${lam} m${m}: closing legs exit at a supporting tangent (V8 ${v8.status}, unexpected ${unexp}, exit ≥ 20 mm past the foot${lam === 0.4 ? `; A10.i8 exits at the supporting root 29.15 mm (got ${fmt(a10Exit, 3)}), its non-supporting root skipped or behind the entry` : ''})`);
     }
     setLegSamples(null);
   }
@@ -1899,6 +1928,81 @@ if (G('8n'))
   const g4 = v6Judge(v6Metrics(A, [rd]), w).status;
   check(g1 === 'fail' && g2 === 'fail' && Math.abs(Math.abs(g3.dx) - 0.2 * w) < 0.01 * w && g4 === 'pass',
     `#45 v6Metrics on mutated geometry: clean vertex 1e−5 mm → ${g1}; i1 bottom +0.2w → ${g2}; A2 closing xOff −0.2w → L0 x ${fmt(g3.dx / w, 3)}w; restored → ${g4}`);
+}
+
+// 8p. #46 (spec (10′), (9б′)): entry of a λ > 0 rail leg by construction — closed-form tangency (supporting chord),
+// free (no tangency, chord X_n → E_n⁰ clear of row n−1), degenerate (chord cuts, |d_n| ≤ 0.1·w: chord to M), contradiction
+// (|d_n| > 0.1·w: V22 fail, build invalid from that row; rows ≥ n out of V5/V6/V8/K16).
+if (G('8p'))
+{
+  console.log('\n## #46 (10′)/(9б′) rail entry: tangent / free / degenerate / contradiction');
+  const { EPS_C, DEG_MAX_W, setDegMaxW } = await import('../src/path.js');
+  const { computeAll: computeRaw } = await import('../src/layers.js');
+  setLegSamples(96);
+  const cfg = (lam, m) => ({ C_mm: 240, w_mm: 0.714, m_mm: m, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: lam, muWrap: Math.max(0.32, lam) });
+  for (const m of [0.5, 1.0]) for (const lam of [0.1, 0.4, 0.6]) {
+    const A = computeAll(recipe, cfg(lam, m)), w = A.params.w_mm;
+    const legs = A.path.segs.filter((s) => s.type === 'leg' && s.row >= 2 && s.layMode === 'rail' && !s.lam0);
+    const kinds = {};
+    for (const s of legs) if (s.entryKind) kinds[s.entryKind] = (kinds[s.entryKind] || 0) + 1;
+    const mism = legs.filter((s) => s.entryScan?.mismatch);
+    const climbOut = legs.filter((s) => s.level === 'bottom' && s.joinMode === 'climb' && s.lateralMm > 1e-9 * w);
+    const onRailBad = legs.filter((s) => s.joinMode === 'onRail' || (s.entryKind === 'onRail' && Math.abs(s.lateralMm) > 1e-9 * w));
+    const tang = legs.filter((s) => s.entryKind === 'tangent');
+    const nonSup = tang.filter((s) => s.entryChordGapW != null && !(s.entryChordGapW >= 1 - EPS_C));
+    const free = legs.filter((s) => s.entryKind === 'free');
+    const freeBad = free.filter((s) => !(s.entryMinGapW >= 1 - EPS_C) || s.exitKind !== 'free' || s.arcs?.[0]?.cls !== 'free');
+    const gaps = free.map((s) => s.entryMinGapW), cg = tang.map((s) => s.entryChordGapW).filter((g) => g != null && Number.isFinite(g));
+    const V22 = runValidators(A, 'all', null).find((v) => v.id === 'V22');
+    console.log(`  λ${lam} m${m}: entries ${JSON.stringify(kinds)}; closed form vs scan mismatch ${mism.length}; tangent chord clearance min ${cg.length ? fmt(Math.min(...cg), 3) : '—'} w (skipped roots ${tang.reduce((a, s) => a + (s.entrySkipped || 0), 0)}); free chord clearance ${gaps.length ? `${fmt(Math.min(...gaps), 3)}–${fmt(Math.max(...gaps), 3)}` : '—'} w; V22 ${V22.status}`);
+    check(mism.length === 0 && climbOut.length === 0 && onRailBad.length === 0 && nonSup.length === 0 && freeBad.length === 0 && !A.path.invalidFrom && V22.status === 'pass',
+      `#46 λ${lam} m${m}: closed-form tangency = grid scan, supporting chords ≥ w(1−εc), no climb from outside, no onRail band, free legs clear with class/exit free, V22 pass (mismatch ${mism.length}, climb-out ${climbOut.length}, onRail ${onRailBad.length}, non-supporting ${nonSup.length}, free bad ${freeBad.map((s) => s.id).join(',') || 0})`);
+    if (lam === 0.1) {
+      // V21 by construction class (#46): free chords against the geodesic angle, rail legs against the parallel of row n−1.
+      const V21 = runValidators(A, 'all', null).find((v) => v.id === 'V21');
+      const fc = V21.numbers.angleRows.filter((r) => r.freeChord);
+      check(V21.status === 'pass' && fc.length > 0 && fc.every((r) => Math.abs(r.sinRatio - 1) <= 0.03 && Math.abs(r.alphaRefDeg - r.alphaGeoDeg) < 1e-9),
+        `#46 λ0.1 m${m}: V21 ${V21.status}; ${fc.length} free chords checked against the geodesic angle (max |sin ratio − 1| ${fmt(Math.max(0, ...fc.map((r) => Math.abs(r.sinRatio - 1))), 4)})`);
+    }
+    if (lam === 0.1) check(free.length > 0 && Math.min(...gaps) >= 1.0, `#46 λ0.1 m${m}: ${free.length} free lower legs (was climb), chord X_n → E_n⁰ clearance ≥ w (${fmt(Math.min(...gaps), 3)} w)`);
+  }
+  // Degenerate entries (m 0.5, λ 0.6): |d_n| ≤ 0.1·w (0.028·w), chord X_n → M (class splice), spliceMm = |X_n M|, turn at M ≤ bound + 0.2°.
+  {
+    const A = computeAll(recipe, cfg(0.6, 0.5)), w = A.params.w_mm;
+    const deg = A.path.segs.filter((s) => s.type === 'leg' && s.entryKind === 'degenerate');
+    const bad = deg.map((s) => degenEntryBad(s, A.base.R, w) || (s.arcs?.[0]?.cls !== 'splice' ? `${s.id} first piece ${s.arcs?.[0]?.cls}` : null)).filter(Boolean);
+    const dMax = Math.max(0, ...deg.map((s) => Math.abs(s.lateralMm) / w));
+    const turns = deg.map((s) => Math.abs(turnAtVtx(s.pts, s.mIdx)));
+    console.log(`  degenerate λ0.6 m0.5: ${deg.map((s) => `${s.round}.i${s.stitch} d ${fmt(s.lateralMm / w, 4)} w |XM| ${fmt(s.spliceMm, 3)} turn ${fmt(Math.abs(turnAtVtx(s.pts, s.mIdx)), 3)}° ≤ ${fmt(s.mTurnBoundDeg + 0.2, 3)}°`).join('; ')}`);
+    check(deg.length > 0 && bad.length === 0 && dMax <= DEG_MAX_W && dMax > 0.02,
+      `#46 λ0.6 m0.5: ${deg.length} degenerate entries, max |d| ${fmt(dMax, 4)} w ≤ ${DEG_MAX_W} w, chord to M, spliceMm = |X_n M| ±1e−6 mm, turn at M ≤ bound + 0.2° (max ${fmt(Math.max(...turns), 3)}°; bad ${bad.join(',') || 0})`);
+  }
+  // 0.05–0.1·w band (§2 class (iii), degenerate bound 0.1·w): m 1, λ 0.2 row 3 lower legs, d = 0.0618·w, no tangency, chord cuts
+  // → degenerate via M (was a contradiction with the 0.05·w bound), the build stays valid.
+  {
+    const A = computeAll(recipe, cfg(0.2, 1.0)), w = A.params.w_mm;
+    const band = A.path.segs.filter((s) => s.type === 'leg' && !s.lam0 && s.entryKind === 'degenerate' && s.lateralMm > 0.05 * w);
+    const bad = band.map((s) => degenEntryBad(s, A.base.R, w)).filter(Boolean);
+    const V22 = runValidators(A, 'all', null).find((v) => v.id === 'V22');
+    console.log(`  0.05–0.1·w band λ0.2 m1: ${band.map((s) => `${s.round}.i${s.stitch} d ${fmt(s.lateralMm / w, 4)} w`).join('; ')}; V22 ${V22.status}`);
+    check(band.length > 0 && bad.length === 0 && !A.path.invalidFrom && V22.status === 'pass' && band.every((s) => s.lateralMm <= DEG_MAX_W * w),
+      `#46 λ0.2 m1: ${band.length} degenerate entries in the 0.05–0.1·w band via M (|X_n M|, turn at M), build valid, V22 ${V22.status} (bad ${bad.join(',') || 0})`);
+  }
+  // Contradiction (test hook: degenerate bound 0.01·w on m 0.5, λ 0.6): the 0.028·w entries of row 6 are contradictions.
+  {
+    setDegMaxW(0.01);
+    let A;
+    try { A = computeRaw(recipe, cfg(0.6, 0.5)); } finally { setDegMaxW(null); }
+    const V = Object.fromEntries(runValidators(A, 'all', null).map((v) => [v.id, v]));
+    const inv = A.path.invalidFrom;
+    const excl = ['V5', 'V6', 'V8', 'K16'].filter((id) => V[id].value.includes(`build invalid from row ${inv?.row}`));
+    console.log(`  contradiction (hook 0.01·w): invalidFrom ${JSON.stringify(inv)}; rowsValid ${JSON.stringify(A.path.rowsValid)}; V22 ${V.V22.status}: ${V.V22.value.slice(0, 260)}`);
+    check(inv && inv.row === 6 && V.V22.status === 'fail' && V.V22.value.includes('BUILD INVALID from row 6') && V.V22.value.includes('contradiction')
+      && A.path.rowsValid.A === 5 && A.path.rowsValid.B === 5 && excl.length === 4,
+      `#46 contradiction: V22 fail with leg, d_n and clearance; build invalid from row ${inv?.row}; rows ≥ 6 left out of ${excl.join('/')}; rowsValid A ${A.path.rowsValid?.A} B ${A.path.rowsValid?.B}`);
+    const B0 = computeRaw(recipe, cfg(0.6, 0.5));
+    check(!B0.path.invalidFrom, '#46 hook reset: the default build is valid again');
+  }
 }
 
 // 8o. #4 diagnostics (refs #4): the top-width growth decomposition sums to the actual increment W_n − W_(n−1) within
