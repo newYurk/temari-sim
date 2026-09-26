@@ -6,7 +6,7 @@ import { computeAll as computeAllDefault, G, finish, validatorStatuses } from '.
 // #5: and liftMode 'display' (the former tent) unless the call names its own liftMode — the lift tests (group 5m) name 'ideal'.
 const computeAll = (r, raw = {}) => computeAllDefault(r, { topRule: 'fan', liftMode: 'display', ...raw });
 import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan, geodesicAlphaAt, tipLevelMm } from '../src/validators.js';
-import { PARAM_SCHEMA, defaults } from '../src/params.js';
+import { PARAM_SCHEMA, defaults, resolveBowLambda } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples, tangencyOk, TANGENCY_SIN_MAX, TANGENCY_RES_W, halfLineGraph, holeClearances, k12Cap } from '../src/path.js';
 import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS, liftFromDist, DISPLAY_STACK_LIFT_W, DISPLAY_STACK_LIFT_MAX_W, LIFT_DIST_EPS, DIVE_W } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
@@ -571,6 +571,15 @@ if (G('8b'))
   const bf = PARAM_SCHEMA.find((p) => p.key === 'bowFrac');
   check(bl && (bl.def === '' || bl.def == null), 'bowLambda default is empty (resolved to 0.32 only when form=bow and nothing else set)');
   check(bf && (bf.def === '' || bf.def == null), 'legacy bowFrac default is empty (prefer bowLambda)');
+  // D48: the bow calibration of stage3-arch v1.2 §7 / fable-reply-around-all §5 (λ = μ = 0.32, "bowFrac 1.0") is the
+  // fallback already: bow with nothing set → λ 0.32 (source 'default'); μWrap is not a λ source unless bowFrac is given.
+  {
+    const r0 = resolveBowLambda(defaults({ shoulderForm: 'bow' })), rMu = resolveBowLambda(defaults({ shoulderForm: 'bow', muWrap: 0.5 }));
+    const st = (raw) => computeAll(recipe, { shoulderForm: 'bow', ...raw }).path.stamp;
+    const s0 = st({}), sL = st({ bowLambda: 0.32 }), sF1 = st({ bowFrac: 1 }), sF05 = st({ bowFrac: 0.5 });
+    check(r0.lambda === 0.32 && r0.source === 'default' && rMu.lambda === 0.32 && s0 === sL && s0 === sF1 && s0 !== sF05,
+      `bow λ fallback 0.32 (source ${r0.source}; μWrap 0.5 → λ ${rMu.lambda}); path stamp with nothing set = bowLambda 0.32 = bowFrac 1.0 (${s0.slice(0, 8)}), ≠ bowFrac 0.5 (${sF05.slice(0, 8)})`);
+  }
 
   // V21 angle emitted; 6a.20: free α_ref = analytic arc at axis (λ>0) / geodesic at axis (λ=0); bilateral 3% sine
   check(v21.numbers.minAngleDeg != null && v21.numbers.minAngleGeoDeg != null, 'V21 emits minAngleDeg / minAngleGeoDeg');
