@@ -110,6 +110,7 @@ function buildForm() {
       if (p.readonly) inp.readOnly = true;
     }
     inp.id = 'p_' + p.key; inp.value = state.raw[p.key] ?? '';
+    if (p.readonly) inp.value = t(`param.${p.key}.def`, {}, p.def);   // #41 nit: display-only text localized (normalizeParams ignores it)
     const meta = document.createElement('div'); meta.className = 'meta';
     meta.innerHTML = `<span class="st-${p.status}">[${statusLabel(p.status)}]</span> ${p.basis}. <i>${t('meta.used', { used: paramUsed(p) })}</i>`;
     if (p.key === 'wrapThread') {
@@ -127,7 +128,9 @@ function wrapThreadInfo(type) {
   const w = WRAP_THREADS[type];
   if (!w) return '';
   const band = w.muBand[0] === w.muBand[1] ? f(w.muBand[0], 2) : `${f(w.muBand[0], 2)}–${f(w.muBand[1], 2)}`;
-  return t('param.wrapThread.info', { mu: f(w.mu, 2), surface: w.surface, band, width: f(w.width_mm, 1), source: w.source });
+  // #41 nit: surface labels localized; μ and width carry their status (0.38 and 0.3 mm are estimates).
+  return t('param.wrapThread.info', { mu: f(w.mu, 2), muStatus: statusLabel(w.muStatus || 'default'), surface: t(`wrap.surface.${w.surface}`, {}, w.surface),
+    band, width: f(w.width_mm, 1), widthStatus: statusLabel(w.widthStatus || 'estimate'), source: w.source });
 }
 function readForm() {
   const raw = {};

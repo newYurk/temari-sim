@@ -19,9 +19,9 @@ Thread types (`WRAP_THREADS` in `sim/src/params.js`):
 | `jimaki-cotton` | hairy spun | 0.38 | 0.35–0.40 | 0.3 mm | Sanuki 地巻き用木綿糸 / Fujix Cotton |
 | `custom` | user | 0.32 | 0.2–0.6 | 0.3 mm | user-defined |
 
-- Choosing a type in the panel resets `muWrap` to that type's default. The user may then override it. The UI range is 0.2–0.6 (`MU_WRAP_RANGE`); the schema keeps 0–1.5 so that stress tests can still drive V20.
+- Choosing a type in the panel resets `muWrap` to that type's default. The user may then override it. The UI range is 0.2–0.6 (`MU_WRAP_RANGE`); the schema keeps 0–1.5 so that stress tests can still drive V20. A URL or recipe value outside 0–1.5 raises an input error and is refused: the type's default is used instead.
 - A URL or recipe that sets `wrapThread` without `muWrap` gets the type's default.
-- The hairy-spun value 0.38 is the midpoint of the 0.35–0.40 band given in #41. It is an estimate, not a measurement.
+- The hairy-spun value 0.38 is the midpoint of the 0.35–0.40 band given in #41. It is an estimate, not a measurement, and the panel shows it with the status “estimate”. So do the width and the compliance numbers (2–5 MPa).
 - The nominal width is 0.3 mm for every type. Only "sewing ≈ 0.3 mm" is sourced; per-type widths are not measured.
 - Geometry is unchanged. The default type keeps μWrap = 0.32, and μWrap never sets λ: λ comes from `bowLambda`, `bowSagMm` or the 0.32 default, and only the legacy `bowFrac` alias reads μWrap.
 

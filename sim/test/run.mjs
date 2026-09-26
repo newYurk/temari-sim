@@ -189,6 +189,23 @@ if (G('4'))
     && normalizeParams({ wrapThread: 'spun-poly-60-90', muWrap: 0.5 }).muWrap === 0.5, '#41: type sets the μWrap default only; an explicit μWrap wins');
   check(normalizeParams({ wrapColor: 'red' })._errors.length === 1 && normalizeParams({ wrapColor: '#AABBCC' }).wrapColor === '#aabbcc', '#41: wrapColor must be #rrggbb (loud input error)');
   check(normalizeParams({ wrapCompliance: 'x' }).wrapCompliance === defaults().wrapCompliance, '#41: wrapCompliance is a display-only estimate');
+  // #41 nits: out-of-schema μWrap refused (error AND not written), estimate statuses, localized surface labels.
+  const muBad = normalizeParams({ wrapThread: 'jimaki-cotton', muWrap: 2.5 }), muNeg = normalizeParams({ muWrap: -0.1 });
+  check(muBad._errors.length === 1 && muBad.muWrap === wrapMuDefault('jimaki-cotton') && muNeg._errors.length === 1 && muNeg.muWrap === wrapMuDefault(WRAP_THREAD_DEFAULT)
+    && normalizeParams({ muWrap: 1.5 }).muWrap === 1.5 && normalizeParams({ muWrap: 1.5 })._errors.length === 0,
+    `#41 nit: μWrap outside the schema [0, 1.5] is refused — loud error, the type default is kept (got ${muBad.muWrap}, ${muNeg.muWrap})`);
+  check(Object.values(WRAP_THREADS).every((v) => v.widthStatus === 'estimate' && (v.mu !== 0.38 || v.muStatus === 'estimate'))
+    && wk[2].status === 'estimate', '#41 nit: μ 0.38, width 0.3 mm and the 2–5 MPa compliance carry the status "estimate"');
+  {
+    const { setLocale, getLocale, t: tr } = await import('../src/i18n.js');
+    const surf = [...new Set(Object.values(WRAP_THREADS).map((v) => v.surface))];
+    const loc0 = getLocale();
+    setLocale('ru');
+    const ru = surf.map((x) => tr(`wrap.surface.${x}`, {}, '∅')), ruSt = tr('status.estimate', {}, '∅'), ruDef = tr('param.wrapCompliance.def', {}, '∅');
+    setLocale(loc0);
+    check(ru.every((x) => x !== '∅' && /[а-яё]/i.test(x)) && /[а-яё]/i.test(ruSt) && /МПа/.test(ruDef),
+      `#41 nit: RU panel — surface labels, "estimate" status and the compliance text are Russian (${ru.join(', ')}; ${ruSt})`);
+  }
   const xw = computeAll(recipe, { C_mm: 240, wrapColor: '#336699', wrapThread: WRAP_THREAD_DEFAULT });
   check(JSON.stringify(lens(x1)) === JSON.stringify(lens(xw)) && JSON.stringify(x1.path.stitches.map((st) => [st.eOff, st.xOff, st.s]))
     === JSON.stringify(xw.path.stitches.map((st) => [st.eOff, st.xOff, st.s])), '#41: wrap colour / default type do not change the geometry');
