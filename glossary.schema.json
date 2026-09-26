@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "glossary.schema.json",
+  "title": "temari-sim glossary",
+  "type": "object",
+  "required": ["terms", "forbidden", "families"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "transliteration": { "type": "string" },
+    "mermaid": { "type": "string" },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "ru", "en", "note"],
+        "properties": {
+          "id": { "type": "string" },
+          "ru": { "type": "string" },
+          "en": { "type": "string" },
+          "note": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "terms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "group", "def", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$" },
+          "group": { "enum": ["a", "b", "c", "d", "e"] },
+          "family": { "type": "string" },
+          "en": { "$ref": "#/$defs/localeEn" },
+          "ja": { "$ref": "#/$defs/localeJa" },
+          "romaji": { "$ref": "#/$defs/localeRomaji" },
+          "ru": { "$ref": "#/$defs/localeRu" },
+          "def": { "type": "string" },
+          "sources": { "type": "array", "items": { "type": "string" } },
+          "status": { "enum": ["source", "derived", "candidate", "legacy"] },
+          "supersededBy": { "type": "string" },
+          "code": { "type": "array", "items": { "type": "string" } },
+          "note": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "forbidden": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pattern", "replaceWith", "scope", "reason"],
+        "properties": {
+          "pattern": { "type": "string" },
+          "replaceWith": { "type": "string" },
+          "scope": { "type": "array", "items": { "type": "string" } },
+          "since": { "type": ["string", "null"] },
+          "enabled": { "type": "boolean" },
+          "allowlist": { "type": "array", "items": { "type": "string" } },
+          "reason": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "families": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["ru", "parent"],
+        "properties": {
+          "ru": { "type": "string" },
+          "parent": { "type": "string" },
+          "en": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "variantKind": {
+      "enum": [
+        "short",
+        "translit-polivanov",
+        "translit-club",
+        "slang",
+        "translation",
+        "descriptive",
+        "orthographic",
+        "legacy",
+        "error"
+      ]
+    },
+    "variantSource": {
+      "type": "string"
+    },
+    "variant": {
+      "type": "object",
+      "required": ["form", "kind", "source"],
+      "properties": {
+        "form": { "type": "string" },
+        "kind": { "$ref": "#/$defs/variantKind" },
+        "source": { "$ref": "#/$defs/variantSource" },
+        "note": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "localeRu": {
+      "type": "object",
+      "properties": {
+        "canon": { "type": "string" },
+        "basis": {
+          "enum": ["literature", "polivanov", "loanword", "translation", "owner"]
+        },
+        "ui": { "type": "string" },
+        "variants": { "type": "array", "items": { "$ref": "#/$defs/variant" } }
+      },
+      "additionalProperties": false
+    },
+    "localeJa": {
+      "type": "object",
+      "required": ["canon", "variants"],
+      "properties": {
+        "canon": { "type": "string" },
+        "basis": { "enum": ["source", "inferred"] },
+        "kana": { "type": "string" },
+        "variants": { "type": "array", "items": { "$ref": "#/$defs/variant" } }
+      },
+      "additionalProperties": false
+    },
+    "localeRomaji": {
+      "type": "object",
+      "required": ["canon", "variants"],
+      "properties": {
+        "canon": { "type": "string" },
+        "variants": { "type": "array", "items": { "$ref": "#/$defs/variant" } }
+      },
+      "additionalProperties": false
+    },
+    "localeEn": {
+      "type": "object",
+      "properties": {
+        "canon": { "type": "string" },
+        "short": { "type": "string" },
+        "variants": { "type": "array", "items": { "$ref": "#/$defs/variant" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

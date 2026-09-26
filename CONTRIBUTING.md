@@ -5,6 +5,7 @@
 - **Owner ↔ assistant chat:** Russian is fine.
 - **Everything in this repository** is English: docs, issues, milestones, labels, code, and comments.
 - Japanese craft terms stay with romaji (and kanji where useful); surrounding prose is English.
+- **Vocabulary:** one glossary (`glossary.json` → `glossary.md`, `sim/src/terms.js`). Rules for agents: [AGENTS.md](AGENTS.md). New terms need a `sources.json` id or `status: derived`.
 
 ## Local working copy
 

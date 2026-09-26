@@ -1,0 +1,5 @@
+# Agent instructions (temari-sim)
+
+**Terms.** The project has one vocabulary: `glossary.json` (rendered as `glossary.md`, compiled to `sim/src/terms.js`; model **symbols** are listed in `glossary.json` → `symbols` and the last section of `glossary.md`). In code, tests, docs, and issues use the **id** / English canon of a term; in Russian prose use `ru.canon`; UI labels use `ru.ui`, else `ru.canon`. A value that names a technique, an operation kind, a segment or crossing class, a top rule, or a marking generator must be a glossary **id** — `tsc` (where typed) and the `gl` test group enforce it. A new term goes into `glossary.json` first (with a `sources.json` id, or `status: derived` and a one-line reason), then into code. Never introduce a synonym for an existing id; never use a **forbidden** spelling in scoped files — a forbidden rule is **active only when `enabled: true`**. When unsure which term applies, say so in the PR instead of inventing one.
+
+See also `CONTRIBUTING.md` §Language and the generated `glossary.md`.

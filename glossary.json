@@ -1,0 +1,3409 @@
+{
+  "$schema": "glossary.schema.json",
+  "transliteration": "RU canon = literature (sources.json book/translation) when present; else Polivanov in ru.canon (field basis: literature | polivanov | loanword | translation | owner). JA canon from sources; basis inferred when kanji are reconstructed from romaji only. Club/slang/translit variants stay in variants[]. EN canon = one label without parentheses (detail in def).",
+  "mermaid": "%% generated placeholder — see glossary_build.mjs",
+  "terms": [
+    {
+      "id": "mari",
+      "group": "a",
+      "family": "base",
+      "def": "Шар из наполнителя, обмотанный тонкой нитью; в него делают все захваты",
+      "sources": [
+        "OLY-BASIC",
+        "SAN-KIT001",
+        "TK-SIZE"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "мари",
+        "ui": "основа",
+        "variants": [
+          {
+            "form": "основа",
+            "kind": "translation",
+            "source": "glossary-root"
+          }
+        ],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "土台まり",
+        "kana": "どだいまり",
+        "variants": [
+          {
+            "form": "まり",
+            "kind": "short",
+            "source": "OLY-BASIC"
+          }
+        ]
+      },
+      "romaji": {
+        "canon": "dodai mari",
+        "variants": []
+      },
+      "en": {
+        "canon": "mari ball",
+        "variants": []
+      }
+    },
+    {
+      "id": "jimaki",
+      "group": "a",
+      "family": "base",
+      "def": "Поверхностный слой тонкой нити на шарике-основе; в нём прячут концы",
+      "sources": [
+        "OLY-BASIC",
+        "TK-ANCHOR"
+      ],
+      "status": "source",
+      "code": [
+        "wrapThread"
+      ],
+      "ru": {
+        "canon": "обмотка основы",
+        "variants": [],
+        "basis": "translation"
+      },
+      "ja": {
+        "canon": "地巻き",
+        "variants": [
+          {
+            "form": "巻き",
+            "kind": "descriptive",
+            "source": "glossary-root",
+            "note": "общее maki; канон 地巻き"
+          }
+        ]
+      },
+      "romaji": {
+        "canon": "jimaki",
+        "variants": []
+      },
+      "en": {
+        "canon": "jimaki",
+        "variants": []
+      }
+    },
+    {
+      "id": "marking",
+      "group": "a",
+      "family": "marking",
+      "def": "Нити по меридианам (и экватору), делящие шар; кагари цепляется за них",
+      "sources": [
+        "OLY-BASIC",
+        "SUESS-GLOSS"
+      ],
+      "status": "source",
+      "code": [
+        "generator"
+      ],
+      "ru": {
+        "canon": "разметка",
+        "variants": []
+      },
+      "ja": {
+        "canon": "地割り",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "jiwari",
+        "variants": []
+      },
+      "en": {
+        "canon": "marking lines",
+        "variants": []
+      }
+    },
+    {
+      "id": "tanjunTobun",
+      "group": "a",
+      "family": "marking",
+      "def": "N меридианов через 360°/N (Simple 8 и т.п.)",
+      "sources": [
+        "TK-SIMPLE",
+        "FJX-TOBUN"
+      ],
+      "status": "source",
+      "code": [],
+      "ru": {
+        "canon": "простое деление",
+        "variants": []
+      },
+      "ja": {
+        "canon": "単純等分",
+        "variants": [
+          {
+            "form": "N等分",
+            "kind": "descriptive",
+            "source": "glossary-root"
+          }
+        ]
+      },
+      "romaji": {
+        "canon": "tanjun tōbun",
+        "variants": [
+          {
+            "form": "toubun",
+            "kind": "translit-club",
+            "source": "FJX-TOBUN"
+          }
+        ]
+      },
+      "en": {
+        "canon": "simple equal division (S-N)",
+        "variants": []
+      }
+    },
+    {
+      "id": "kumiawaseTobun",
+      "group": "a",
+      "family": "marking",
+      "def": "Сложная разметка C8/C10 и др.",
+      "sources": [
+        "TK-SIMPLE"
+      ],
+      "status": "source",
+      "code": [
+        "generator:C8",
+        "generator:C10",
+        "generator:C6"
+      ],
+      "ru": {
+        "canon": "комбинированное деление",
+        "variants": []
+      },
+      "ja": {
+        "canon": "組み合わせ等分",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "kumiawase tōbun",
+        "variants": []
+      },
+      "en": {
+        "canon": "combination division (C-N)",
+        "variants": []
+      }
+    },
+    {
+      "id": "NP",
+      "group": "a",
+      "family": "marking",
+      "def": "Точка, из которой расходятся линии разметки (северный полюс)",
+      "sources": [
+        "SUESS-GLOSS",
+        "OLY-TM7-V"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "северный полюс",
+        "ui": "СП",
+        "variants": []
+      },
+      "ja": {
+        "canon": "北極",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "hokkyoku",
+        "variants": []
+      },
+      "en": {
+        "canon": "north pole",
+        "variants": []
+      }
+    },
+    {
+      "id": "equator",
+      "group": "a",
+      "family": "marking",
+      "def": "Большой круг посередине между полюсами",
+      "sources": [
+        "SUESS-GLOSS",
+        "OLY-TM7-L"
+      ],
+      "status": "source",
+      "code": [
+        "bottomFromEq"
+      ],
+      "ru": {
+        "canon": "экватор",
+        "variants": []
+      },
+      "ja": {
+        "canon": "赤道",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "sekidō",
+        "variants": []
+      },
+      "en": {
+        "canon": "equator",
+        "variants": []
+      }
+    },
+    {
+      "id": "machibari",
+      "group": "a",
+      "family": "marking",
+      "def": "Цветные булавки в опорных точках разметки",
+      "sources": [
+        "OLY-TM7-L",
+        "TK-GT14"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "булавки-метки",
+        "variants": [
+          {
+            "form": "разметочные булавки",
+            "kind": "translation",
+            "source": "legacy"
+          }
+        ]
+      },
+      "ja": {
+        "canon": "待ち針",
+        "kana": "まちばり",
+        "variants": [
+          {
+            "form": "まち針",
+            "kind": "orthographic",
+            "source": "OLY-TM7-L"
+          },
+          {
+            "form": "ピン",
+            "kind": "short",
+            "source": "OLY-TM7-L"
+          }
+        ]
+      },
+      "romaji": {
+        "canon": "machibari",
+        "variants": []
+      },
+      "en": {
+        "canon": "marking pins",
+        "variants": []
+      }
+    },
+    {
+      "id": "kamiTape",
+      "group": "a",
+      "family": "marking",
+      "def": "Мерная полоска для окружности и точек",
+      "sources": [
+        "TK-SIMPLE",
+        "SAN-KIT001"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "бумажная лента",
+        "variants": []
+      },
+      "ja": {
+        "canon": "紙テープ",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "kami tēpu",
+        "variants": []
+      },
+      "en": {
+        "canon": "paper strip",
+        "variants": []
+      }
+    },
+    {
+      "id": "kagari",
+      "group": "b",
+      "family": "rows-from-centre",
+      "def": "Стежок: игла под линией разметки и поверхностью обмотки на ~1–2 мм",
+      "sources": [
+        "TK-KAGARI",
+        "OLY-BASIC"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "кагари",
+        "variants": [],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "かがり",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "kagari",
+        "variants": []
+      },
+      "en": {
+        "canon": "kagari stitching",
+        "variants": []
+      }
+    },
+    {
+      "id": "chidori",
+      "group": "b",
+      "family": "rows-from-centre",
+      "def": "Зигзаг между двумя рядами точек; не путать с herringbone",
+      "sources": [
+        "TK-CHIDORI",
+        "SUESS-GLOSS"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "тидори",
+        "variants": [
+          {
+            "form": "чидори",
+            "kind": "translit-club",
+            "source": "legacy"
+          },
+          {
+            "form": "чидори-кагари",
+            "kind": "orthographic",
+            "source": "legacy"
+          },
+          {
+            "form": "зигзаг",
+            "kind": "descriptive",
+            "source": "glossval-v2"
+          }
+        ],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "千鳥かがり",
+        "kana": "ちどりかがり",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "chidori kagari",
+        "variants": [
+          {
+            "form": "chidori",
+            "kind": "translit-club",
+            "source": "TK-CHIDORI"
+          }
+        ]
+      },
+      "en": {
+        "canon": "chidori kagari",
+        "variants": [
+          {
+            "form": "herringbone stitch",
+            "kind": "descriptive",
+            "source": "SUESS-GLOSS"
+          }
+        ],
+        "short": "chidori"
+      }
+    },
+    {
+      "id": "uwagake",
+      "group": "b",
+      "family": "rows-from-centre",
+      "def": "Зигзаг, где у полярных точек новая нить идёт поверх прежних рядов и стежок берёт их все под иглу",
+      "sources": [
+        "TK-UWA",
+        "SUESS-GLOSS"
+      ],
+      "status": "source",
+      "code": [
+        "V17"
+      ],
+      "note": "В коде topRule пока braid (коммит переименования — отдельно)",
+      "ru": {
+        "canon": "увагакэ тидори",
+        "ui": "uwagake",
+        "variants": [
+          {
+            "form": "увагаке чидори",
+            "kind": "translit-club",
+            "source": "legacy"
+          },
+          {
+            "form": "увагаке",
+            "kind": "translit-club",
+            "source": "legacy"
+          },
+          {
+            "form": "увагаки",
+            "kind": "translit-club",
+            "source": "glossval-v2"
+          },
+          {
+            "form": "увагаке-чидори",
+            "kind": "orthographic",
+            "source": "legacy"
+          },
+          {
+            "form": "косичка",
+            "kind": "slang",
+            "source": "glossval-v2",
+            "note": "двусмысленно: в коде = uwagake, в YouTube иногда sujidate; forbidden в prose"
+          },
+          {
+            "form": "увагакэ",
+            "kind": "short",
+            "source": "glossary-root"
+          }
+        ],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "上掛け千鳥かがり",
+        "variants": [
+          {
+            "form": "上掛け",
+            "kind": "descriptive",
+            "source": "TK-UWA"
+          },
+          {
+            "form": "うわがけちどりかがり",
+            "kind": "descriptive",
+            "source": "TK-UWA",
+            "note": "кана полной формы"
+          }
+        ]
+      },
+      "romaji": {
+        "canon": "uwagake chidori kagari",
+        "variants": [
+          {
+            "form": "uwa-gake",
+            "kind": "orthographic",
+            "source": "glossval-v2"
+          },
+          {
+            "form": "uwagake chidori",
+            "kind": "descriptive",
+            "source": "TK-UWA"
+          }
+        ]
+      },
+      "en": {
+        "canon": "uwagake chidori kagari",
+        "short": "uwagake",
+        "variants": [
+          {
+            "form": "kiku herringbone",
+            "kind": "descriptive",
+            "source": "SUESS-GLOSS"
+          },
+          {
+            "form": "over-wrapping at top",
+            "kind": "descriptive",
+            "source": "glossval-v2"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shitagake",
+      "group": "b",
+      "family": "rows-from-centre",
+      "def": "Вариант чидори: ряды рядом, без наложения сверху",
+      "sources": [
+        "SUESS-GLOSS",
+        "TK-SHITAGAKE"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "ситагакэ",
+        "variants": [
+          {
+            "form": "шитагаке",
+            "kind": "translit-club",
+            "source": "legacy"
+          },
+          {
+            "form": "ситагаке чидори",
+            "kind": "translit-club",
+            "source": "legacy"
+          },
+          {
+            "form": "шов чидори с поддевом снизу",
+            "kind": "descriptive",
+            "source": "glossval-v2"
+          }
+        ],
+        "ui": "shitagake",
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "下掛け千鳥かがり",
+        "variants": [
+          {
+            "form": "下がけ千鳥",
+            "kind": "orthographic",
+            "source": "SAN-BLOG-NACKY"
+          }
+        ]
+      },
+      "romaji": {
+        "canon": "shitagake chidori kagari",
+        "variants": []
+      },
+      "en": {
+        "canon": "shitagake chidori",
+        "variants": []
+      }
+    },
+    {
+      "id": "sakasa",
+      "group": "b",
+      "family": "rows-from-centre",
+      "def": "Кику, растущее к центру (grow = −1, stage3 §2.1 逆さ菊); в программе kiku заявлено, не реализовано",
+      "sources": [
+        "SUESS-GLOSS"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "сакаса увагакэ",
+        "variants": [
+          {
+            "form": "сакаса увагаке",
+            "kind": "translit-club",
+            "source": "legacy"
+          }
+        ],
+        "ui": "sakasa",
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "逆さ上掛け",
+        "variants": [],
+        "basis": "inferred"
+      },
+      "romaji": {
+        "canon": "sakasa uwagake chidori kagari",
+        "variants": []
+      },
+      "en": {
+        "canon": "sakasa uwagake",
+        "variants": []
+      }
+    },
+    {
+      "id": "sujidate",
+      "group": "b",
+      "family": "rows-from-centre",
+      "def": "Вариант с одним выступающим ребром (single raised rib); план #56",
+      "sources": [
+        "TK-SUJIDATE"
+      ],
+      "status": "source",
+      "note": "topRule sujidate — следующий коммит функционала",
+      "ru": {
+        "canon": "судзидатэ",
+        "variants": [
+          {
+            "form": "ребристый стежок",
+            "kind": "translit-club",
+            "source": "legacy"
+          },
+          {
+            "form": "суджидате",
+            "kind": "translit-club",
+            "source": "legacy"
+          },
+          {
+            "form": "гребень",
+            "kind": "legacy",
+            "source": "owner",
+            "note": "не путать с rib в EN"
+          },
+          {
+            "form": "косичка",
+            "kind": "slang",
+            "source": "glossval-v2",
+            "note": "двусмысленно с uwagake/braid"
+          }
+        ],
+        "ui": "sujidate",
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "筋立て上掛け千鳥かがり",
+        "variants": [
+          {
+            "form": "筋立て",
+            "kind": "descriptive",
+            "source": "TK-SUJIDATE"
+          }
+        ],
+        "basis": "inferred"
+      },
+      "romaji": {
+        "canon": "sujidate uwagake chidori kagari",
+        "variants": [
+          {
+            "form": "sujidate kagari",
+            "kind": "descriptive",
+            "source": "TK-SUJIDATE"
+          }
+        ]
+      },
+      "en": {
+        "canon": "sujidate uwagake chidori",
+        "short": "sujidate",
+        "variants": [
+          {
+            "form": "sujidate",
+            "kind": "descriptive",
+            "source": "legacy"
+          },
+          {
+            "form": "single raised rib",
+            "kind": "descriptive",
+            "source": "TK-SUJIDATE"
+          }
+        ]
+      }
+    },
+    {
+      "id": "masu",
+      "group": "b",
+      "family": "rows-from-centre",
+      "def": "Ряды вокруг центра квадрата наружу (не сетка-решётка)",
+      "sources": [
+        "TK-MASU"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "масу",
+        "variants": [
+          {
+            "form": "квадраты",
+            "kind": "translation",
+            "source": "legacy"
+          }
+        ],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "枡かがり",
+        "variants": [
+          {
+            "form": "四角かがり",
+            "kind": "orthographic",
+            "source": "TK-MASU"
+          }
+        ],
+        "basis": "inferred"
+      },
+      "romaji": {
+        "canon": "shikaku masu kagari",
+        "variants": []
+      },
+      "en": {
+        "canon": "masu kagari",
+        "short": "masu",
+        "variants": [
+          {
+            "form": "shikaku (masu) kagari",
+            "kind": "descriptive",
+            "source": "TK-MASU"
+          }
+        ]
+      }
+    },
+    {
+      "id": "obi",
+      "group": "b",
+      "family": "belts",
+      "def": "Полоса по экватору",
+      "sources": [
+        "OLY-TM7-L",
+        "SUESS-GLOSS"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "оби",
+        "variants": [
+          {
+            "form": "пояс",
+            "kind": "descriptive",
+            "source": "legacy"
+          },
+          {
+            "form": "поясок",
+            "kind": "descriptive",
+            "source": "legacy"
+          }
+        ],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "帯",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "obi",
+        "variants": []
+      },
+      "en": {
+        "canon": "obi",
+        "variants": []
+      }
+    },
+    {
+      "id": "makiKagari",
+      "group": "b",
+      "family": "belts",
+      "def": "Обматывающая техника пояса; не кику",
+      "sources": [
+        "SUESS-GLOSS",
+        "MUS-BUNKO"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "макикагари",
+        "variants": [
+          {
+            "form": "оби маки",
+            "kind": "translit-club",
+            "source": "legacy"
+          }
+        ],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "巻きかがり",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "maki kagari",
+        "variants": []
+      },
+      "en": {
+        "canon": "maki kagari",
+        "variants": []
+      }
+    },
+    {
+      "id": "kousa",
+      "group": "b",
+      "family": "lattices",
+      "def": "Два мотива кладутся поочерёдно рядами, слои чередуются",
+      "sources": [
+        "TK-KOUSA",
+        "TK-GT14"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "коуса",
+        "variants": [
+          {
+            "form": "ко:са",
+            "kind": "translit-polivanov",
+            "source": "SUESS-GLOSS"
+          }
+        ],
+        "basis": "owner"
+      },
+      "ja": {
+        "canon": "交差かがり",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "kōsa kagari",
+        "variants": [
+          {
+            "form": "kousa",
+            "kind": "translit-club",
+            "source": "TK-KOUSA"
+          },
+          {
+            "form": "kōsa",
+            "kind": "translit-club",
+            "source": "TK-KOUSA"
+          }
+        ]
+      },
+      "en": {
+        "canon": "kousa",
+        "variants": [
+          {
+            "form": "kousa style",
+            "kind": "descriptive",
+            "source": "TK-KOUSA"
+          }
+        ],
+        "short": "kousa"
+      }
+    },
+    {
+      "id": "asanoha",
+      "group": "b",
+      "family": "lattices",
+      "def": "Узор «конопляный лист»",
+      "sources": [
+        "MUS-BUNKO"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "асаноха",
+        "variants": [],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "麻の葉",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "asanoha",
+        "variants": []
+      },
+      "en": {
+        "canon": "asanoha",
+        "variants": []
+      }
+    },
+    {
+      "id": "kagome",
+      "group": "b",
+      "family": "lattices",
+      "def": "Плетение «корзинка»",
+      "sources": [
+        "TK-GLOSS"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "кагомэ",
+        "variants": [],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "籠目",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "kagome",
+        "variants": []
+      },
+      "en": {
+        "canon": "kagome",
+        "variants": []
+      }
+    },
+    {
+      "id": "fan",
+      "group": "b",
+      "family": "model",
+      "def": "Режим верхнего стежка для регрессии S8 / стресс-тестов (G3, V24)",
+      "status": "derived",
+      "code": [
+        "topRule:fan"
+      ],
+      "ru": {
+        "canon": "веер",
+        "variants": []
+      },
+      "en": {
+        "canon": "fan",
+        "variants": []
+      }
+    },
+    {
+      "id": "braid",
+      "group": "b",
+      "family": "model",
+      "def": "Текущий id режима верхнего стежка в коде (= uwagake по смыслу); переименование в uwagake — отдельный коммит",
+      "status": "legacy",
+      "code": [
+        "topRule:braid",
+        "kTop",
+        "lBraidMaxW"
+      ],
+      "ru": {
+        "variants": [
+          {
+            "form": "косичка",
+            "kind": "slang",
+            "source": "legacy",
+            "note": "убрать из UI; id кода до переименования"
+          }
+        ]
+      },
+      "en": {
+        "variants": [
+          {
+            "form": "braid top rule",
+            "kind": "descriptive",
+            "source": "code"
+          }
+        ]
+      },
+      "supersededBy": "uwagake",
+      "note": "Legacy id topRule:braid until rename commit; superseded by uwagake"
+    },
+    {
+      "id": "groom",
+      "group": "b",
+      "family": "stitch-detail",
+      "def": "Операция: пригладить нити у полюса иглой (план T2′)",
+      "sources": [
+        "TK-UWA"
+      ],
+      "status": "source",
+      "note": "op.kind groom — следующий коммит",
+      "ru": {
+        "canon": "пригладить",
+        "variants": [
+          {
+            "form": "приглаживание",
+            "kind": "short",
+            "source": "legacy"
+          }
+        ]
+      },
+      "en": {
+        "canon": "groom",
+        "variants": []
+      }
+    },
+    {
+      "id": "kiku",
+      "group": "c",
+      "family": "motifs",
+      "def": "Лепестковый мотив из зигзага uwagake вокруг полюса; в коде — генератор программы",
+      "sources": [
+        "TK-KIKU",
+        "SAN-KIT001"
+      ],
+      "status": "source",
+      "code": [
+        "kiku"
+      ],
+      "ru": {
+        "canon": "кику",
+        "variants": [],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "菊",
+        "kana": "きく",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "kiku",
+        "variants": []
+      },
+      "en": {
+        "canon": "kiku",
+        "variants": []
+      }
+    },
+    {
+      "id": "yaegiku",
+      "group": "c",
+      "family": "motifs",
+      "def": "Два набора лепестков, чередуются",
+      "sources": [
+        "SAN-KIT007",
+        "OLY-TM2"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "яэгику",
+        "variants": [],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "八重菊",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "yaegiku",
+        "variants": []
+      },
+      "en": {
+        "canon": "yaegiku",
+        "variants": []
+      }
+    },
+    {
+      "id": "kotengiku",
+      "group": "c",
+      "family": "motifs",
+      "def": "Классическая хризантема на 16 делениях (Olympus TM-7)",
+      "sources": [
+        "OLY-TM7-L"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "котэн-гику",
+        "variants": [],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "古典菊",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "koten-giku",
+        "variants": []
+      },
+      "en": {
+        "canon": "classic kiku",
+        "variants": []
+      }
+    },
+    {
+      "id": "hanabira",
+      "group": "c",
+      "family": "motifs",
+      "def": "V между двумя плечами зигзага с кончиком в нижней точке",
+      "sources": [
+        "OLY-TM7-L"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "лепесток",
+        "variants": [],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "花びら",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "hanabira",
+        "variants": []
+      },
+      "en": {
+        "canon": "petal",
+        "variants": []
+      }
+    },
+    {
+      "id": "row",
+      "group": "c",
+      "family": "stitch-detail",
+      "def": "Ярус / ряд в наборе (段)",
+      "sources": [
+        "OLY-TM7-V",
+        "SUESS-GLOSS"
+      ],
+      "status": "source",
+      "code": [
+        "rowsCount",
+        "row"
+      ],
+      "ru": {
+        "canon": "ряд",
+        "variants": []
+      },
+      "ja": {
+        "canon": "段",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "dan",
+        "variants": []
+      },
+      "en": {
+        "canon": "row",
+        "variants": []
+      }
+    },
+    {
+      "id": "round",
+      "group": "c",
+      "family": "stitch-detail",
+      "def": "Обход одного набора линий кругом (Olympus 一周); 回 — alias по Suess",
+      "sources": [
+        "OLY-TM7-L",
+        "SUESS-GLOSS"
+      ],
+      "status": "source",
+      "code": [
+        "round"
+      ],
+      "ru": {
+        "canon": "обход",
+        "variants": []
+      },
+      "ja": {
+        "canon": "周",
+        "variants": [
+          {
+            "form": "回",
+            "kind": "descriptive",
+            "source": "SUESS-GLOSS",
+            "note": "kai; Olympus primary — 周"
+          }
+        ]
+      },
+      "romaji": {
+        "canon": "shū",
+        "variants": [
+          {
+            "form": "kai",
+            "kind": "translit-club",
+            "source": "SUESS-GLOSS"
+          }
+        ]
+      },
+      "en": {
+        "canon": "round",
+        "variants": []
+      }
+    },
+    {
+      "id": "wedge",
+      "group": "c",
+      "family": "stitch-detail",
+      "def": "Утолщение у верхних точек из-за охвата пучка (uwagake); класс пересечения wedge",
+      "sources": [
+        "TK-UWA"
+      ],
+      "status": "source",
+      "code": [
+        "cross.kind:wedge"
+      ],
+      "ru": {
+        "canon": "клин",
+        "variants": [
+          {
+            "form": "плетёный клин",
+            "kind": "descriptive",
+            "source": "glossary-root"
+          }
+        ]
+      },
+      "en": {
+        "canon": "wedge",
+        "variants": [
+          {
+            "form": "woven wedge",
+            "kind": "descriptive",
+            "source": "TK-UWA"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rib",
+      "group": "c",
+      "family": "stitch-detail",
+      "def": "Ребристый гребень sujidate (не путать с клином uwagake)",
+      "sources": [
+        "TK-SUJIDATE"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "ребро",
+        "variants": [
+          {
+            "form": "гребень",
+            "kind": "descriptive",
+            "source": "owner",
+            "note": "разг.; канон — ребро"
+          }
+        ]
+      },
+      "en": {
+        "canon": "rib",
+        "variants": []
+      }
+    },
+    {
+      "id": "perle5",
+      "group": "d",
+      "family": "threads",
+      "def": "2-сложная крученая мерсеризованная хлопковая нить ~200 tex",
+      "sources": [
+        "TK-THREADS",
+        "TK-GAUGE"
+      ],
+      "status": "source",
+      "code": [
+        "perle-5",
+        "w_mm"
+      ],
+      "ru": {
+        "canon": "перле №5",
+        "variants": []
+      },
+      "ja": {
+        "canon": "5番刺繍糸",
+        "variants": [
+          {
+            "form": "パール糸",
+            "kind": "orthographic",
+            "source": "glossary-root"
+          },
+          {
+            "form": "パールコットン",
+            "kind": "translation",
+            "source": "TK-THREADS"
+          }
+        ]
+      },
+      "romaji": {
+        "canon": "pāru kotton",
+        "variants": []
+      },
+      "en": {
+        "canon": "Perle cotton #5",
+        "variants": []
+      }
+    },
+    {
+      "id": "skein",
+      "group": "d",
+      "family": "threads",
+      "def": "Моток нити (Olympus: «各ひとかせ»)",
+      "sources": [
+        "OLY-TM7-L"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "моток",
+        "variants": []
+      },
+      "ja": {
+        "canon": "かせ",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "kase",
+        "variants": []
+      },
+      "en": {
+        "canon": "skein",
+        "variants": []
+      }
+    },
+    {
+      "id": "metallic",
+      "group": "d",
+      "family": "threads",
+      "def": "Металлизированная нить для разметки/финиша",
+      "sources": [
+        "OLY-TM7-L",
+        "TK-GT14"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "ламе",
+        "variants": [
+          {
+            "form": "металлик",
+            "kind": "translation",
+            "source": "legacy"
+          },
+          {
+            "form": "люрекс",
+            "kind": "slang",
+            "source": "legacy"
+          }
+        ],
+        "basis": "loanword"
+      },
+      "ja": {
+        "canon": "ラメ糸",
+        "variants": []
+      },
+      "en": {
+        "canon": "metallic thread",
+        "variants": []
+      }
+    },
+    {
+      "id": "temariNeedle",
+      "group": "d",
+      "family": "tools",
+      "def": "Длинная игла для темари",
+      "sources": [
+        "SAN-KIT001"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "игла для темари",
+        "variants": []
+      },
+      "ja": {
+        "canon": "手まり針",
+        "variants": [
+          {
+            "form": "ふとん針",
+            "kind": "orthographic",
+            "source": "SAN-KIT001"
+          }
+        ]
+      },
+      "romaji": {
+        "canon": "temari-bari",
+        "variants": []
+      },
+      "en": {
+        "canon": "temari needle",
+        "variants": []
+      }
+    },
+    {
+      "id": "tekobari",
+      "group": "d",
+      "family": "tools",
+      "def": "Стилет для укладки нитей",
+      "sources": [
+        "TK-GLOSS"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "тэкобари",
+        "variants": [],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "手古針",
+        "variants": [],
+        "basis": "inferred"
+      },
+      "romaji": {
+        "canon": "tekobari",
+        "variants": []
+      },
+      "en": {
+        "canon": "tekobari",
+        "variants": []
+      }
+    },
+    {
+      "id": "leg",
+      "group": "e",
+      "family": "model",
+      "def": "Сегмент плеча между отверстиями на шаре",
+      "status": "derived",
+      "code": [
+        "type:leg"
+      ],
+      "ru": {
+        "canon": "плечо",
+        "variants": [
+          {
+            "form": "нога",
+            "kind": "legacy",
+            "source": "legacy"
+          }
+        ]
+      },
+      "en": {
+        "canon": "leg (shoulder segment)",
+        "variants": []
+      }
+    },
+    {
+      "id": "rail",
+      "group": "e",
+      "family": "model",
+      "def": "Смещённая кривая вдоль выложенного плеча предыдущего ряда",
+      "status": "derived",
+      "code": [
+        "layMode:rail",
+        "seg.cls:rail"
+      ],
+      "ru": {
+        "canon": "рельс",
+        "variants": []
+      },
+      "en": {
+        "canon": "rail",
+        "variants": []
+      }
+    },
+    {
+      "id": "tail",
+      "group": "e",
+      "family": "model",
+      "def": "Свободный касательный хвост: большой круг от конца рельса до корня на E-линии (12) или к отверстию E_n (13); подкласс free",
+      "status": "derived",
+      "code": [
+        "seg.cls:tail"
+      ],
+      "ru": {
+        "canon": "хвост",
+        "variants": []
+      },
+      "en": {
+        "canon": "tail",
+        "variants": []
+      }
+    },
+    {
+      "id": "set",
+      "group": "e",
+      "family": "model",
+      "def": "Набор линий A или B в кику S8 (S8 → 2 набора по 4)",
+      "status": "source",
+      "code": [
+        "set"
+      ],
+      "ru": {
+        "canon": "набор",
+        "variants": []
+      },
+      "en": {
+        "canon": "thread set",
+        "variants": []
+      },
+      "sources": [
+        "TK-KIKU",
+        "TK-GT14"
+      ]
+    },
+    {
+      "id": "pickup",
+      "group": "e",
+      "family": "model",
+      "def": "Захват под иглу (sukū)",
+      "sources": [
+        "TK-UWA"
+      ],
+      "status": "source",
+      "code": [
+        "type:pickup"
+      ],
+      "ru": {
+        "canon": "захват",
+        "variants": [
+          {
+            "form": "catch",
+            "kind": "legacy",
+            "source": "legacy"
+          }
+        ]
+      },
+      "en": {
+        "canon": "pickup",
+        "variants": []
+      }
+    },
+    {
+      "id": "park",
+      "group": "e",
+      "family": "model",
+      "def": "Оставить иглу с нитью, не обрезая",
+      "sources": [
+        "TK-GT14"
+      ],
+      "status": "source",
+      "code": [
+        "op.kind:park"
+      ],
+      "ru": {
+        "canon": "парковка",
+        "variants": []
+      },
+      "en": {
+        "canon": "park",
+        "variants": []
+      }
+    },
+    {
+      "id": "anchor",
+      "group": "e",
+      "family": "model",
+      "def": "Скрытый проход 2–5 см под обмоткой",
+      "sources": [
+        "TK-ANCHOR",
+        "TK-LITTLE"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "закрепление",
+        "variants": []
+      },
+      "en": {
+        "canon": "anchor",
+        "variants": []
+      }
+    },
+    {
+      "id": "holdSet",
+      "group": "e",
+      "family": "model",
+      "def": "Множество своих плеч, удерживаемых стежком (uwagake — все прежние, sujidate — K)",
+      "status": "derived",
+      "note": "план around-all / groom",
+      "ru": {
+        "canon": "удержание",
+        "variants": []
+      },
+      "en": {
+        "canon": "hold set",
+        "variants": []
+      }
+    },
+    {
+      "id": "start-run",
+      "group": "e",
+      "family": "model",
+      "def": "Операция: начальный скрытый проход нити",
+      "status": "derived",
+      "code": [
+        "op.kind:start-run"
+      ],
+      "ru": {
+        "canon": "скрытый старт",
+        "variants": []
+      },
+      "en": {
+        "canon": "start hidden run",
+        "variants": []
+      }
+    },
+    {
+      "id": "lay",
+      "group": "e",
+      "family": "model",
+      "def": "Операция: уложить сегмент плеча",
+      "status": "derived",
+      "code": [
+        "op.kind:lay"
+      ],
+      "ru": {
+        "canon": "уложить плечо",
+        "variants": []
+      },
+      "en": {
+        "canon": "lay leg",
+        "variants": []
+      }
+    },
+    {
+      "id": "stitch",
+      "group": "e",
+      "family": "model",
+      "def": "Операция: стежок захвата",
+      "status": "derived",
+      "code": [
+        "op.kind:stitch"
+      ],
+      "ru": {
+        "canon": "стежок",
+        "variants": []
+      },
+      "en": {
+        "canon": "stitch",
+        "variants": []
+      }
+    },
+    {
+      "id": "resume",
+      "group": "e",
+      "family": "model",
+      "def": "Операция: продолжить нить после паузы",
+      "status": "derived",
+      "code": [
+        "op.kind:resume"
+      ],
+      "ru": {
+        "canon": "продолжить",
+        "variants": []
+      },
+      "en": {
+        "canon": "resume thread",
+        "variants": []
+      }
+    },
+    {
+      "id": "free",
+      "group": "e",
+      "family": "model",
+      "def": "Класс дуги: свободная геодезическая / хвост",
+      "status": "derived",
+      "code": [
+        "seg.cls:free"
+      ],
+      "ru": {
+        "canon": "свободный участок",
+        "variants": []
+      },
+      "en": {
+        "canon": "free arc class",
+        "variants": []
+      }
+    },
+    {
+      "id": "climb",
+      "group": "e",
+      "family": "model",
+      "def": "Слив: участок от отверстия X_n внутри рельса до точки M на ℓ_m = max(w, 3δ_e), изломы ≤ 20° (v3.4 (11)); класс V8 и entryKind",
+      "status": "derived",
+      "code": [
+        "cross.kind:climb"
+      ],
+      "ru": {
+        "canon": "слив",
+        "variants": [],
+        "basis": "translation"
+      },
+      "en": {
+        "canon": "climb merge",
+        "variants": []
+      }
+    },
+    {
+      "id": "crossover",
+      "group": "e",
+      "family": "model",
+      "def": "Зона перехода клина в рельс у верха: участок ноги ряда n с зазором < w до ноги ряда n−1, новая нить сверху (T3, этап A #50); список V8 crossoverList",
+      "status": "derived",
+      "ru": {
+        "canon": "перехлёст",
+        "variants": []
+      },
+      "en": {
+        "canon": "crossover",
+        "variants": []
+      },
+      "code": [
+        "V8:crossoverList"
+      ]
+    },
+    {
+      "id": "contradiction",
+      "group": "e",
+      "family": "model",
+      "def": "Класс дуги при геометрическом противоречии",
+      "status": "derived",
+      "code": [
+        "entryKind:contradiction"
+      ],
+      "ru": {
+        "canon": "противоречие",
+        "variants": []
+      },
+      "en": {
+        "canon": "contradiction",
+        "variants": []
+      }
+    },
+    {
+      "id": "crossing",
+      "group": "e",
+      "family": "model",
+      "def": "Разрешённое пересечение осей нитей у перекрёста (v3.4 (14), lift-spec)",
+      "status": "derived",
+      "code": [
+        "cross.kind:crossing"
+      ],
+      "ru": {
+        "canon": "перекрёст",
+        "variants": [
+          {
+            "form": "пересечение",
+            "kind": "descriptive",
+            "source": "glossary-root"
+          }
+        ]
+      },
+      "en": {
+        "canon": "crossing",
+        "variants": []
+      }
+    },
+    {
+      "id": "tipCross",
+      "group": "e",
+      "family": "model",
+      "def": "Пересечение входящей ноги ряда n+k с выходящей ряда n у нижней точки (C_n, v3.4 (14)); класс V8",
+      "status": "derived",
+      "code": [
+        "cross.kind:tipCross"
+      ],
+      "ru": {
+        "canon": "крест у кончика",
+        "variants": []
+      },
+      "en": {
+        "canon": "tip cross",
+        "variants": []
+      }
+    },
+    {
+      "id": "squeeze",
+      "group": "e",
+      "family": "model",
+      "def": "Тесное место: зазор меньше w",
+      "status": "derived",
+      "code": [
+        "cross.kind:squeeze"
+      ],
+      "ru": {
+        "canon": "тесное место",
+        "variants": [],
+        "basis": "translation"
+      },
+      "en": {
+        "canon": "squeeze",
+        "variants": []
+      }
+    },
+    {
+      "id": "rail-parallel",
+      "group": "e",
+      "family": "model",
+      "def": "Параллель предыдущему рельсу на расстоянии w",
+      "status": "derived",
+      "code": [
+        "cross.kind:rail-parallel"
+      ],
+      "ru": {
+        "canon": "параллель рельса",
+        "variants": []
+      },
+      "en": {
+        "canon": "rail parallel",
+        "variants": []
+      }
+    },
+    {
+      "id": "contact",
+      "group": "e",
+      "family": "model",
+      "def": "Контакт ближе w без разрешённого пересечения",
+      "status": "derived",
+      "code": [
+        "cross.kind:contact"
+      ],
+      "ru": {
+        "canon": "контакт",
+        "variants": []
+      },
+      "en": {
+        "canon": "contact",
+        "variants": []
+      }
+    },
+    {
+      "id": "geodesic",
+      "group": "e",
+      "family": "model",
+      "def": "Форма плеча: геодезическая (λ=0)",
+      "status": "derived",
+      "code": [
+        "shoulderForm:geodesic"
+      ],
+      "ru": {
+        "canon": "геодезическая",
+        "variants": []
+      },
+      "en": {
+        "canon": "geodesic shoulder",
+        "variants": []
+      }
+    },
+    {
+      "id": "bow",
+      "group": "e",
+      "family": "model",
+      "def": "Форма плеча: дуга малого круга (bowLambda)",
+      "status": "derived",
+      "code": [
+        "shoulderForm:bow"
+      ],
+      "ru": {
+        "canon": "дуга малого круга",
+        "variants": []
+      },
+      "en": {
+        "canon": "bow shoulder",
+        "variants": []
+      }
+    },
+    {
+      "id": "alternate",
+      "group": "e",
+      "family": "model",
+      "def": "Порядок рядов A1,B1,A2… (GT14)",
+      "status": "derived",
+      "code": [
+        "order:alternate"
+      ],
+      "ru": {
+        "canon": "чередование",
+        "variants": []
+      },
+      "en": {
+        "canon": "alternate row order",
+        "variants": []
+      }
+    },
+    {
+      "id": "blocks",
+      "group": "e",
+      "family": "model",
+      "def": "Порядок: k рядов A, затем k рядов B",
+      "status": "derived",
+      "code": [
+        "order:blocks"
+      ],
+      "ru": {
+        "canon": "блоками",
+        "variants": []
+      },
+      "en": {
+        "canon": "block row order",
+        "variants": []
+      }
+    },
+    {
+      "id": "sequence",
+      "group": "e",
+      "family": "model",
+      "def": "Явная последовательность рядов буквами",
+      "status": "derived",
+      "code": [
+        "order:sequence"
+      ],
+      "ru": {
+        "canon": "явная последовательность",
+        "variants": []
+      },
+      "en": {
+        "canon": "explicit sequence",
+        "variants": []
+      }
+    },
+    {
+      "id": "S_N",
+      "group": "a",
+      "family": "marking",
+      "def": "Генератор простой разметки S_N",
+      "sources": [
+        "TK-SIMPLE"
+      ],
+      "status": "source",
+      "code": [
+        "generator:S_N"
+      ],
+      "ru": {
+        "canon": "простое деление на N (S_N)",
+        "variants": [],
+        "ui": "S_N"
+      },
+      "en": {
+        "canon": "Simple N (S_N)",
+        "variants": []
+      }
+    },
+    {
+      "id": "C8",
+      "group": "a",
+      "family": "marking",
+      "def": "Комбинированная разметка C8",
+      "sources": [
+        "TK-SIMPLE"
+      ],
+      "status": "source",
+      "code": [
+        "generator:C8"
+      ],
+      "ru": {
+        "canon": "C8",
+        "variants": []
+      },
+      "en": {
+        "canon": "C8 marking",
+        "variants": []
+      }
+    },
+    {
+      "id": "matsuba",
+      "group": "c",
+      "family": "motifs",
+      "def": "Мотив «сосновые иголки»",
+      "sources": [
+        "TK-MATSUBA"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "мацуба",
+        "variants": [
+          {
+            "form": "сосновые иголки",
+            "kind": "translation",
+            "source": "legacy"
+          }
+        ],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "松葉かがり",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "matsuba kagari",
+        "variants": []
+      },
+      "en": {
+        "canon": "matsuba",
+        "variants": []
+      }
+    },
+    {
+      "id": "amime",
+      "group": "b",
+      "family": "lattices",
+      "def": "Сеточный стежок",
+      "sources": [
+        "TK-GLOSS"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "амимэ",
+        "variants": [],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "網目かがり",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "amime kagari",
+        "variants": []
+      },
+      "en": {
+        "canon": "amime kagari",
+        "variants": []
+      }
+    },
+    {
+      "id": "itoDome",
+      "group": "d",
+      "family": "tools",
+      "def": "Закрепка / прятание хвостика (Olympus часто без узла)",
+      "sources": [
+        "OLY-BASIC"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "ито-домэ",
+        "variants": [
+          {
+            "form": "закрепка нити",
+            "kind": "translit-club",
+            "source": "legacy"
+          }
+        ],
+        "basis": "polivanov"
+      },
+      "ja": {
+        "canon": "糸止め",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "ito-dome",
+        "variants": []
+      },
+      "en": {
+        "canon": "thread fastening",
+        "variants": []
+      }
+    },
+    {
+      "id": "temari",
+      "group": "a",
+      "family": "base",
+      "def": "Японский шар из нитей (ремесло темари)",
+      "sources": [
+        "TK-GLOSS"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "темари",
+        "variants": [
+          {
+            "form": "тэмари",
+            "kind": "translit-polivanov",
+            "source": "glossary-root"
+          }
+        ],
+        "basis": "loanword"
+      },
+      "ja": {
+        "canon": "手まり",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "temari",
+        "variants": []
+      },
+      "en": {
+        "canon": "temari",
+        "variants": []
+      }
+    },
+    {
+      "id": "stretchPoints",
+      "group": "b",
+      "family": "stitch-detail",
+      "def": "Нижний стежок дальше предыдущего (~2 мм для #5, не константа)",
+      "sources": [
+        "TK-STRETCH",
+        "TK-UWA"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "растяжка нижней точки",
+        "variants": []
+      },
+      "en": {
+        "canon": "stretch the points",
+        "variants": []
+      }
+    },
+    {
+      "id": "tamadome",
+      "group": "b",
+      "family": "stitch-detail",
+      "def": "Узелок; в темари не завязывают — старт скрытым проходом",
+      "sources": [
+        "OLY-BASIC",
+        "OLY-TM7-V"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "без узла",
+        "variants": []
+      },
+      "ja": {
+        "canon": "玉止め",
+        "variants": [
+          {
+            "form": "玉とめをしない",
+            "kind": "descriptive",
+            "source": "OLY-BASIC"
+          }
+        ]
+      },
+      "en": {
+        "canon": "no knot",
+        "variants": []
+      }
+    },
+    {
+      "id": "hole-entry",
+      "group": "e",
+      "family": "model",
+      "def": "Точка входа иглы (E)",
+      "status": "derived",
+      "code": [
+        "hole-entry"
+      ],
+      "ru": {
+        "canon": "вход",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "hole entry",
+        "variants": []
+      }
+    },
+    {
+      "id": "hole-exit",
+      "group": "e",
+      "family": "model",
+      "def": "Точка выхода иглы (X)",
+      "status": "derived",
+      "code": [
+        "hole-exit"
+      ],
+      "ru": {
+        "canon": "выход",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "hole exit",
+        "variants": []
+      }
+    },
+    {
+      "id": "splice",
+      "group": "e",
+      "family": "model",
+      "def": "Стык до M или касательная геодезика X_n→T₁ (v3.4 (10),(11б),(13д))",
+      "status": "derived",
+      "code": [
+        "seg.cls:splice"
+      ],
+      "ru": {
+        "canon": "стык",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "splice",
+        "variants": []
+      }
+    },
+    {
+      "id": "corner",
+      "group": "e",
+      "family": "model",
+      "def": "Дуга радиуса w у выпуклых углов параллели (v3.4 §2, §6.6)",
+      "status": "derived",
+      "code": [
+        "seg.cls:corner"
+      ],
+      "ru": {
+        "canon": "угловая дуга",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "corner arc",
+        "variants": []
+      }
+    },
+    {
+      "id": "free-graze",
+      "group": "e",
+      "family": "model",
+      "def": "Касание без рельса (exitKind free-graze, V8)",
+      "status": "derived",
+      "code": [
+        "free-graze"
+      ],
+      "ru": {
+        "canon": "касание без рельса",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "free-graze",
+        "variants": []
+      }
+    },
+    {
+      "id": "root",
+      "group": "e",
+      "family": "model",
+      "def": "Корень упаковки E_n⁰ (exitKind root)",
+      "status": "derived",
+      "code": [
+        "root"
+      ],
+      "ru": {
+        "canon": "корень упаковки",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "packing root",
+        "variants": []
+      }
+    },
+    {
+      "id": "tangent",
+      "group": "e",
+      "family": "model",
+      "def": "Касательный вход/выход, точка T (v3.4 (10),(13))",
+      "status": "derived",
+      "code": [
+        "tangent"
+      ],
+      "ru": {
+        "canon": "касательный вход",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "tangent join",
+        "variants": []
+      }
+    },
+    {
+      "id": "drain",
+      "group": "e",
+      "family": "model",
+      "def": "Слив к отверстию — зеркало climb (v3.4 (13г))",
+      "status": "derived",
+      "code": [
+        "drain"
+      ],
+      "ru": {
+        "canon": "слив к отверстию",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "drain",
+        "variants": []
+      }
+    },
+    {
+      "id": "C10",
+      "group": "a",
+      "family": "marking",
+      "def": "Комбинированное деление C10 (икосаэдр)",
+      "sources": [
+        "TK-SIMPLE"
+      ],
+      "status": "source",
+      "code": [
+        "generator:C10"
+      ],
+      "ru": {
+        "canon": "C10 (комбинированное деление 10)",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "C10 marking",
+        "variants": []
+      }
+    },
+    {
+      "id": "C6",
+      "group": "a",
+      "family": "marking",
+      "def": "Разметка «6 Combination» (S6)",
+      "sources": [
+        "TK-SIMPLE"
+      ],
+      "status": "source",
+      "code": [
+        "generator:C6"
+      ],
+      "ru": {
+        "canon": "C6 (разметка «6 Combination»)",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "C6 marking",
+        "variants": []
+      }
+    },
+    {
+      "id": "separate",
+      "group": "e",
+      "family": "model",
+      "def": "Раздвинута чужим каналом (V16 separate-own)",
+      "status": "derived",
+      "code": [
+        "separate-own"
+      ],
+      "ru": {
+        "canon": "раздвинута",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "separate",
+        "variants": []
+      }
+    },
+    {
+      "id": "eLine",
+      "group": "e",
+      "family": "model",
+      "def": "offset(L, +(m+w)/2) (v3.4 (12))",
+      "status": "derived",
+      "code": [
+        "E-line"
+      ],
+      "ru": {
+        "canon": "E-линия",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "E-line",
+        "variants": []
+      }
+    },
+    {
+      "id": "channel",
+      "group": "e",
+      "family": "model",
+      "def": "Канал иглы E→X на R − w/2 (v3.4 (12″))",
+      "status": "derived",
+      "code": [
+        "sChan"
+      ],
+      "ru": {
+        "canon": "канал иглы",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "needle channel",
+        "variants": []
+      }
+    },
+    {
+      "id": "cluster",
+      "group": "e",
+      "family": "model",
+      "def": "Кластер иглы (stage3 Bite.cluster)",
+      "status": "derived",
+      "code": [
+        "cluster"
+      ],
+      "ru": {
+        "canon": "кластер иглы",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "cluster",
+        "variants": []
+      }
+    },
+    {
+      "id": "occupancy",
+      "group": "e",
+      "family": "model",
+      "def": "Занятость G3 (v3.4 §5.3)",
+      "status": "derived",
+      "code": [
+        "occupancy"
+      ],
+      "ru": {
+        "canon": "занятость",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "occupancy",
+        "variants": []
+      }
+    },
+    {
+      "id": "stitchSpan",
+      "group": "e",
+      "family": "model",
+      "def": "Пролёт стежка |x| ≤ h_n + w/2 (v3.4 §6.10)",
+      "status": "derived",
+      "code": [
+        "outSpan"
+      ],
+      "ru": {
+        "canon": "пролёт стежка",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "stitch span",
+        "variants": []
+      }
+    },
+    {
+      "id": "tip",
+      "group": "c",
+      "family": "stitch-detail",
+      "def": "Кончик лепестка (v3.4 (14)–(15), K16)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "кончик",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "tip",
+        "variants": []
+      }
+    },
+    {
+      "id": "topPoint",
+      "group": "c",
+      "family": "stitch-detail",
+      "def": "Верхняя точка стежка у полюса",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "верхняя точка",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "top point",
+        "variants": []
+      }
+    },
+    {
+      "id": "closingStitch",
+      "group": "e",
+      "family": "model",
+      "def": "Замыкающий стежок (v3.4 (12′))",
+      "status": "derived",
+      "code": [
+        "lastClosing"
+      ],
+      "ru": {
+        "canon": "замыкающий стежок",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "closing stitch",
+        "variants": []
+      }
+    },
+    {
+      "id": "collision",
+      "group": "e",
+      "family": "model",
+      "def": "Столкновение наборов U14 (inSpan)",
+      "status": "derived",
+      "code": [
+        "inSpan"
+      ],
+      "ru": {
+        "canon": "столкновение наборов",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "set collision",
+        "variants": []
+      }
+    },
+    {
+      "id": "edge",
+      "group": "e",
+      "family": "model",
+      "def": "Своя нить на w/2 (around-all V16)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "вплотную",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "edge",
+        "variants": []
+      }
+    },
+    {
+      "id": "around",
+      "group": "e",
+      "family": "model",
+      "def": "Обхват own-bundle (program around: 'own-bundle')",
+      "status": "derived",
+      "code": [
+        "around: 'own-bundle'"
+      ],
+      "ru": {
+        "canon": "обхват",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "around",
+        "variants": []
+      }
+    },
+    {
+      "id": "toleranceClass",
+      "group": "e",
+      "family": "model",
+      "def": "Классы допуска (i)/(ii)/(iii) (v3.4 §2)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "класс допуска",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "tolerance class",
+        "variants": []
+      }
+    },
+    {
+      "id": "lift",
+      "group": "e",
+      "family": "lift",
+      "def": "Подъём нити (lift-spec §1.3)",
+      "status": "derived",
+      "code": [
+        "liftFn"
+      ],
+      "ru": {
+        "canon": "подъём (нити)",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "lift",
+        "variants": []
+      }
+    },
+    {
+      "id": "tent",
+      "group": "e",
+      "family": "lift",
+      "def": "Профиль шатра (§1.4)",
+      "status": "derived",
+      "code": [
+        "tentProfile"
+      ],
+      "ru": {
+        "canon": "шатёр",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "tent",
+        "variants": []
+      }
+    },
+    {
+      "id": "bridge",
+      "group": "e",
+      "family": "lift",
+      "def": "Мост между вершинами (§1.8)",
+      "status": "derived",
+      "code": [
+        "hullProfile"
+      ],
+      "ru": {
+        "canon": "мост",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "bridge",
+        "variants": []
+      }
+    },
+    {
+      "id": "apex",
+      "group": "e",
+      "family": "lift",
+      "def": "Вершина перекрёста (§3.1)",
+      "status": "derived",
+      "code": [
+        "apexOf"
+      ],
+      "ru": {
+        "canon": "вершина (перекрёста)",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "apex",
+        "variants": []
+      }
+    },
+    {
+      "id": "plateau",
+      "group": "e",
+      "family": "lift",
+      "def": "Площадка на гребне (§1.5)",
+      "status": "derived",
+      "code": [
+        "plateau"
+      ],
+      "ru": {
+        "canon": "площадка",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "plateau",
+        "variants": []
+      }
+    },
+    {
+      "id": "stack",
+      "group": "e",
+      "family": "lift",
+      "def": "Стопка нитей (§1.6)",
+      "status": "derived",
+      "code": [
+        "stackRise"
+      ],
+      "ru": {
+        "canon": "стопка",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "stack",
+        "variants": []
+      }
+    },
+    {
+      "id": "dent",
+      "group": "e",
+      "family": "lift",
+      "def": "Вмятина δ (§1.7)",
+      "status": "derived",
+      "code": [
+        "dentFn"
+      ],
+      "ru": {
+        "canon": "вмятина",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "dent",
+        "variants": []
+      }
+    },
+    {
+      "id": "support",
+      "group": "e",
+      "family": "lift",
+      "def": "Опора z_sup (q5 §2)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "опора",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "support",
+        "variants": []
+      }
+    },
+    {
+      "id": "sag",
+      "group": "e",
+      "family": "lift",
+      "def": "Прогиб струны (q5 §2)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "прогиб",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "sag",
+        "variants": []
+      }
+    },
+    {
+      "id": "kink",
+      "group": "e",
+      "family": "lift",
+      "def": "Излом полёта (q5 §2; не V20)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "излом полёта",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "kink",
+        "variants": []
+      }
+    },
+    {
+      "id": "flight",
+      "group": "e",
+      "family": "lift",
+      "def": "Свободный полёт (q5 §1)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "полёт",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "flight",
+        "variants": []
+      }
+    },
+    {
+      "id": "landing",
+      "group": "e",
+      "family": "lift",
+      "def": "Посадка λ_T (§1.4)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "посадка",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "landing",
+        "variants": []
+      }
+    },
+    {
+      "id": "hull",
+      "group": "e",
+      "family": "lift",
+      "def": "Оболочка H (§1.8)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "оболочка",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "hull",
+        "variants": []
+      }
+    },
+    {
+      "id": "cap",
+      "group": "e",
+      "family": "lift",
+      "def": "Потолок Δ_cap (§1.6)",
+      "status": "derived",
+      "code": [
+        "capRise"
+      ],
+      "ru": {
+        "canon": "потолок",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "cap",
+        "variants": []
+      }
+    },
+    {
+      "id": "patch",
+      "group": "e",
+      "family": "lift",
+      "def": "Пятно контакта w_c (lift-q C.1)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "пятно контакта",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "contact patch",
+        "variants": []
+      }
+    },
+    {
+      "id": "staircase",
+      "group": "e",
+      "family": "lift",
+      "def": "Стопка каждой нити на предыдущих у кончиков",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "лесенка",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "staircase",
+        "variants": []
+      }
+    },
+    {
+      "id": "halfLine",
+      "group": "a",
+      "family": "marking",
+      "def": "Полулиния L(P, azimuth=k) (stage3 §1.2)",
+      "status": "derived",
+      "code": [
+        "half-line"
+      ],
+      "ru": {
+        "canon": "полулиния",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "half-line",
+        "variants": []
+      }
+    },
+    {
+      "id": "region",
+      "group": "a",
+      "family": "marking",
+      "def": "Область region(P, until=…) (stage3 §1.2)",
+      "status": "derived",
+      "code": [
+        "region"
+      ],
+      "ru": {
+        "canon": "область",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "region",
+        "variants": []
+      }
+    },
+    {
+      "id": "address",
+      "group": "a",
+      "family": "marking",
+      "def": "Адрес разметки resolve(address)",
+      "status": "derived",
+      "code": [
+        "resolve"
+      ],
+      "ru": {
+        "canon": "адрес разметки",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "address",
+        "variants": []
+      }
+    },
+    {
+      "id": "valence",
+      "group": "a",
+      "family": "marking",
+      "def": "Валентность вершины графа разметки",
+      "status": "derived",
+      "code": [
+        "valence"
+      ],
+      "ru": {
+        "canon": "валентность",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "valence",
+        "variants": []
+      }
+    },
+    {
+      "id": "markingGraph",
+      "group": "a",
+      "family": "marking",
+      "def": "Точка, линия, окружность, ребро, грань; виды точек pole/division/intersection/constructed/onCircle",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "граф разметки",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "marking graph",
+        "variants": []
+      }
+    },
+    {
+      "id": "SP",
+      "group": "a",
+      "family": "marking",
+      "def": "Южный полюс разметки",
+      "sources": [
+        "SUESS-GLOSS",
+        "OLY-TM7-V"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "южный полюс",
+        "basis": "translation",
+        "variants": []
+      },
+      "ja": {
+        "canon": "南極",
+        "kana": "なんきょく",
+        "basis": "source",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "nankyoku",
+        "variants": []
+      },
+      "en": {
+        "canon": "south pole",
+        "short": "SP",
+        "variants": []
+      }
+    },
+    {
+      "id": "circumference",
+      "group": "a",
+      "family": "base",
+      "def": "Окружность мари (размер в см)",
+      "sources": [
+        "TK-SIZE",
+        "SUESS-GLOSS"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "окружность мари",
+        "basis": "translation",
+        "variants": []
+      },
+      "ja": {
+        "canon": "円周",
+        "kana": "えんしゅう",
+        "basis": "source",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "enshū",
+        "variants": []
+      },
+      "en": {
+        "canon": "circumference",
+        "variants": []
+      }
+    },
+    {
+      "id": "mariShin",
+      "group": "a",
+      "family": "base",
+      "def": "Сердцевина шара (наполнитель)",
+      "sources": [
+        "OLY-BASIC"
+      ],
+      "status": "source",
+      "ru": {
+        "canon": "сердцевина",
+        "basis": "translation",
+        "variants": []
+      },
+      "ja": {
+        "canon": "手まり芯",
+        "kana": "てまりしん",
+        "basis": "source",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "temari-shin",
+        "variants": []
+      },
+      "en": {
+        "canon": "core",
+        "variants": []
+      }
+    },
+    {
+      "id": "bite",
+      "group": "e",
+      "family": "model",
+      "def": "Примитив Bite программы (stage3 §3.1)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "укус",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "bite",
+        "variants": []
+      }
+    },
+    {
+      "id": "program",
+      "group": "e",
+      "family": "model",
+      "def": "Программа мотива (stage3 §3.2)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "программа",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "program",
+        "variants": []
+      }
+    },
+    {
+      "id": "wrap",
+      "group": "e",
+      "family": "belts",
+      "def": "Lay wrap оби (stage3 §3a.3); техника makiKagari отдельно",
+      "status": "derived",
+      "code": [
+        "wrap-around"
+      ],
+      "ru": {
+        "canon": "намотка",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "wrap",
+        "variants": []
+      }
+    },
+    {
+      "id": "weave",
+      "group": "e",
+      "family": "lattices",
+      "def": "Lay weave (stage3 §3a.5)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "переплетение",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "weave",
+        "variants": []
+      }
+    },
+    {
+      "id": "hidden",
+      "group": "e",
+      "family": "model",
+      "def": "Lay hidden (stage3 §3.2)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "скрытый проход",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "hidden run",
+        "variants": []
+      }
+    },
+    {
+      "id": "belt",
+      "group": "e",
+      "family": "belts",
+      "def": "Генератор belt(C,W) (stage3 §3.2)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "пояс",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "belt",
+        "variants": []
+      }
+    },
+    {
+      "id": "lattice",
+      "group": "e",
+      "family": "lattices",
+      "def": "Решётка (stage3 §3a.4–3a.5)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "решётка",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "lattice",
+        "variants": []
+      }
+    },
+    {
+      "id": "polygon",
+      "group": "e",
+      "family": "rows-from-centre",
+      "def": "Ряды вокруг грани (masu, hoshi, …)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "ряды вокруг грани",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "polygon",
+        "variants": []
+      }
+    },
+    {
+      "id": "tsumu",
+      "group": "c",
+      "family": "motifs",
+      "def": "Мотив цуму",
+      "status": "candidate",
+      "ru": {
+        "canon": "цуму",
+        "basis": "polivanov",
+        "variants": []
+      },
+      "ja": {
+        "canon": "つむかがり",
+        "basis": "inferred",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "tsumu kagari",
+        "variants": []
+      },
+      "en": {
+        "canon": "tsumu",
+        "variants": []
+      }
+    },
+    {
+      "id": "obiKagari",
+      "group": "b",
+      "family": "belts",
+      "def": "Зигзаг поверх намотки оби",
+      "status": "candidate",
+      "ru": {
+        "canon": "оби-кагари",
+        "basis": "polivanov",
+        "variants": []
+      },
+      "ja": {
+        "canon": "帯かがり",
+        "basis": "inferred",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "obi kagari",
+        "variants": []
+      },
+      "en": {
+        "canon": "obi kagari",
+        "variants": []
+      }
+    },
+    {
+      "id": "kashin",
+      "group": "c",
+      "family": "motifs",
+      "def": "Сердцевина цветка",
+      "status": "candidate",
+      "ru": {
+        "canon": "касин",
+        "basis": "polivanov",
+        "variants": []
+      },
+      "ja": {
+        "canon": "花芯",
+        "basis": "inferred",
+        "variants": []
+      },
+      "romaji": {
+        "canon": "kashin",
+        "variants": []
+      },
+      "en": {
+        "canon": "flower centre",
+        "variants": []
+      }
+    },
+    {
+      "id": "petalSpan",
+      "group": "e",
+      "family": "model",
+      "def": "Лепесток через несколько долей (stage3 span; не stitchSpan)",
+      "status": "derived",
+      "code": [],
+      "ru": {
+        "canon": "лепесток через доли",
+        "basis": "translation",
+        "variants": []
+      },
+      "en": {
+        "canon": "petal span",
+        "variants": []
+      }
+    }
+  ],
+  "forbidden": [
+    {
+      "pattern": "braid",
+      "replaceWith": "uwagake",
+      "scope": [
+        "sim",
+        "model",
+        "samples",
+        "README.md",
+        "CONTRIBUTING.md",
+        "craft"
+      ],
+      "enabled": false,
+      "since": null,
+      "allowlist": [
+        "decisions-log.md",
+        "uncertainties.md",
+        "prior-project/",
+        "snapshots/",
+        "sources/",
+        "glossary.md",
+        "samples/kiku-s8/leg-shape-spec.md"
+      ],
+      "reason": "topRule переименован в uwagake; активировать после коммита переименования"
+    },
+    {
+      "pattern": "косичк",
+      "replaceWith": "клин (uwagake) | ребро (sujidate)",
+      "scope": [
+        "sim",
+        "model",
+        "samples",
+        "sim/test",
+        "README.md",
+        "CONTRIBUTING.md",
+        "craft"
+      ],
+      "enabled": true,
+      "allowlist": [
+        "decisions-log.md",
+        "uncertainties.md",
+        "prior-project/",
+        "snapshots/",
+        "sources/",
+        "glossary.md"
+      ],
+      "reason": "двусмысленный клубный жаргон"
+    },
+    {
+      "pattern": "待ち釘|тиdори",
+      "replaceWith": "待ち針 / тидори",
+      "scope": [
+        "sim",
+        "model",
+        "samples",
+        "sim/test",
+        "README.md",
+        "CONTRIBUTING.md",
+        "craft"
+      ],
+      "enabled": true,
+      "allowlist": [
+        "decisions-log.md",
+        "uncertainties.md",
+        "prior-project/",
+        "snapshots/",
+        "sources/",
+        "glossary.md"
+      ],
+      "reason": "ошибка (釘 = гвоздь; латинская d)"
+    }
+  ],
+  "families": {
+    "base": {
+      "ru": "основа",
+      "parent": "a",
+      "en": "base"
+    },
+    "marking": {
+      "ru": "разметка",
+      "parent": "a",
+      "en": "marking"
+    },
+    "rows-from-centre": {
+      "ru": "ряды от центра",
+      "parent": "b",
+      "en": "rows from centre"
+    },
+    "belts": {
+      "ru": "пояса",
+      "parent": "b",
+      "en": "belts"
+    },
+    "lattices": {
+      "ru": "сетки",
+      "parent": "b",
+      "en": "lattices"
+    },
+    "motifs": {
+      "ru": "мотивы",
+      "parent": "c",
+      "en": "motifs"
+    },
+    "threads": {
+      "ru": "нити",
+      "parent": "d",
+      "en": "threads"
+    },
+    "tools": {
+      "ru": "инструменты",
+      "parent": "d",
+      "en": "tools"
+    },
+    "stitch-detail": {
+      "ru": "детали стежка",
+      "parent": "c",
+      "en": "stitch detail"
+    },
+    "model": {
+      "ru": "модель симулятора",
+      "parent": "e",
+      "en": "simulator model"
+    },
+    "lift": {
+      "ru": "подъём нити",
+      "parent": "e",
+      "en": "thread lift"
+    }
+  },
+  "symbols": [
+    {
+      "id": "E",
+      "ru": "вход",
+      "en": "entry",
+      "note": "Точка входа иглы"
+    },
+    {
+      "id": "X",
+      "ru": "выход",
+      "en": "exit",
+      "note": "Точка выхода иглы"
+    },
+    {
+      "id": "u",
+      "ru": "u",
+      "en": "arc-length",
+      "note": "Длина вдоль нити"
+    },
+    {
+      "id": "s",
+      "ru": "s",
+      "en": "polar arc",
+      "note": "Дуга от полюса"
+    },
+    {
+      "id": "phi",
+      "ru": "φ",
+      "en": "azimuth",
+      "note": "Азимут"
+    },
+    {
+      "id": "w",
+      "ru": "w",
+      "en": "laid width",
+      "note": "Ширина уложенной нити"
+    },
+    {
+      "id": "kappa",
+      "ru": "κ",
+      "en": "curvature",
+      "note": "Кривизна"
+    },
+    {
+      "id": "mu",
+      "ru": "μ",
+      "en": "friction",
+      "note": "Коэффициент трения"
+    }
+  ]
+}

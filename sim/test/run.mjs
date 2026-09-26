@@ -3003,6 +3003,11 @@ if (G('9'))
   }
 }
 
+if (G('gl')) {
+  const { runGlossaryGl } = await import('./glossary-gl.mjs');
+  await runGlossaryGl(check);
+}
+
 await finish(failures); // parallel worker: report to the orchestrator and exit; --quick: label as not the gate
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : `FAILURES: ${failures}`}`);
 process.exit(failures ? 1 : 0);

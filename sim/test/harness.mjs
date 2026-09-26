@@ -67,7 +67,7 @@ const PREWARM = [
   ...stabilityBuilds().map((b) => ({ cost: b.raw.shoulderForm === 'geodesic' ? (b.N === 384 ? 17 : 2) : b.N === 384 ? (b.raw.bowLambda >= 0.6 ? 82 : 38) : (b.raw.bowLambda >= 0.6 ? 12 : 5), validate: true, ...b })),
 ];
 const GROUP_COST = {
-  pre: { cost: 6 }, '2b': { cost: 4, uses: [9, 10] }, '2c': { cost: 8, uses: [12] }, 3: { cost: 6 }, 4: { cost: 5 }, 5: { cost: 0 }, '5m': { cost: 0 }, '20g': { cost: 8 }, '5i': { cost: 6 }, 6: { cost: 3 },
+  pre: { cost: 6 }, gl: { cost: 1 }, '2b': { cost: 4, uses: [9, 10] }, '2c': { cost: 8, uses: [12] }, 3: { cost: 6 }, 4: { cost: 5 }, 5: { cost: 0 }, '5m': { cost: 0 }, '20g': { cost: 8 }, '5i': { cost: 6 }, 6: { cost: 3 },
   7: { cost: 6 }, 8: { cost: 14 }, '8b': { cost: 18 }, '8b2': { cost: 16 },
   '8c': { cost: 45, uses: [0, 1, 2, 3, 5, 6, 7, 11] }, '8d0': { cost: 1 }, '8d0a': { cost: 4, uses: [1, 5, 6] }, '8d0c': { cost: 1, uses: [4, 6, 8] },
   '8d0f': { cost: 2, uses: [6, ...stabilityBuilds().map((_, j) => 13 + j)] },
