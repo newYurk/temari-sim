@@ -5,6 +5,7 @@
 import { point, angleWithMeridian, rad } from './geom.js';
 import { normalizeParams } from './params.js';
 import { buildWork, stageLastOp } from './path.js';
+import { generateSN, graphStats } from './marking.js';
 
 export function canonical(x) {
   if (Array.isArray(x)) return '[' + x.map(canonical).join(',') + ']';
@@ -30,7 +31,11 @@ export function layerMarking(recipe, P, base) {
   const inputs = pick(P, layerSpec(recipe, 'marking').inputs);
   const N = P.N;
   const phis = Array.from({ length: N }, (_, k) => 2 * Math.PI * k / N);
-  return { id: 'marking', inputs, parents: [base.stamp], stamp: hash({ inputs, parents: [base.stamp] }), N, phis, m: P.m_mm };
+  // #52 commit 1: the marking graph (S_N generator, invariants checked — a mismatch throws). Addresses resolve through
+  // marking.js resolve(marking, address). N, phis, m stay as before (nothing above the marking changes in commit 1).
+  const graph = generateSN(N, base.R);
+  return { id: 'marking', inputs, parents: [base.stamp], stamp: hash({ inputs, parents: [base.stamp] }), N, phis, m: P.m_mm,
+    generator: 'S_N', graph, stats: graphStats(graph), R: base.R, Q: base.Q };
 }
 
 export function layerLayout(recipe, P, base, marking) {

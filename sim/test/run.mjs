@@ -2369,6 +2369,61 @@ if (G('8s'))
 }
 
 
+// 8t. #52 commit 1: marking as data — S_N graph (counts, Euler, valences, face angles, incidences; the generator throws on
+// a mismatch), address resolver (azimuth rule: counterclockwise from outside; zero toward φ₀ at the poles, toward P.N
+// at equator points) against point() / perpPt() to 1e-12·R. The layers above the marking are unchanged.
+if (G('8t'))
+{
+  console.log('\n## #52 marking graph and addresses');
+  const { generateSN, resolve, offsetAt, graphStats } = await import('../src/marking.js');
+  const { point, perpPt } = await import('../src/geom.js');
+  const R0 = 38.197186342054884;
+  let okAll = true; const bad = [];
+  for (let N = 4; N <= 32; N += 2) {
+    const g = generateSN(N, R0), st = graphStats(g);
+    const val = Object.values(g.points).map((p) => p.valence);
+    const faceOk = Object.values(g.faces).every((f) => { const d = f.angles.map((a) => a * 180 / Math.PI).sort((a, b) => a - b); return Math.abs(d[0] - 360 / N) < 1e-9 && Math.abs(d[1] - 90) < 1e-9 && Math.abs(d[2] - 90) < 1e-9; });
+    const inc = Object.values(g.points).every((p) => p.lines.every((l) => Math.abs(p.p[0] * g.lines[l].n[0] + p.p[1] * g.lines[l].n[1] + p.p[2] * g.lines[l].n[2]) <= 1e-9));
+    const arcs = Object.values(g.edges).filter((e) => e.carrier !== 'L.eq').every((e) => Math.abs(e.length - R0 * Math.PI / 2) < 1e-9 * R0);
+    const ok = st.V === N + 2 && st.E === 3 * N && st.F === 2 * N && st.V - st.E + st.F === 2 && st.lines === N / 2 + 1
+      && (N === 4 ? val.every((v) => v === 4) : val.filter((v) => v === N).length === 2 && val.filter((v) => v === 4).length === N) && faceOk && inc && arcs
+      && Object.values(g.edges).every((e) => e.faces.length === 2);
+    if (!ok) { okAll = false; bad.push(N); }
+  }
+  check(okAll, `S_N, N = 4…32 even: V = N+2, E = 3N, F = 2N, Euler 2, N/2+1 lines, poles v = N, equator v = 4, faces 90°/90°/360°/N, incidences ≤ 1e-9, pole–equator arcs = Q${bad.length ? ' — bad N ' + bad.join(',') : ''}`);
+  const throwsOn = (f) => { try { f(); return false; } catch (e) { return /marking/.test(String(e.message)); } };
+  check(throwsOn(() => generateSN(5, R0)) && throwsOn(() => generateSN(2, R0)) && throwsOn(() => generateSN(34, R0)), 'S_N generator: odd / out-of-range N fails the build (throws)');
+  const A = computeAll(recipe, {}), mk = A.marking, R = mk.R;
+  let dp = 0, doff = 0, daz = 0;
+  for (let k = 0; k < mk.N; k++) {
+    daz = Math.max(daz, Math.abs(resolve(mk, `L(P.N, azimuth=${k})`).az - mk.phis[k]));
+    for (const s of [0, 0.9, 5, 17.3, 40, mk.Q]) {
+      const q = resolve(mk, `on(L(P.N,${k}), ${s}, from=P.N)`).xyz, r = point(R, s, mk.phis[k]);
+      dp = Math.max(dp, ...q.map((c, j) => Math.abs(c - r[j])));
+      if (s > 0) for (const d of [-(mk.m + 0.714) / 2, (mk.m + 0.714) / 2]) {
+        const o = offsetAt(mk, resolve(mk, `offset(L(P.N,azimuth=${k}), ${d})`), s), r2 = perpPt(R, s, mk.phis[k], d);
+        doff = Math.max(doff, ...o.map((c, j) => Math.abs(c - r2[j])));
+      }
+    }
+  }
+  console.log(`  S8 resolver: on(L(P.N,k), s) vs point(R, s, φ_k) max ${(dp / R).toExponential(1)}·R; offset vs perpPt ${(doff / R).toExponential(1)}·R; azimuth vs phis ${daz.toExponential(1)}`);
+  check(mk.generator === 'S_N' && mk.stats.V === 10 && dp <= 1e-12 * R && doff <= 1e-12 * R && daz <= 1e-12,
+    'S8: resolver returns the same φ_k (azimuths at P.N) and points as point(R, s, φ) / perpPt to 1e-12·R');
+  const hS = [0, 1, 2].map((k) => resolve(mk, `L(P.S, azimuth=${k})`).dir), hE = resolve(mk, 'L(P.eq[3], 0)').dir, hE1 = resolve(mk, 'L(P.eq[3], 1)').dir;
+  const near = (a, b) => a.every((c, j) => Math.abs(c - b[j]) < 1e-12);
+  const phiDir = (k) => [Math.cos(mk.phis[(k + mk.N) % mk.N]), Math.sin(mk.phis[(k + mk.N) % mk.N]), 0];
+  // at P.eq[3] (outward normal p = e3): azimuth 1 = zero direction +Z turned by +90° about p = cross(p, Z); azimuth 2 = P.S
+  const e3 = [Math.cos(mk.phis[3]), Math.sin(mk.phis[3]), 0], ccw = [e3[1], -e3[0], 0];
+  check(near(hS[0], phiDir(0)) && near(hS[1], phiDir(-1)) && near(hS[2], phiDir(-2)) && near(hE, [0, 0, 1]) && near(hE1, ccw)
+    && resolve(mk, 'L(P.eq[3], 2)').dir[2] < -1 + 1e-12,
+    'azimuth rule: P.S order mirrored vs P.N (φ₀, φ₋₁, φ₋₂ …); equator point: zero toward P.N, counterclockwise from outside, opposite = P.S');
+  const reg = resolve(mk, 'region(P.N, until=C.eq)'), ceq = resolve(mk, 'C.eq'), leq = resolve(mk, `L[${mk.N / 2}]`);
+  check(Math.abs(reg.sMax - mk.Q) < 1e-12 * R && ceq.onLine === 'L.eq' && leq.id === 'L.eq' && Math.abs(resolve(mk, 'on(L[2], 0.25Q, from=P.N)').xyz[1] - point(R, mk.Q / 4, mk.phis[2])[1]) < 1e-12 * R
+    && ['P.X', 'L(P.N, azimuth=8)', 'X(L[0], L[1])', 'on(L[0], 3)', 'region(P.S, until=C.eq)'].every((ad) => { try { resolve(mk, ad); return false; } catch { return true; } }),
+    'addresses: C.eq on the equator line, L[N/2] = L.eq, region(P.N, until=C.eq) reaches Q, s as a fraction of Q; unknown / ambiguous addresses throw');
+}
+
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');
