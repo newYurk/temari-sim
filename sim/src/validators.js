@@ -1799,7 +1799,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     // #50 stage A (braid): V22 and the drain (11) toward the top do not apply — the top end (upper legs' exit at the top
     // hole, lower legs' entry from X_n) is printed as a diagnostic, not a fail. The bottom end (9а), (12) is unchanged.
     const braid22 = A.params?.topRule === 'braid';
-    const braidTop = [], braidJoints = [];
+    const braidTop = [], braidJoints = [], braidShifts = [];
     let braidTangents = 0;
     for (const s of legs) {
       const role = s.level === 'bottom' ? 'lower' : 'upper';
@@ -1834,6 +1834,8 @@ export function runValidators(A, stage = '2b', ref = null) {
       }
       if (braid22) braidTop.push(...entryBad.splice(entryBad0));
       // #50 decision 1(b): the braid joint (great circle ∩ rail, no tangency) turns ≤ 20° — exceeding it is a V22 fail.
+      if (braid22 && s.braidJoinShiftMm != null) braidShifts.push(s.braidJoinShiftMm);
+      if (braid22 && s.braidExitShiftMm != null) braidShifts.push(s.braidExitShiftMm);
       if (braid22 && s.braidJoinTurnDeg != null) { braidJoints.push(s.braidJoinTurnDeg); if (!(s.braidJoinTurnDeg <= 20)) entryBad.push(`${s.id}/${s.round} braid entry joint turn ${f(s.braidJoinTurnDeg, 2)}° > 20°`); }
       if (braid22 && s.braidExitTurnDeg != null) { braidJoints.push(s.braidExitTurnDeg); if (!(s.braidExitTurnDeg <= 20)) entryBad.push(`${s.id}/${s.round} braid top-hole joint turn ${f(s.braidExitTurnDeg, 2)}° > 20°`); }
       if (braid22 && s.entryKind === 'braidTangent') braidTangents++;
@@ -1852,9 +1854,9 @@ export function runValidators(A, stage = '2b', ref = null) {
         + (degDMax > 0 ? `; degenerate max |d| ${f(degDMax, 3)} w` : '')
         + (path.invalidFrom ? `; BUILD INVALID from row ${path.invalidFrom.row} (${path.invalidFrom.leg}/${path.invalidFrom.round}.i${path.invalidFrom.stitch}, d ${f(path.invalidFrom.dW, 3)} w, min clearance ${f(path.invalidFrom.gapW, 3)} w)` : '')
         + (joinDiag.length ? `; (9б) join vs d_n band, diagnostic ${joinDiag.length}: ${joinDiag.slice(0, 4).join('; ')}` : '')
-        + (braid22 ? `; braid joints (great circle ∩ rail, ≤ 20°): ${braidJoints.length}${braidJoints.length ? `, max turn ${f(Math.max(...braidJoints), 2)}°` : ''}; braid tangency entries ${braidTangents}` : '')
+        + (braid22 ? `; braid joints (great circle ∩ rail, M from ℓ_m forward until ≤ 20°): ${braidJoints.length}${braidJoints.length ? `, max turn ${f(Math.max(...braidJoints), 2)}°, M moved ${braidShifts.filter((x) => x > 0).length}, max shift ${f(Math.max(0, ...braidShifts), 3)} mm` : ''}; braid tangency entries ${braidTangents}` : '')
         + (braid22 ? `; braid (#50 stage A): top end not checked (V22/(11) at the top off), diagnostic ${braidTop.length}${braidTop.length ? ': ' + braidTop.slice(0, 4).join('; ') : ''}` : ''),
-      numbers: { bad, counts, joinDiag, entryBad, entryKinds, braidJoints, braidTangents, braidTop, freeGapMinW: Number.isFinite(freeGapMin) ? freeGapMin : null, degDMaxW: degDMax, invalidFrom: path.invalidFrom || null } });
+      numbers: { bad, counts, joinDiag, entryBad, entryKinds, braidJoints, braidShifts, braidTangents, braidTop, freeGapMinW: Number.isFinite(freeGapMin) ? freeGapMin : null, degDMaxW: degDMax, invalidFrom: path.invalidFrom || null } });
   }
 
   // V21 — transversality (Fable v2 / Errata §6a / 6a.9.2 / 6a.19 / 6a.20). Criteria:

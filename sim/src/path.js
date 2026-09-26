@@ -831,6 +831,25 @@ export function entryTangencyRoots(R, rail, X, s0, sE) {
   return out;
 }
 
+/** #50 (Fable 26.09) braid joint: the first rail parameter u ∈ [u0, uEnd] (u0 = the ℓ_m minimum) where the full joint
+ *  angle turn(u) ≤ BRAID_JOINT_MAX_DEG. Scan in steps of w/20, then bisect the crossing to 1e-9·w. ok = false (and
+ *  u = uEnd) if the angle never gets ≤ 20° before the rail ends. shift = u − u0 (mm along the rail). */
+export const BRAID_JOINT_MAX_DEG = 20;
+export function braidJointMove(turn, u0, uEnd, w) {
+  if (turn(u0) <= BRAID_JOINT_MAX_DEG) return { s: u0, shift: 0, ok: true };
+  const step = Math.max(w, 1e-6) / 20;
+  let a = u0;
+  for (let u = Math.min(uEnd, u0 + step); ; u = Math.min(uEnd, u + step)) {
+    if (turn(u) <= BRAID_JOINT_MAX_DEG) {
+      let lo = a, hi = u;
+      for (let it = 0; it < 60 && hi - lo > 1e-9 * w; it++) { const m = 0.5 * (lo + hi); if (turn(m) <= BRAID_JOINT_MAX_DEG) hi = m; else lo = m; }
+      return { s: hi, shift: hi - u0, ok: true };
+    }
+    if (u >= uEnd) return { s: uEnd, shift: uEnd - u0, ok: false };
+    a = u;
+  }
+}
+
 /** Row n ≥ 2 leg along the rail of the previous arm. endLevel = level of the hole the leg ends at:
  *  'bottom' (E_n is the packing root on the rail, spec v3 §3.2(12)) or 'top' (E_n given, §3.2(13)). */
 export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}) {
@@ -877,7 +896,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
   let Tpt, sT, splice, joinMode;
   // (10′) entry diagnostics (#46): entryKind tangent | free | noTangency (V22 fail) | onRail | climb (interior only)
   let entryRoots = null, entrySkipped = 0, entryKind = null, entryPiece = null, entryMinGapW = null, entryGapAtMm = null, entryFail = false, entryBest = null, entryScan = null, entryBackward = false;
-  let braidJoinTurnDeg = null, braidExitTurnDeg = null;   // #50: turn at the great-circle ∩ rail joint (entry / top-hole end)
+  let braidJoinTurnDeg = null, braidExitTurnDeg = null, braidJoinShiftMm = null, braidExitShiftMm = null;   // #50: turn at the great-circle ∩ rail joint (entry / top-hole end)
   // Scale with w so xk similarity does not flip onRail/climb (absolute 1e-6 mm thresh).
   // v3.2 §3.2(9б), §6.4 (#39, #22): |d_n| ≤ 0.02·w is the degenerate entry — X_n is on the rail within the band, no
   // tangency search. The leg starts at X_n itself (as at λ = 0): a jog X_n → foot, or X_n replacing the foot as vertex 0,
@@ -920,13 +939,18 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
       sT = rail.at(tb.s).s; Tpt = rail.at(sT).q; splice = R * angle(X, Tpt);
       joinMode = 'tangent'; entryKind = 'braidTangent'; entryPiece = tb.cls;
     } else {
+      // Fable (#50, 26.09): ℓ_m = max(w, 3δ) is the MINIMUM; M moves forward along the rail until the full angle between
+      // the chord X_n → M and the rail tangent at M (so including the rail's turn up to M) is ≤ 20° — the friction cone on
+      // the slope of the previous thread (atan μ ≈ 18°). Fail only if ≤ 20° is unreachable before the rail ends.
       const Lm = Math.max(w || 0, 3 * delta);
-      sT = Math.min(s0 + Lm, Math.max(s0 + 1e-9, sE * 0.999));
+      const sEnd = Math.max(s0 + 1e-9, sE * 0.999), sMin = Math.min(s0 + Lm, sEnd);
+      const turnAt = (sv) => { const P = rail.at(sv); return Math.acos(Math.max(-1, Math.min(1, dot(mul(tangentTo(P.q, X), -1), P.T)))) * 180 / Math.PI; };
+      const J = braidJointMove(turnAt, sMin, sEnd, wE);
+      sT = J.s; braidJoinShiftMm = J.shift;
       Tpt = rail.at(sT).q; splice = R * angle(X, Tpt);
-      const arrive = mul(tangentTo(Tpt, X), -1);
-      braidJoinTurnDeg = Math.acos(Math.max(-1, Math.min(1, dot(arrive, rail.at(sT).T)))) * 180 / Math.PI;
+      braidJoinTurnDeg = turnAt(sT);
       joinMode = 'braidCross'; entryKind = 'braidCross';
-      if (braidJoinTurnDeg > 20) entryFail = true;
+      if (!J.ok) entryFail = true;
     }
   } else if (dLat < 0) {
     // 6a.7(3) climb/merge: M at ℓ_m = max(w, 3δ) forward toward E
@@ -1174,9 +1198,16 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
         // #50 stage A (braid, decision 1(b)): no drain — the leg leaves the rail by a great circle to the hole, meeting the
         // rail at the (#22-mirror) point ℓ_m before E's foot (no tangency exists: the (13) search above found none).
         // Turn there printed; > 20° → V22 fail.
+        // Fable (#50, 26.09), mirrored for the top-hole end: ℓ_m is the minimum; M moves along the rail away from the hole
+        // (toward the entry joint) until the full angle chord M → E vs rail tangent at M is ≤ 20°; fail if unreachable.
         exitKind = 'braidCross';
-        braidExitTurnDeg = Math.acos(Math.max(-1, Math.min(1, best.score))) * 180 / Math.PI;
-        if (braidExitTurnDeg > 20) exitFail = true;
+        const turnE = (sv) => Math.acos(Math.max(-1, Math.min(1, exitRes(sv).score))) * 180 / Math.PI;
+        const dirM = forward ? -1 : 1, u0 = 0, uEnd = Math.abs(sDrain - sT0);
+        const J = braidJointMove((u) => turnE(sDrain + dirM * u), u0, uEnd, wEff);
+        braidExitShiftMm = J.shift;
+        if (J.shift > 0) best = exitRes(sDrain + dirM * J.s);
+        braidExitTurnDeg = turnE(sDrain + dirM * J.s);
+        if (!J.ok) exitFail = true;
       }
     } else {
       // E_n outside with no tangency: the rail ends where contact ends (6a.15) — the point of
@@ -1356,7 +1387,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
     interiorXn: dLat < -onRailEps, lam0: false,
     // Diagnostic: X_n's lateral to the laying rail (core + continuation) — differs from d_n (8′) before the core start of a drain entry.
     railLateralMm: lat.signedMm ?? null, railFootClamped: lat.clamped || null,
-    joinMode, braidJoinTurnDeg, braidExitTurnDeg,
+    joinMode, braidJoinTurnDeg, braidExitTurnDeg, braidJoinShiftMm, braidExitShiftMm,
     climbMm: joinMode === 'climb' ? splice : 0,
     deltaMm: delta,
     deltaFail: delta > (w || 0) / 2,
@@ -1749,6 +1780,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         entrySkipped: legShape.entrySkipped ?? 0, entryChordGapW: legShape.entryChordGapW ?? null, entryKind: legShape.entryKind ?? null, entryPiece: legShape.entryPiece ?? null, entryMinGapW: legShape.entryMinGapW ?? null, entryGapAtMm: legShape.entryGapAtMm ?? null,
         entryFail: !!legShape.entryFail, entryBackward: !!legShape.entryBackward, entryBest: legShape.entryBest ?? null, entryScan: legShape.entryScan ?? null,
         braidJoinTurnDeg: legShape.braidJoinTurnDeg ?? null, braidExitTurnDeg: legShape.braidExitTurnDeg ?? null,
+        braidJoinShiftMm: legShape.braidJoinShiftMm ?? null, braidExitShiftMm: legShape.braidExitShiftMm ?? null,
         lam0: legShape.lam0 ?? null, railLateralMm: legShape.railLateralMm ?? null, exitTurnDeg: legShape.exitTurnDeg ?? null, minGapMm: legShape.minGapMm ?? null });
       if (i === 1) RD.firstLegId = leg.id;
       if (!BRAID && i === 1 && spec.begin === 'hiddenStart' && !W.virtualArrive[spec.set]) {

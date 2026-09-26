@@ -2300,10 +2300,19 @@ if (G('8r'))
     console.log(`  braid joints m1 λ0.52: entries ${ent.length}, top-hole ${ex.length}, max turn ${Math.max(...turns).toFixed(2)}°; tangency roots accepted 0`);
     check(ent.length > 0 && ex.length > 0 && noTan && noClimb && turns.every((t) => t <= 20) && VJ.V22.status === 'pass' && /braid joints/.test(VJ.V22.value),
       'braid joint (decision 1b): no climb / drain; no tangency → great circle ∩ rail, turn ≤ 20° printed; V22 pass');
+    // Fable (#50, 26.09): ℓ_m is the minimum; M moves along the rail until the full angle ≤ 20° (m0.5 λ0.6: the 18 joints
+    // that exceeded it at ℓ_m by the rail's turn move a little and pass); fail only if unreachable before the rail ends.
     const K = computeAll(recipe, cfg(0.6, 0.5, { topRule: 'braid' })), VK = st(K);
-    const over = K.path.segs.filter((q) => (q.braidExitTurnDeg ?? 0) > 20 || (q.braidJoinTurnDeg ?? 0) > 20);
-    check(over.length > 0 && VK.V22.status === 'fail' && /joint turn [\d,]+° > 20°/.test(VK.V22.value) && over.every((q) => q.exitFail || q.entryFail),
-      `braid joint > 20° (m0.5 λ0.6: ${over.length} legs) → V22 fail naming the joint (loud), exitFail set`);
+    const moved = K.path.segs.filter((q) => (q.braidExitShiftMm ?? 0) > 0 || (q.braidJoinShiftMm ?? 0) > 0);
+    const allJ = K.path.segs.flatMap((q) => [q.braidJoinTurnDeg, q.braidExitTurnDeg]).filter((x) => x != null);
+    const shiftMax = Math.max(...moved.map((q) => Math.max(q.braidExitShiftMm ?? 0, q.braidJoinShiftMm ?? 0)));
+    console.log(`  m0.5 λ0.6 braid: ${moved.length} joints moved from ℓ_m (max ${shiftMax.toFixed(3)} mm), max turn ${Math.max(...allJ).toFixed(4)}°`);
+    check(moved.length === 18 && allJ.every((t) => t <= 20 + 1e-9) && moved.every((q) => !q.exitFail && !q.entryFail) && VK.V22.status === 'pass' && VK.V8.status !== 'fail'
+      && /M moved 18/.test(VK.V22.value), 'braid joint: M moves forward from ℓ_m until ≤ 20° (m0.5 λ0.6: 18 joints, V22 pass, no rail contradictions)');
+    const { braidJointMove } = await import('../src/path.js');
+    const lin = braidJointMove((u) => 25 - u, 0, 10, 0.714), never = braidJointMove(() => 25, 0, 3, 0.714), at0 = braidJointMove(() => 12, 0, 3, 0.714);
+    check(lin.ok && Math.abs(lin.s - 5) < 1e-6 && lin.shift === lin.s && !never.ok && never.s === 3 && at0.ok && at0.shift === 0,
+      'braidJointMove: first point with angle ≤ 20° (bisected), 0 shift if ℓ_m already fits, not ok (fail) when unreachable before the rail end');
     const Fk = st(computeAll(recipe, cfg(0.6, 0.5)));
     check(Fk.V22.status === 'pass', 'fan at m0.5 λ0.6 unchanged (drain, V22 pass)');
   }
