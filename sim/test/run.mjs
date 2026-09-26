@@ -322,8 +322,8 @@ if (G('20g'))
       const L = ids.map((id) => A.path.segs.find((q) => q.id === id));
       const n = V.V20.numbers;
       check(L.every((s) => s.entryKind === 'free-graze' && s.exitKind === 'free-graze' && s.joinMode === 'free' && s.arcs.length === 1 && s.grazeDsMm < 0 && s.grazeMinGapW >= 1 - 0.01)
-        && V.V20.status === 'pass' && n.badKink === 0 && !n.tolBranch.fallback && n.tolWorst <= 0.2 && V.V22.status === 'pass' && V.V23.status === 'pass',
-        `${mode} m${m} λ${lam}: ${ids.join('/')} free-graze chord X→E (Δs ${fmt(L[0].grazeDsMm, 3)} mm, rail gap ${fmt(L[0].grazeGapMm, 4)} mm, d ${fmt(L[0].grazeMinGapW, 3)} w); V20 pass, worst tangency turn ${fmt(n.tolWorst, 3)} of the bound, branch piece only; V22, V23 pass`);
+        && V.V20.status === 'pass' && n.badKink === 0 && !n.tolBranch.fallback && n.tolWorst <= 0.2 && V.V22.status === 'pass' && V.V23.status === 'pass' && V.V8.status !== 'fail' && /free-graze \(10″, no contact\) \d+: rail gap min/.test(V.V8.value),
+        `${mode} m${m} λ${lam}: ${ids.join('/')} free-graze chord X→E (Δs ${fmt(L[0].grazeDsMm, 3)} mm, rail gap ${fmt(L[0].grazeGapMm, 4)} mm, d ${fmt(L[0].grazeMinGapW, 3)} w); V20 pass, worst tangency turn ${fmt(n.tolWorst, 3)} of the bound, branch piece only; V22, V23 pass; V8 prints the free-graze class (§6.12, no contact)`);
       setGrazeRuleForTest(false);
       const B = computeRaw(recipe, cfg(mode, m, lam)), VB = runValidators(B, 'all', null).find((v) => v.id === 'V20'), LB = B.path.segs.find((q) => q.id === ids[0]);
       setGrazeRuleForTest(true);

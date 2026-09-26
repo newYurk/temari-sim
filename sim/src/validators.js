@@ -1072,11 +1072,16 @@ function runValidatorsIn(A, stage, ref) {
     const exitTxt = exitFails.length ? `; rail contradictions ${exitFails.length}: ` + exitFails.slice(0, 6).map((s) => `${s.id}/${s.round} ${s.exitKind}`
       + (s.exitKind === 'offRail' ? ` d_E=${f(s.exitDeMm, 4)} mm` : '')).join('; ') : '';
     const unexpected = badRest.length + naRest.length;
+    // v3.4.2 §6.12 (fable-reply-v20 §5): free-graze legs ((10″) chord X→E past the rail) — free, no contact is set; the
+    // chord's gap to the rail is printed, and how many pass closer than 0.01 w (printed, never a fail).
+    const grazeV8 = segs.filter((s) => s.type === 'leg' && (s.entryKind === 'free-graze' || s.exitKind === 'free-graze'));
+    const grazeGaps = grazeV8.map((s) => s.grazeGapMm).filter(Number.isFinite), wV8 = A.params.w_mm;
+    const grazeTxt = grazeV8.length ? `; free-graze (10″, no contact) ${grazeV8.length}: rail gap min ${grazeGaps.length ? f(Math.min(...grazeGaps), 4) : '—'} mm, < 0.01 w: ${grazeGaps.filter((g) => g < 0.01 * wV8).length}` : '';
     add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: axis distance ≥ w (tube Ø w); allowed: crossing, tipCross (6a.13), tip-zone/over-bite, through-row, uwagake wedge, climb/merge (6a.7), catch, join; tip contacts CLASSIFIED not excluded; δ>w/2 fail; rail contradiction (offRail / free exit into the tube, #36) fail',
       status: unexpected || deltaFails || exitFails.length ? 'fail' : warnList.length || separateList.length ? 'warn' : 'pass',
       value: `near-zones < w: ${Object.entries(cnt).map(([k2, v]) => `${k2} — ${v}`).join('; ')}; unexpected ${unexpected}` +
         (badPromoted.length || naPromoted.length ? `; tip-classified ${badPromoted.length + naPromoted.length}` : '') +
-        (deltaFails ? `; δ>w/2 fails ${deltaFails}` : '') + exitTxt + wedgeTxt +
+        (deltaFails ? `; δ>w/2 fails ${deltaFails}` : '') + exitTxt + grazeTxt + wedgeTxt +
         (badRest.length ? ': ' + badRest.slice(0, 6).map((b) => `${b.a}×${b.b} s=${f(b.s, 1)} d=${f(b.d, 3)}`).join('; ') : '') +
         (braid8 ? `; braid (#50 stage A, ℓ_braid,max = ${lBraidW}·w TEMPORARY): crossover ${crossoverList.length}${crossoverList.length ? `, deepest ${f(Math.max(...crossoverList.map((x) => x.belowTopMm)), 2)} mm below s_T(n)` : ''}` : '') +
         (separateList.length ? `; separate (U14 set collision, foreign channel pushes the leg aside at its hole, §5.3 (2)(3)) ${separateList.length}: max ${f(Math.max(...separateList.map((x) => x.dHoleMm)), 2)} mm from the hole, d ${f(Math.min(...separateList.map((x) => x.dW)), 2)}…${f(Math.max(...separateList.map((x) => x.dW)), 2)} w, in span ${separateList.filter((x) => x.inSpan).length}; `
