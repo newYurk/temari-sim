@@ -1371,7 +1371,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   // Spec v3.2 §3.2(12) stop K12: at the equator the last row is allowed while its bottom ≤ s_eq + m/2 (the hole no farther
   // than the equator thread's half-width past its axis; class (iii), from m).
   const limit = (rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? Q - 7 : Q)) + (P.rowsMode === 'untilEquator' ? m / 2 : 0);
-  const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [], setCollisions: [],
+  const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [], setCollisions: [], virtualArrive: {},
     shoulderForm, tipDrop: null };
   const lineIdx = (k) => ((k % N) + N) % N;
   const phiOf = (k) => marking.phis[lineIdx(k)];
@@ -1441,12 +1441,17 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       const sT = layout.sTop;
       const side0 = needleSides({ R, s: sT, phi: phiOf(L0), m, w, N, laid: laid(), topSet: spec.set });
       const X0 = perpPt(R, sT, phiOf(L0), side0.xOff);
+      // Spec (12″) (#45): the hidden start of round 1 on its start line is an ordinary row-1 top stitch for placement and
+      // occupancy — holes E₀, X₀ at ±(m+w)/2 on the needle line at s_T(1) (sides of the own cluster) and the channel E₀ → X₀
+      // under the marking. Its only difference: no arriving leg — the start chord comes from inside, under the winding, and
+      // surfaces at E₀. So the L0 cluster of later rows sees the same hole-entry / channel / hole-exit as on L2.
+      const E0 = perpPt(R, sT, phiOf(L0), side0.eOff);
       const rule = T.start.rules[P.startRule];
       const runs = rule.runs, Lrun = P.startRun_mm;
       const theta = 2 * Math.asin(Math.min(1, Lrun / (2 * R)));
       const M = point(R, layout.sBot, phiOf(L0) - Math.PI / N);
       const holes = [];
-      for (let k = runs; k >= 0; k--) holes.push(k === 0 ? X0 : rotateToward(R, X0, M, k * theta));
+      for (let k = runs; k >= 0; k--) holes.push(k === 0 ? E0 : rotateToward(R, E0, M, k * theta));
       for (let k = 0; k < runs; k++) {
         const a = holes[k], b = holes[k + 1];
         const seg = addSeg({ type: 'hidden-start', from: a, to: b, pts: lineSeg(a, b, 24), length: dist(a, b),
@@ -1461,7 +1466,14 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           }),
           source: `${rule.basis}; ${T.start.direction.basis}; ${spec.basis}` });
       }
-      RD.start = { X0, holes, tail: holes[0], exitSides: side0, runs, Lrun, theta };
+      // (12″): the start stitch's channel E₀ → X₀ (a pickup of row 1 at s_T(1), stitch 0, no arriving leg).
+      const pk0 = addSeg({ type: 'pickup', from: E0, to: X0, pts: lineSeg(E0, X0, 12), length: dist(E0, X0), stitch: 0, line: L0, level: 'top',
+        eOff: side0.eOff, xOff: side0.xOff, under: side0.cluster.map((c) => c.seg), cluster: side0.cluster, startStitch: true,
+        source: `spec (12″) #45: hidden start = row-1 top stitch (holes ±(m+w)/2, channel), no arriving leg; ${conv.channel.basis}`, tag: conv.sides.tag,
+        depthMax: R - Math.sqrt(R * R - (dist(E0, X0) / 2) ** 2) });
+      RD.start = { X0, E0, holes, tail: holes[0], exitSides: side0, runs, Lrun, theta, channelId: pk0.id };
+      // the channel belongs to the last start op (surfacing at E₀, then E₀ → X₀): stage prefixes keep u continuous
+      W.ops[W.ops.length - 1].segIds.push(pk0.id);
       cur = X0;
     } else {
       cur = th.park;
@@ -1479,7 +1491,15 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       // (а) уровень стежка: ряд 1 — замысел; ряд n ≥ 2 — вывод из уже уложенного
       let s, levelInfo;
       if (level === 'top') {
-        if (spec.row === 1) { s = layout.sTop; levelInfo = { rule: 'row1', basis: LV.top.row1.basis }; }
+        if (closing) {
+          // Spec (12′) (#45): the closing stitch of round n on L0 IS the top stitch of row n+1 on L0 — one thread width
+          // lower (and wider, by its own cluster) than the previous stitch on L0: the round-1 start hole X₀ at s_T(1), then
+          // the closing stitches of earlier rounds. No separate round-start stitch on L0, no parking, no transition step.
+          const prevCh = W.stitches.filter((st) => st.line === k && st.level === 'top').map((st) => st.s);
+          const sPrev = Math.max(layout.sTop, ...prevCh);
+          s = sPrev + w;
+          levelInfo = { rule: 'closingIsNextRowTop', sPrev, dS: w, rowTop: spec.row + 1, basis: `${LV.top.next.basis}; spec (12′) #45` };
+        } else if (spec.row === 1) { s = layout.sTop; levelInfo = { rule: 'row1', basis: LV.top.row1.basis }; }
         else {
           const prevCh = W.stitches.filter((st) => st.line === k && st.level === 'top');
           const sPrev = Math.max(...prevCh.map((st) => st.s));
@@ -1496,12 +1516,23 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         ({ s, levelInfo } = bl);
       }
       // (б) needle placement from occupancy on line k at level s (causal prefix)
+      // (12‴) (#45): on the set's start line the clusters also see the VIRTUAL arriving leg of the row-1 start stitch (G3
+      // modelling device, not a thread: hole placement only — not in W.segs, length, rendering, V8, V16, K16, clearance).
+      const virt = lineIdx(k) === lineIdx(spec.startLine) ? W.virtualArrive[spec.set] : null;
       const sides = needleSides({
-        R, s, phi: phiOf(k), m, w, N, laid: laid(),
-        uwagakeSet: level === 'top' && spec.row >= 2 ? spec.set : null,
-        uwagakeRow: level === 'top' && spec.row >= 2 ? spec.row : 0,
+        R, s, phi: phiOf(k), m, w, N, laid: virt ? laid().concat([virt]) : laid(),
+        // (12′): the closing stitch is a row-(n+1) top — its cluster covers every earlier row of the set (all of round n)
+        uwagakeSet: level === 'top' && (spec.row >= 2 || closing) ? spec.set : null,
+        uwagakeRow: level === 'top' ? (closing ? spec.row + 1 : spec.row >= 2 ? spec.row : 0) : 0,
         topSet: level === 'top' ? spec.set : null,
       });
+      if (virt) {
+        // the virtual leg placed the holes; it is not a thread, so it leaves the recorded cluster (printed separately)
+        sides.virtualCluster = sides.cluster.filter((c) => c.seg === virt.id);
+        sides.cluster = sides.cluster.filter((c) => c.seg !== virt.id);
+        sides.ignored = (sides.ignored || []).filter((c) => c.seg !== virt.id);
+        sides.squeeze = sides.squeeze.map((q) => (q.seg === virt.id ? { ...q, virtual: true } : q));
+      }
       const E = perpPt(R, s, phiOf(k), sides.eOff);
       const X = perpPt(R, s, phiOf(k), sides.xOff);
       for (const q of sides.squeeze) W.squeezes.push({ hole: q.side === 'E' ? E : X, set: spec.set, round: RD.id, line: k, i, ...q });
@@ -1547,6 +1578,16 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         clearFreeW: legShape.clearFreeW ?? null, clearChordW: legShape.clearChordW ?? null, footS: legShape.footS ?? null, mS: legShape.mS ?? null,
         lam0: legShape.lam0 ?? null, railLateralMm: legShape.railLateralMm ?? null, exitTurnDeg: legShape.exitTurnDeg ?? null, minGapMm: legShape.minGapMm ?? null });
       if (i === 1) RD.firstLegId = leg.id;
+      if (i === 1 && spec.begin === 'hiddenStart' && !W.virtualArrive[spec.set]) {
+        // (12‴): the virtual arriving leg of the start stitch = the mirror of this first leg about the start line's meridian,
+        // traversed toward the start stitch (for the geodesic row 1 the same as leg i2 rotated back two lines).
+        const ph = phiOf(spec.startLine), nM = [-Math.sin(ph), Math.cos(ph), 0];
+        const refl = (q) => { const d = 2 * dot(q, nM); return [q[0] - d * nM[0], q[1] - d * nM[1], q[2] - d * nM[2]]; };
+        const vpts = leg.pts.map(refl).reverse();
+        W.virtualArrive[spec.set] = { id: `virt-${spec.set}`, type: 'leg', virtual: true, set: spec.set, row: 1, level: 'top', stitch: 0,
+          round: RD.id, thread: th.id, line: spec.startLine, from: vpts[0], to: vpts[vpts.length - 1], pts: vpts, length: leg.length,
+          source: 'spec (12‴) #45: virtual arriving leg of the row-1 start stitch (G3 modelling device, hole placement only)' };
+      }
       // перекресты и прилегания со ВСЕМИ ранее уложенными плечами (обе нити): правило над/под
       for (const other of legs()) {
         if (other.id === leg.id) continue;

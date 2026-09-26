@@ -126,9 +126,12 @@ if (G('2b'))
   check(classFlip === 0, `similarity: no joinMode class flips under ×k (flips ${classFlip})`);
 }
 
-// 2c. S16: dense marking — V5 catches neighbour-line reach; closing X squeeze in both JS and calc_reference (D37)
-// 6a.22: at the default (thin) m the 5 mm top no longer reaches the neighbour line → S16 uses a 4 mm top;
-// m = 1.0 with the 5 mm top is kept as the stress set.
+// 2c. S16: dense marking (N = 16). 6a.22: at the default (thin) m the 5 mm top no longer reaches the neighbour line → S16
+// uses a 4 mm top; m = 1.0 with the 5 mm top is kept as the stress set.
+// Retired by #45 — old closing, cancelled by (12′): «S16 …: V5 = fail (catch reaches the neighbour marking line), as
+// expected», «S16 closing stitch missing X-side squeeze», «S16 closing X-side squeeze has gap < w», «S16 closing xOff is
+// mid-gap». The only reach was the squeezed row-1 closing at s_T(1); the closing is now the L0 top of row 2 at s_T(2),
+// placed by its own cluster and checked by V6 (L0 vs L2: x, s ± 0.1·w, e ± 0.2·w; group 8n).
 if (G('2c'))
 for (const s16 of [{ N: 16, sTop_mm: 4 }, { N: 16, m_mm: 1.0 }]) {
   const A = computeAll(recipe, s16);
@@ -136,28 +139,16 @@ for (const s16 of [{ N: 16, sTop_mm: 4 }, { N: 16, m_mm: 1.0 }]) {
   const v5 = V.find((v) => v.id === 'V5');
   const lab = `S16 m=${A.params.m_mm} top ${A.layout.sTop} mm`;
   console.log(`\n  ${lab}: V5 ${v5.status}: ${v5.value}`);
-  check(v5.status === 'fail', `${lab}: V5 = fail (catch reaches the neighbour marking line), as expected`);
-  // calc.py stage-1 closed form unchanged; calc_reference.py applies G3/D36 neighbour-gap squeeze so V3=pass (D37).
-  const m = A.params.m_mm, w = A.params.w_mm;
+  check(v5.status === 'pass' && v5.numbers.reach === 0, `${lab}: V5 pass, no catch reaches the neighbour marking line ((12′): no squeezed closing at s_T(1))`);
+  const m = A.params.m_mm, w = A.params.w_mm, N = A.marking.N;
   const a1 = A.path.stitches.filter((st) => st.round === 'A1');
   const closing = a1.find((st) => st.closing);
-  check(!!closing, 'S16 finds A1 closing stitch');
-  const nonsq = a1.filter((st) => !(st.sides.squeeze || []).length);
-  check(nonsq.length > 0, `S16 has non-squeezed A1 stitches (got ${nonsq.length}; refuse vacuous check)`);
-  const sqList = closing.sides?.squeeze || [];
-  const sq = sqList.find((q) => q.side === 'X');
-  if (!sq) {
-    check(false, 'S16 closing stitch missing X-side squeeze (no TypeError path)');
-  } else {
-    check(sq.gap < w, `S16 closing X-side squeeze has gap < w (gap=${sq.gap.toFixed(6)}, w=${w})`);
-    const loOwn = -(m / 2 + w);
-    check(Math.abs(closing.xOff - (loOwn - sq.gap / 2)) < 1e-9,
-      `S16 closing xOff is mid-gap (got ${closing.xOff.toFixed(6)}, mid=${(loOwn - sq.gap / 2).toFixed(6)})`);
-  }
-  check(nonsq.every((st) => Math.abs(st.eOff - (m + w) / 2) < 1e-9 && Math.abs(st.xOff + (m + w) / 2) < 1e-9),
-    'S16 non-squeezed A1 stitches keep E/X = ±(m+w)/2 (calc.py / calc_reference contract)');
+  check(!!closing && closing.i === N && closing.s > A.layout.sTop + w - 1e-9, `${lab}: A1 closing stitch is the L0 top of row 2 (s = ${closing?.s?.toFixed(3)} = s_T(1) + w)`);
+  const reg = a1.filter((st) => st.i !== N);
+  check(reg.length === N - 1 && reg.every((st) => Math.abs(st.eOff - (m + w) / 2) < 1e-9 && Math.abs(st.xOff + (m + w) / 2) < 1e-9),
+    `${lab}: A1 stitches except the closing keep E/X = ±(m+w)/2 (calc.py / calc_reference contract)`);
   const v3 = V.find((v) => v.id === 'V3');
-  console.log(`  S16 V3 ${v3.status} (expect pass after calc_reference squeeze): dXY=${v3.numbers?.dXY?.toFixed?.(9) ?? v3.numbers?.dXY}`);
+  console.log(`  S16 V3 ${v3.status} (row 1 without the closing, (12′)): dXY=${v3.numbers?.dXY?.toFixed?.(9) ?? v3.numbers?.dXY}`);
   check(v3.status === 'pass' && (v3.numbers?.dXY ?? 1) < 1e-6,
     `S16 V3 pass (JS ↔ calc_reference); dXY=${v3.numbers?.dXY}`);
   const B = computeAll(recipe, { ...s16, sTop_mm: 8 });
@@ -171,9 +162,10 @@ if (G('3'))
   const s1 = A1.path.stitches, s2 = A2.path.stitches;
   const dE = s2[0].eOff - s1[0].eOff, dX = s2[0].xOff - s1[0].xOff;
   const dXc = s2[7].xOff - s1[7].xOff;
-  console.log(`\n  w 0,714 → 1,0: E сдвиг ${fmt(dE, 6)} мм, X ${fmt(dX, 6)} мм (ожидание ±Δw/2 = ±0,143), X замыкающего ${fmt(dXc, 6)} (ожидание −1,5Δw = −0,429)`);
+  console.log(`\n  w 0,714 → 1,0: E сдвиг ${fmt(dE, 6)} мм, X ${fmt(dX, 6)} мм (ожидание ±Δw/2 = ±0,143), X замыкающего ${fmt(dXc, 6)} (диагностика; (12′): L0-верх ряда 2)`);
   check(Math.abs(dE - 0.143) < 1e-9 && Math.abs(dX + 0.143) < 1e-9, 'E/X обычного стежка смещаются на ±Δw/2');
-  check(Math.abs(dXc + 1.5 * 0.286) < 1e-9, 'X замыкающего стежка смещается на −1,5Δw (стартовая нить тоже шире)');
+  // Retired by #45 — old closing, cancelled by (12′): «X замыкающего стежка смещается на −1,5Δw (стартовая нить тоже шире)».
+  // The closing is the L0 top of row 2 (own cluster at s_T(2)); covered by V6 L0 vs L2 (group 8n).
   const n1 = A1.rowPlan.nRows, n2 = A2.rowPlan.nRows;
   console.log(`  план рядов «до экватора, вплотную»: w=0,714 → ${n1} рядов, w=1,0 → ${n2} рядов`);
   check(n2 <= n1, 'более толстая нить даёт не больше рядов до экватора');
@@ -741,17 +733,39 @@ if (G('8b2'))
     console.log(`  interiorXn: ${diag?.interiorXnCount}/${diag?.railLegs} byRow=${JSON.stringify(diag?.interiorXnByRow)}`);
     check(diag && diag.interiorXnCount > 0, 'railDiagnostics reports interior X_n count (pending Fable)');
     check(r2.some((s) => s.interiorXn) && r2.some((s) => !s.interiorXn), 'row-2 has both interiorXn (holding) and exterior (tangent) legs');
-    // L_j ≈ R·√(2·|d|/R · tan ρ) = √(2·|d|·R·tan ρ)
+    // L_j (#45, (10′)): the expectation is the closed-form tangency from X_n to the small circle (k, ρ) of the actual rail
+    // piece(s) — a·cosψ + b·sinψ = (X·k)·tan ρ, the co-directional root lying on a piece, first in travel order — with a
+    // class (i) tolerance (1e−6·w). √(2·|d|·R·tan ρ) is only its single-arc small-d special case (printed).
+    const U3 = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
+    const d3 = (x, y) => x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+    const c3 = (x, y) => [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+    const a3 = (x, y) => Math.atan2(Math.hypot(...c3(x, y)), d3(x, y));
+    const closedLj = (sg, R) => {
+      const X = U3(sg.from);
+      for (const pc of sg.arcs.filter((q) => q.cls === 'rail' || q.cls === 'ext' || q.cls === 'corner')) {
+        if (Math.abs(pc.rho - Math.PI / 2) < 1e-12) continue;   // a great circle has no tangency (10′)
+        const k = U3(pc.k), a0 = U3(pc.a), u = U3(c3(c3(k, a0), k)), v = c3(k, u);
+        const aa = d3(X, u), bb = d3(X, v), H = Math.hypot(aa, bb), cc = d3(X, k) * Math.tan(pc.rho);
+        if (H < Math.abs(cc)) continue;
+        for (const sgn of [1, -1]) {
+          const psi = Math.atan2(bb, aa) + sgn * Math.acos(cc / H);
+          const P = U3(k.map((kk, i) => Math.cos(pc.rho) * kk + Math.sin(pc.rho) * (Math.cos(psi) * u[i] + Math.sin(psi) * v[i])));
+          const T = U3(c3(k, P)), arr = U3(P.map((q, i) => q * d3(X, P) - X[i]));
+          const along = R * Math.sin(pc.rho) * (((Math.atan2(d3(P, v), d3(P, u)) - Math.atan2(d3(a0, v), d3(a0, u))) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI));
+          if (d3(arr, T) * Math.sign(pc.psi || 1) > 0 && along <= R * Math.sin(pc.rho) * Math.abs(pc.psi) + 1e-9) return R * a3(X, P);
+        }
+      }
+      return NaN;
+    };
     let ljOk = 0, ljN = 0;
     for (const s of ext) {
       const d = Math.abs(s.lateralMm ?? 0);
-      if (d < 0.07 * (A.params.w_mm / 0.714)) continue; // ~0.05 mm at w0; scale with w (6a.11(3))
-      const R = A.base.R, rho = s.rho;
-      const expect = Math.sqrt(2 * d * R * Math.tan(rho));
+      if (s.joinMode !== 'tangent' || !(d > 1e-9 * A.params.w_mm)) continue;
+      const R = A.base.R;
+      const expect = closedLj(s, R), approx = Math.sqrt(2 * d * R * Math.tan(s.rho));
       const got = s.spliceMm ?? 0;
-      const rel = Math.abs(got - expect) / expect;
-      console.log(`  L_j d=${fmt(d, 3)} expect≈${fmt(expect, 2)} got=${fmt(got, 2)} rel=${fmt(rel, 3)}`);
-      ljN++; if (rel < 0.15) ljOk++;
+      console.log(`  L_j d=${fmt(d, 4)} closed form ${fmt(expect, 9)} got ${fmt(got, 9)} (Δ ${Math.abs(got - expect).toExponential(1)} mm; single-arc √(2dR·tan ρ) ${fmt(approx, 2)})`);
+      ljN++; if (Math.abs(got - expect) <= 1e-6 * A.params.w_mm) ljOk++;
     }
     if (ljN === 0) {
       // Exterior with d≈0: tangent join length is negligible (6a.4 — no splice threshold). A degenerate entry
@@ -762,7 +776,7 @@ if (G('8b2'))
       check(tang.every((s) => (s.spliceMm ?? 0) < 0.07 * (A.params.w_mm / 0.714)) && bad.length === 0,
         `exterior d≈0 ⇒ tangent spliceMm ≈ 0 (no false L_j); ${deg.length} degenerate entries: spliceMm = |X_n M| ±1e−6 mm, turn at M ≤ atan(|d|/ℓm)+0.2° (bad ${bad.join(',') || 0})`);
     } else {
-      check(ljOk === ljN, 'L_j matches √(2·|d|·R·tan ρ) within 15% for exterior joins');
+      check(ljOk === ljN, `L_j = closed-form tangency on the actual rail piece(s) within 1e−6·w for all ${ljN} exterior tangent joins (10′)`);
     }
   }
 
@@ -1271,12 +1285,18 @@ if (G('8d'))
   // 0/12, covered 12/12" at λ ≥ 0.4 for row 2) and Δsum·tan α sits inside [(m+w) − w/(2cos α); (m+w) + w/(2cos α)].
   const A60 = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, rowsMode: 'untilEquator' });
   for (const [lam, V] of [[0.32, vals.K16], [0.6, runValidators(A60, A60.path.ops.length - 1, null).find((v) => v.id === 'K16')]]) {
-    const ps = V.numbers.perSet, br = V.numbers.bRows.filter((b) => b.hole === 'E');
+    const ps = V.numbers.perSet, brAll = V.numbers.bRows.filter((b) => b.hole === 'E');
+    // Spec (15) (#45): the pair on the bottom line before L0 is covered by the intermediate closing leg of row n+2 (it runs
+    // down to the L0 top of row n+3) — excluded from the K16b promise test, printed with product vs window.
+    const Nn = A.marking.N, startOf = (set) => recipe.work.sets.find((x) => x.set === set).startLine;
+    const isClosingPair = (b) => b.line === (startOf(b.set) + Nn - 1) % Nn;
+    const excl = brAll.filter(isClosingPair), br = brAll.filter((b) => !isClosingPair(b));
+    console.log(`  K16b λ=${lam}: closing-leg pairs excluded (${excl.length}): ${excl.map((b) => `${b.set}${b.row} L${b.line} ${fmt(b.prod, 3)} in [${fmt(b.win[0], 3)}; ${fmt(b.win[1], 3)}]${b.promised ? '' : ' not promised'}`).join('; ')}`);
     const inWin = br.filter((b) => b.prod >= b.win[0] - 1e-9 && b.prod <= b.win[1] + 1e-9).length;
     const r1 = br.filter((b) => b.row === 1);
     console.log(`  K16b λ=${lam}: ${['A', 'B'].map((k) => `${k} promised ${ps[k].bPromised}/${ps[k].bN} covered ${ps[k].bRaw}`).join(', ')}; row-1 tips α ${fmt(Math.min(...r1.map((b) => b.alphaDeg)), 2)}–${fmt(Math.max(...r1.map((b) => b.alphaDeg)), 2)}°, Δsum·tan α ${fmt(Math.min(...r1.map((b) => b.prod)), 3)}–${fmt(Math.max(...r1.map((b) => b.prod)), 3)} in [${fmt(r1[0].win[0], 3)}; ${fmt(r1[0].win[1], 3)}]`);
-    check(V.status === 'pass' && ['A', 'B'].every((k) => ps[k].bPromised === ps[k].bN && ps[k].bRaw === ps[k].bN) && inWin === br.length,
-      `K16b λ=${lam}: every pair promised by the window with the actual-leg α and covered (A ${ps.A.bPromised}/${ps.A.bN}, B ${ps.B.bPromised}/${ps.B.bN}; in window ${inWin}/${br.length})`);
+    check(V.status === 'pass' && ['A', 'B'].every((k) => ps[k].bRaw === ps[k].bN) && br.every((b) => b.promised) && inWin === br.length,
+      `K16b λ=${lam}: every pair covered; every pair except the ${excl.length} closing-leg pairs promised by the window with the actual-leg α (in window ${inWin}/${br.length})`);
   }
   const v8 = vals.V8;
   const tipN = (v8?.details?.found || []).filter((r) => /tipCross/.test(r.why)).length;
@@ -1394,7 +1414,8 @@ if (G('8e'))
       }
     }
     console.log(`  #22 λ=${lam} N=${N}: ${legs.length} legs with M, max |turn − expected| ${fmt(err, 4)}°, max turn ${fmt(tMax, 2)}°; rail corner foot→M: ${k.n}, max rail turn ${fmt(k.rail, 2)}°, max turn at M ${fmt(k.turn, 2)}°, min clearance from M ${k.n ? fmt(k.clr, 4) : '–'} w`);
-    check(legs.length > 0 && err <= 0.2 && tMax <= 20 && (k.n === 0 || k.clr >= 0.99),
+    // (12′) (#45): at λ = 0 the only legs with M were the i1 climbs of the transition step, which no longer exists.
+    check((legs.length > 0 || lam === 0) && err <= 0.2 && tMax <= 20 && (k.n === 0 || k.clr >= 0.99),
       `#22 λ=${lam} N=${N}: turn at M = chord→rail-link angle ±0.2°, ≤ 20°; clearance from M ≥ 0.99·w on ${k.n} legs with a rail corner foot→M`);
   }
   setLegSamples(null);
@@ -1645,7 +1666,7 @@ if (G('8j'))
     const segById = new Map(A.path.segs.map((x) => [x.id, x]));
     const tops = A.path.stitches.filter((q) => q.level === 'top');
     if (lambda === 0 && m === 0.5) {
-      const top = (set, row) => tops.filter((q) => q.set === set && q.row === row);
+      const top = (set, row) => tops.filter((q) => q.set === set && q.row === row && q.i !== A.marking.N);   // (12′): the closing stitch is the L0 top of row n+1
       for (const row of [4, 5]) {
         const wA = top('A', row).map((q) => q.eOff - q.xOff), wB = top('B', row).map((q) => q.eOff - q.xOff);
         const dev = Math.max(...wB.map((x) => Math.abs(x - wA[0])), ...wA.map((x) => Math.abs(x - wA[0])));
@@ -1800,76 +1821,67 @@ if (G('8m'))
   check(ru === 'этап A2: проверки считаются…' && en === 'stage A2: checks are running…', `#43 running note RU «${ru}» / EN «${en}»`);
 }
 
-// 8n. #25: V6 by the classes of spec v3.2 §6.11 — clean classes, B = rot(A), closing (own cluster, row-1 +w), transition
-// step (free root from the actual rail), i2 like i4 shifted by the step; every branch of v6Judge on mutated metrics.
+// 8n. #25 / #45: V6 by the classes of spec v3.2 §6.11 with (12′)–(12‴): clean classes, B = rot(A), no transition step,
+// the L0 top of row n (closing of round n−1 / start stitch) against top i2 (x, s ±0.1·w; e ±0.2·w — arrival-direction
+// residual), i1 vs rot(i3) and i2 vs rot(i4) ≤ 0.1·w; every branch of v6Judge on mutated metrics.
 if (G('8n'))
 {
-  console.log('\n## #25 V6 by §6.11 classes');
+  console.log('\n## #25/#45 V6 by §6.11 classes, (12‴)');
   const { v6Metrics, v6Judge, V6_TOL } = await import('../src/validators.js');
-  const expExtra = { '0/0.5': [1, 0.703, 0, 0, 0], '0.32/0.5': [1, 1.237, 0.822, 0.405, 0, 0, 0, 0, 0], '0.6/0.5': [1, 1.147, 1.165, 1.183, 1.191, 1.099, 0.917, 0.712, 0.484, 0.235, 0, 0, 0] };
   let keep = null;
   for (const m of [0.5, 1]) for (const lam of [0, 0.32, 0.6]) {
     const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: m, rowsMode: 'untilEquator', shoulderForm: lam ? 'bow' : 'geodesic', bowLambda: lam, muWrap: Math.max(0.32, lam) });
     const w = A.params.w_mm;
     const V = runValidators(A, 'all', null), v6 = V.find((v) => v.id === 'V6'), v5 = V.find((v) => v.id === 'V5');
     const Q = v6.numbers.rounds, mx = (g) => Math.max(0, ...Q.map(g));
-    const extra = Q.filter((q) => q.set === 'A').map((q) => q.closing.extra / w);
-    console.log(`  λ${lam} m${m}: V6 ${v6.status}; closing extra (A) ${extra.map((x) => fmt(x, 3)).join(' → ')} w; steps (A) ${Q.filter((q) => q.set === 'A' && q.step).map((q) => fmt(q.step.actual / w, 3)).join(' → ')} w`);
-    check(v6.status === 'pass', `#25 λ${lam} m${m}: V6 pass (${v6.numbers.reasons.join('; ') || 'no reasons'})`);
+    const QA = Q.filter((q) => q.set === 'A');
+    console.log(`  λ${lam} m${m}: V6 ${v6.status}, V5 ${v5.status}; L0−L2 e (A) ${QA.filter((q) => q.L0).map((q) => fmt(q.L0.de / w, 3)).join(' → ')} w`);
+    check(v6.status === 'pass' && v5.status === 'pass', `#45 λ${lam} m${m}: V6 and V5 pass (${v6.numbers.reasons.join('; ') || 'no reasons'}; V5 ${v5.status})`);
     check(mx((q) => q.clean) <= V6_TOL.cleanW * w && Q.filter((q) => q.set === 'B').every((q) => q.bVsA != null && q.bVsA <= V6_TOL.cleanW * w),
       `#25 λ${lam} m${m}: clean classes ≤ 1.4e−6·w (max ${mx((q) => q.clean).toExponential(2)} mm), B = rot(A, 2π/N) on every B round (max ${mx((q) => q.bVsA ?? 0).toExponential(2)} mm)`);
-    check(Q.filter((q) => q.closing.row1).every((q) => Math.abs(q.closing.extra - w) <= V6_TOL.cleanW * w)
-      && mx((q) => q.closing.dev) <= V6_TOL.affW * w && Q.every((q) => q.closing.extra >= -1e-6 && q.closing.clear >= V6_TOL.clearW * w),
-      `#25 λ${lam} m${m}: closing — row 1 exactly +w; X = own-cluster edge − w/2 within 0.1·w (max ${fmt(mx((q) => q.closing.dev) / w, 4)}w); never inside the regular X; clearance ≥ 0.9·w`);
-    check(Q.filter((q) => q.begin === 'resume').every((q) => q.step && Number.isFinite(q.step.expected) && q.step.dev <= V6_TOL.affW * w && q.i2.d <= q.i2.step + V6_TOL.affW * w),
-      `#25 λ${lam} m${m}: step = free root from the actual rail within 0.1·w (max ${fmt(mx((q) => q.step?.dev ?? 0) / w, 4)}w); i1 by its bottom only; i2 = i4 up to the step`);
-    const key = `${lam}/${m}`;
-    if (expExtra[key]) check(extra.length === expExtra[key].length && extra.every((x, j) => Math.abs(x - expExtra[key][j]) < 0.005),
-      `#25 λ${lam} m${m}: closing extra per row as the own cluster gives (${expExtra[key].join(' → ')} w)`);
-    if (lam === 0 && m === 0.5) {
-      const s5 = Q.find((q) => q.id === 'A5').step;
-      check(s5.actual / w > V6_TOL.failW && s5.dev <= V6_TOL.affW * w && v5.status === 'fail',
-        `#25 λ0: the A5 step ${fmt(s5.actual / w, 3)}w > 0.5w is explained (expected ${fmt(s5.expected / w, 3)}w) and passes V6; V5 keeps its bottom-spread fail (${v5.status})`);
-      keep = { A, w, M: v6Metrics(A, A.path.rounds) };
-    }
+    const rowsN = QA.length;
+    check(Q.every((q) => q.L0) && QA.length === A.path.rounds.filter((r) => r.set === 'A').length,
+      `#45 λ${lam} m${m}: every round has its L0 top (row 1: start stitch; row n: closing of round n−1), ${rowsN} rows`);
+    check(mx((q) => q.step.dev) <= V6_TOL.affW * w && mx((q) => Math.abs(q.L0.dx)) <= V6_TOL.affW * w && mx((q) => Math.abs(q.L0.ds)) <= V6_TOL.affW * w
+      && mx((q) => q.shape) <= V6_TOL.affW * w && mx((q) => q.i2) <= V6_TOL.affW * w && mx((q) => Math.abs(q.L0.de)) <= V6_TOL.eW * w,
+      `#45 λ${lam} m${m}: step ${fmt(mx((q) => q.step.dev) / w, 3)}w, L0−L2 x ${fmt(mx((q) => Math.abs(q.L0.dx)) / w, 3)}w, s ${fmt(mx((q) => Math.abs(q.L0.ds)) / w, 3)}w, i1−rot(i3) ${fmt(mx((q) => q.shape) / w, 3)}w, i2−rot(i4) ${fmt(mx((q) => q.i2) / w, 3)}w (≤ 0.1w); e ${fmt(mx((q) => Math.abs(q.L0.de)) / w, 3)}w (≤ 0.2w)`);
+    if (lam === 0 && m === 0.5) keep = { A, w, M: v6Metrics(A, A.path.rounds) };
   }
-  // v6Judge branches on mutated metrics (λ0 m0.5 as the base).
   const { A, w, M } = keep;
-  const J = (mut) => { const c = structuredClone(M); mut(c.rounds); return v6Judge(c, w).status; };
+  const J = (mut) => { const c = structuredClone(M); mut(c.rounds); return v6Judge(c, w); };
   const r = (id) => (q) => q.find((x) => x.id === id);
   const cases = [
     ['base', () => {}, 'pass'],
     ['clean class +2e−6·w', (q) => { r('A3')(q).clean = 2e-6 * w; }, 'fail'],
     ['B ≠ rot(A) +2e−6·w', (q) => { r('B3')(q).bVsA = 2e-6 * w; }, 'fail'],
-    ['row-1 closing extra w − 0.01w', (q) => { r('A1')(q).closing.extra = 0.99 * w; }, 'fail'],
-    ['closing dev 0.2w (explained band)', (q) => { r('A3')(q).closing.dev = 0.2 * w; }, 'warn'],
-    ['closing dev 0.6w (unexplained)', (q) => { r('A3')(q).closing.dev = 0.6 * w; }, 'fail'],
-    ['closing X inside the regular', (q) => { r('A3')(q).closing.extra = -1e-5; }, 'fail'],
-    ['closing clearance 0.85w', (q) => { r('A3')(q).closing.clear = 0.85 * w; }, 'fail'],
-    ['step dev 0.2w', (q) => { r('A4')(q).step.dev = 0.2 * w; }, 'warn'],
-    ['step dev 0.6w (unexplained)', (q) => { r('A4')(q).step.dev = 0.6 * w; }, 'fail'],
-    ['step: no free root', (q) => { r('A4')(q).step.expected = NaN; }, 'fail'],
-    ['explained step 2w (no 0.5w cap)', (q) => { const s = r('A5')(q); s.step.actual = 2 * w; s.step.expected = 2 * w; s.step.dev = 0; s.i2.step = 2 * w; s.i2.d = 2 * w; }, 'pass'],
-    ['i2 beyond the step by 0.6w', (q) => { const s = r('A4')(q); s.i2.d = s.i2.step + 0.6 * w; }, 'fail'],
-    ['i2 beyond the step by 0.05w', (q) => { const s = r('A4')(q); s.i2.d = s.i2.step + 0.05 * w; }, 'pass'],
+    ['step 0.11w', (q) => { const s = r('A4')(q).step; s.actual = s.dev = 0.11 * w; }, 'fail'],
+    ['step 0.09w', (q) => { const s = r('A4')(q).step; s.actual = s.dev = 0.09 * w; }, 'pass'],
+    ['L0 x 0.11w', (q) => { r('A3')(q).L0.dx = 0.11 * w; }, 'fail'],
+    ['L0 s 0.11w', (q) => { r('A3')(q).L0.ds = -0.11 * w; }, 'fail'],
+    ['L0 e 0.19w (residual)', (q) => { r('A3')(q).L0.de = -0.19 * w; }, 'pass'],
+    ['L0 e 0.21w', (q) => { r('A3')(q).L0.de = -0.21 * w; }, 'fail'],
+    ['i1 vs rot(i3) 0.11w', (q) => { r('A2')(q).shape = 0.11 * w; }, 'fail'],
+    ['i2 vs rot(i4) 0.11w', (q) => { r('A2')(q).i2 = 0.11 * w; }, 'fail'],
   ];
-  const got = cases.map(([name, mut, exp]) => [name, J(mut), exp]);
+  const got = cases.map(([name, mut, exp]) => [name, J(mut).status, exp]);
   console.log(`  v6Judge: ${got.map(([n, g]) => `${n} → ${g}`).join('; ')}`);
-  check(got.every(([, g, e]) => g === e), `#25 v6Judge: every branch (${got.filter(([, g, e]) => g !== e).map(([n, g, e]) => `${n}: ${g} ≠ ${e}`).join(', ') || 'all as expected'})`);
-  // Mutations of the geometry itself reach v6Metrics (restored after): a clean leg vertex moved 1e−5 mm, the i1 bottom moved
-  // 0.6w along the line (s), the closing xOff moved 0.2w.
-  const P = A.path, seg = new Map(P.segs.map((s) => [s.id, s])), rd = P.rounds.find((x) => x.id === 'A3');
-  const stOf = (i) => P.stitches[rd.stitchIdx.find((k) => P.stitches[k].i === i)];
-  const leg5 = seg.get(stOf(5).legId), v0 = leg5.pts[40].slice();
+  check(got.every(([, g, e]) => g === e), `#45 v6Judge: every branch (${got.filter(([, g, e]) => g !== e).map(([n, g, e]) => `${n}: ${g} ≠ ${e}`).join(', ') || 'all as expected'})`);
+  const eFail = J((q) => { r('A3')(q).L0.de = -0.3 * w; }).reasons.join(' ');
+  check(/arrival-direction residual/.test(eFail) && /clusters L0 \[[^\]]+\] L2 \[[^\]]+\]/.test(eFail), `#45 e > 0.2w prints both clusters (${eFail.slice(0, 160)})`);
+  // Mutations of the geometry reach v6Metrics (restored after): a clean leg vertex 1e−5 mm, the i1 bottom 0.2w along the
+  // line, the closing of A2 (= L0 top of A3) xOff −0.2w.
+  const P = A.path, seg = new Map(P.segs.map((s) => [s.id, s])), rd = P.rounds.find((x) => x.id === 'A3'), rd2 = P.rounds.find((x) => x.id === 'A2');
+  const stOf = (R0, i) => P.stitches[R0.stitchIdx.find((k) => P.stitches[k].i === i)];
+  const leg5 = seg.get(stOf(rd, 5).legId), v0 = leg5.pts[40].slice();
   leg5.pts[40] = [v0[0] + 1e-5, v0[1], v0[2]];
   const g1 = v6Judge(v6Metrics(A, [rd]), w).status; leg5.pts[40] = v0;
-  const st1 = stOf(1), s0 = st1.s; st1.s = s0 + 0.6 * w;
-  const g2 = v6Judge(v6Metrics(A, P.rounds.filter((x) => x.set === 'A' && x.row <= 3)), w).status; st1.s = s0;
-  const st8 = stOf(8), x0 = st8.xOff; st8.xOff = x0 - 0.2 * w;
-  const g3 = v6Metrics(A, [rd]).rounds[0].closing; st8.xOff = x0;
+  const st1 = stOf(rd, 1), s0 = st1.s; st1.s = s0 + 0.2 * w;
+  const g2 = v6Judge(v6Metrics(A, [rd]), w).status; st1.s = s0;
+  const st8 = stOf(rd2, 8), x0 = st8.xOff; st8.xOff = x0 - 0.2 * w;
+  const g3 = v6Metrics(A, [rd]).rounds[0].L0; st8.xOff = x0;
   const g4 = v6Judge(v6Metrics(A, [rd]), w).status;
-  check(g1 === 'fail' && g2 === 'fail' && g3.dev > 0.19 * w && g3.dev < 0.21 * w && g4 === 'pass',
-    `#25 v6Metrics on mutated geometry: clean vertex 1e−5 mm → ${g1}; i1 bottom +0.6w → ${g2}; closing xOff −0.2w → dev ${fmt(g3.dev / w, 3)}w; restored → ${g4}`);
+  check(g1 === 'fail' && g2 === 'fail' && Math.abs(Math.abs(g3.dx) - 0.2 * w) < 0.01 * w && g4 === 'pass',
+    `#45 v6Metrics on mutated geometry: clean vertex 1e−5 mm → ${g1}; i1 bottom +0.2w → ${g2}; A2 closing xOff −0.2w → L0 x ${fmt(g3.dx / w, 3)}w; restored → ${g4}`);
 }
 
 // 8o. #4 diagnostics (refs #4): the top-width growth decomposition sums to the actual increment W_n − W_(n−1) within
