@@ -1356,7 +1356,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
   // rail back from T₁ (step 0.02·w, then bisection); none within 20·w → Δs = null, printed «Δs not found within 20 w».
   // Class (i) guard (review b080c58 §5): a found Δs (signed along the rail's forward direction) must be ≤ 1e-9·R, else the
   // leg is a construction fail (exit contradiction), not a free-graze chord.
-  let grazeDsMm = null, grazeGapMm = null, grazeMinGapW = null, grazeResMin = null;
+  let grazeDsMm = null, grazeGapMm = null, grazeMinGapW = null, grazeResMin = null, grazePieces = null;
   let graze = GRAZE_10PP && (entryKind === 'tangent' || entryKind === 'braidTangent') && exitKind === 'free' && !exitFail && Math.abs(best.s - sT0) <= 1e-9 * R;
   if (graze) {
     const Lb = Math.min(forward ? sT0 : railLen - sT0, 20 * wEff), nb = Math.max(40, Math.ceil(Lb / (0.02 * wEff)));
@@ -1375,6 +1375,9 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
       grazeResMin = bm ? { resMm: bm.resMm, atMm: (bm.s - sT0) * dirS, windowMm: Lb } : { resMm: null, atMm: null, windowMm: Lb };
     }
     if (grazeDsMm !== null && grazeDsMm > 1e-9 * R) { exitFail = true; exitKind = 'contradiction'; grazeDsMm = null; graze = false; }
+    // closure-5 point 6 (Fable): the rail pieces between T₂ and T₁ with their λ_r = |cot ρ| — the chord gap identity
+    // (Δs)²·λ_r/(8R) holds on one piece; several pieces (a continuation, a corner arc) take another formula
+    if (b2 && graze) grazePieces = rail.sub(Math.min(b2.s, sT0), Math.max(b2.s, sT0)).map((q) => ({ cls: q.cls ?? null, lr: Math.abs(1 / Math.tan(q.rho)), lenMm: R * Math.sin(q.rho) * q.psi }));
   }
   if (graze) {
     const Eg = unit(to), om = angle(X, Eg), Lc = R * om, laid = laidChain(R, prevArm), nc = Math.max(16, Math.ceil(Lc / (0.1 * wEff)));
@@ -1385,7 +1388,11 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
       const lr = rail.continuedLateral(g); if (!lr.clamped) rMin = Math.min(rMin, lr.signedMm);
     }
     grazeGapMm = Number.isFinite(rMin) ? rMin : null; grazeMinGapW = Number.isFinite(gMin) ? gMin / wEff : null;
-    entryKind = 'free-graze'; exitKind = 'free-graze'; joinMode = 'free'; Tpt = Eg; splice = R * om;
+    // Fable (bom-spec v1 §7 (2), 2026-09-26): Δs is a property of two existing tangencies — no sign change of the residual
+    // means no tangent from E at all, the chord passes the rail clear: branch (10′) «no tangency, clean chord», class free
+    // (same construction, one great circle X_n → E); the least residual and the chord's rail gap are printed (V20).
+    const kind = grazeDsMm === null ? 'free' : 'free-graze';
+    entryKind = kind; exitKind = kind; joinMode = 'free'; Tpt = Eg; splice = R * om;
   }
   const exitSin = eOnRail ? 0 : best.sin, exitResMm = eOnRail ? Math.abs(dE) : best.resMm; // at E: tangent at the foot
   const exitAlongMm = Math.abs(best.s - sT0);
@@ -1526,7 +1533,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
     railKind,
     holeTurnDeg,
     mergeTurnDeg,
-    exitKind, exitFail, exitSin, exitResMm, exitAlongMm, exitSkipped, rawTurnMaxDeg, rawTurnAtMm, grazeDsMm, grazeGapMm, grazeMinGapW, grazeResMin,
+    exitKind, exitFail, exitSin, exitResMm, exitAlongMm, exitSkipped, rawTurnMaxDeg, rawTurnAtMm, grazeDsMm, grazeGapMm, grazeMinGapW, grazeResMin, grazePieces,
     exitDeMm: dE, arcs: legArcs,
     // #22 diagnostics: foot of X_n and M on the rail (arc length), the rail's own turn between them (deg) and the
     // constructed turn at M (chord → rail tangent).
@@ -1958,7 +1965,7 @@ function buildWorkIn(recipe, P, base, marking, layout, rowPlan) {
         braidJoinTurnDeg: legShape.braidJoinTurnDeg ?? null, braidExitTurnDeg: legShape.braidExitTurnDeg ?? null,
         braidJoinShiftMm: legShape.braidJoinShiftMm ?? null, braidExitShiftMm: legShape.braidExitShiftMm ?? null,
         lam0: legShape.lam0 ?? null, railLateralMm: legShape.railLateralMm ?? null, exitTurnDeg: legShape.exitTurnDeg ?? null, minGapMm: legShape.minGapMm ?? null,
-        grazeDsMm: legShape.grazeDsMm ?? null, grazeGapMm: legShape.grazeGapMm ?? null, grazeMinGapW: legShape.grazeMinGapW ?? null, grazeResMin: legShape.grazeResMin ?? null });
+        grazeDsMm: legShape.grazeDsMm ?? null, grazeGapMm: legShape.grazeGapMm ?? null, grazeMinGapW: legShape.grazeMinGapW ?? null, grazeResMin: legShape.grazeResMin ?? null, grazePieces: legShape.grazePieces ?? null });
       if (i === 1) RD.firstLegId = leg.id;
       if (!BRAID && i === 1 && spec.begin === 'hiddenStart' && !W.virtualArrive[spec.set]) {
         // (12‴): the virtual arriving leg of the start stitch = the mirror of this first leg about the start line's meridian,

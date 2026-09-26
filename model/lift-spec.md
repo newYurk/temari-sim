@@ -1,8 +1,8 @@
-# Thread lift at crossings and the "tent" (#5, stage 2.4) — lift specification v1.1
+# Thread lift at crossings and the "tent" (#5, stage 2.4) — lift specification v1.1.1
 
 Against main a3b86b8 (display.js `DISPLAY_STACK_LIFT_W = 0.6`, `stackProfileFn`; layers.js `layerMechanics → null`; path.js `stackLevels` → `c.stack`; validators.js V14). Extends model/spec.md §3 Ф4, §4 T1–T6 and leg-shape-spec v3.3. Basis labels as in model/spec.md: **(a)** source, **(b)** analogue/transfer, **(c)** estimate, **(d)** accepted without data, **(=)** computed here; confidence: high / medium / low. Fable, 2026-09-26.
 
-**Note.** The original is Russian (Fable session, `lift-spec v1`). This is an English translation for the repo with the v1.1 edits applied: Fable's reply on m / plateau / tolerances / B (lift-q §C–§D) and Fable's reply Q5 (support on bridges and flights, §5). The changes against v1 are listed in §9. Where v1 illustrated with B = 0.01 N·mm², the tables are kept as illustrations; the code regenerates them at the current defaults (`samples/lift/numbers.md`, `node sim/tools/lift-numbers.mjs`), and acceptance is by the formulas and limits, not by reprinted numbers.
+**Note.** The original is Russian (Fable session, `lift-spec v1`). This is an English translation for the repo with the v1.1 edits applied: Fable's reply on m / plateau / tolerances / B (lift-q §C–§D) and Fable's reply Q5 (support on bridges and flights, §5); v1.1.1 — the review of v1.1 (#5 cleanup: t_c in reduced form, V25 check groups, K18 identity, V26 convergence). The changes against v1 are listed in §9. Where v1 illustrated with B = 0.01 N·mm², the tables are kept as illustrations; the code regenerates them at the current defaults (`samples/lift/numbers.md`, `node sim/tools/lift-numbers.mjs`), and acceptance is by the formulas and limits, not by reprinted numbers.
 
 **Principle.** Lift mechanics is a radial field over the construction: it moves no hole and changes no lateral rule (G3, K12, (8′)–(13)); it sets the height of the thread axis above the sphere along the already built path, and lengths and contact checks follow from it. The numbers are estimates with ranges; one parameter is calibrated from an ordinary photo (§5). A ruler measurement is not needed until the render visibly disagrees with a photo (criterion in §5.3).
 
@@ -102,7 +102,9 @@ Inside one patch each intermediate thread adds its compressed thickness, and the
 
 **Apex height (v1.1, Fable Q5): Δ_c = z_sup + Δ₁(F_c).** z_sup is the support of the upper thread on the lower thread's loaded profile (§1.8, "Support on a bridge and a flight"): 0 on the sphere, the crest of an own apex of the lower thread, or a loaded bridge / flight with its sag. Δ₁(F) is the T8 rise with t_c(F) and δ(F) at F_c = 2T·σ_U (a fixed point together with σ_U = √(2Δ_c/R)). κ applies only inside the patch (m > 1 by the window above), not to displaced supports — their compression is already in the sag and in Δ₁(F). For a pure stack this is exactly Δ(m); over a bridge it is u_bridge − sag + Δ₁ (the lower thread of a bridge does not touch the ball, there is no extra dent).
 
-The upper bound is the one-level ceiling over the actual support (K18): **Δ_c − z_sup ≤ 1.5·t_c(F_c) − h/2** (0.325 mm at F = F₁). The rigid ceiling Δ_cap(m) = (m + ½)·t_c − h/2 of v1 remains an illustration for a pure stack. Stacks m ≥ 4 in kiku occur only at the centre and in the braid; the former "limit of 3 layers" becomes a print of m_max, not a rule. For almost parallel threads (ψ < ψ\*) in a stack a nesting factor 0.9 per layer (c), but such places the construction already describes as climb/wedge (§3.2).
+**Pending (v1.1.1, review of v1.1 §4 (c)).** The review proposes Δ_c = z_sup + t_c(F_c) off the sphere (the upper thread's axis one compressed thickness over the support; no dent of a lower thread that does not touch the ball). It is implemented as `LIFT_CHOICES.apexOff: 'tc'` but not the default: at S8 it raises p95 0.40 → 0.71 mm and the maximum 0.47 → 0.98 mm (compounding over flights), and V27 fails where another crossing's ground dent lies under a flight point. The default `'d1'` is the rule above: Δ_c = z_sup + Δ₁(F_c)·(m > 1 ? κ : 1).
+
+The upper bound is the one-level ceiling over the actual support (K18): **Δ_c − z_sup ≤ 1.5·t_c(F_c) − h/2** (0.325 mm at F = F₁). In the code K18 is the identity of the rule by support kind (ground: Δ₁(F_c); plateau with m > 1: κ·Δ₁(F_c); bridge / flight: Δ₁(F_c)), class (i) 1e-9·w, with the counts per kind printed; the ceiling holds because Δ₁(F) ≤ 1.5·t_c(F) − h/2 by T8. The rigid ceiling Δ_cap(m) = (m + ½)·t_c − h/2 of v1 remains an illustration for a pure stack. Stacks m ≥ 4 in kiku occur only at the centre and in the braid; the former "limit of 3 layers" becomes a print of m_max, not a rule. For almost parallel threads (ψ < ψ\*) in a stack a nesting factor 0.9 per layer (c), but such places the construction already describes as climb/wedge (§3.2).
 
 ### 1.7 Dent of the lower thread vs the rise of the upper one (T10)
 
@@ -124,7 +126,7 @@ A taut thread over several obstacles is the upper convex hull of the apices over
 
 > z_sup = u_L(y_c) − sag − kink, where u_L is the profile of L from its own apices and bridges, and
 > — **sag** = 2σ_U·ℓ_eff, ℓ_eff = a·b/(a + b): a is the distance along L back to the nearest rigid point (a plateau edge of an own apex of L, or a point where L lies on the ball), b forward to the nearest rigid point or to the landing of L (u_L → 0); inside a plateau a = b = 0 → sag 0; bridges between apices ≤ 1.2 w have ℓ_eff ≤ 0.3 w, sag ≤ 0.03 mm (effectively rigid); σ_U = √(2Δ_c/R) with Δ_c of the previous iteration (two iterations converge);
-> — **kink** (loaded flight): each crossing over L at point y with force F = 2Tσ_U adds a slope 2σ_U to the flight of L downstream: u_L(x) → max(0, u_L(x) − 2σ_U·(x − y)) for x > y up to the landing; applied in lay order (a new thread reads the supports of earlier ones with their kinks already applied, and applies its own).
+> — **kink** (loaded flight): each crossing over L at point y with force F = 2Tσ_U adds a slope 2σ_U to the flight of L downstream: u_L(x) → max(f, u_L(x) − 2σ_U·(x − y)) for x > y up to the landing; applied in lay order (a new thread reads the supports of earlier ones with their kinks already applied, and applies its own). v1.1.1 (implementation choice for review): a kink ending at the landing is floored at f = min(u_L(x), u_L,own(landing)) — s₀, or another apex's flight holding the envelope up there — and z_sup uses the same floor; a flight load whose window ends at a rigid point (another apex's plateau edge) is a triangle to it, as on a bridge. Either way the loaded profile rejoins the own one without a step (a step made the numerical ΔL grow as 1/step).
 
 Rigid is only where L lies on the ball, on its own crest (plateau) or on a bridge shorter than ≈ 1.2 w between two of its apices. A flight and long bridges are a string: sag 2σ_U·ℓ_eff and kink 2σ_U, landing within 1–2 mm under a second load. On a high support σ_U is larger (at H 0.6 mm — 0.18, F 0.35 N) — that is the limiter. The stack "each thread on all earlier ones" physically exists at the tips (kousa), but grows to ≈ 0.5–0.7 mm and stops: the support sinks, the flight lies down on the ball under the second load, the section is compressed under the growing force.
 
@@ -170,19 +172,22 @@ All three "low" inputs (T, k, B) enter the lift weakly or only through the ends;
 ### 3.1 Layer
 
 ```
-layerMechanics(recipe, P, path, base) → null | {
+layerMechanics(recipe, P, path, base) → null | {                      // layers.js → buildMechanics (mechanics.js)
   id: 'mechanics', inputs: pick(P, ['w_mm','hw','tension_N','wrapK_Nmm2','bendB_Nmm2','stackKappa','liftMode','lift1_w']),
   parents: [path.stamp], stamp,
-  mode: 'display' | 'ideal' | 'measured',          // §5.4
-  consts: { R, w, h, tc, wc, rhoC, delta1, a1, s0, lamT, lamB, lb, Pi, kappa, psiStar, F1, capFn(m) },  // each with basis/status
-  crossings: [{ id, kind, psiDeg, m, support, zSup, sag, Fc, delta, xApex, aFree, plateau: ℓ_p, F, dent, extraLen, bridged: [ids] }],
-  legs: { [segId]: { own profile, loaded profile, loads } },
-  liftFn(segId, x_mm) → mm,     // lift of the axis above the at-rest level (R + h/2), sign +; the LOADED profile
-  liftAt(segId, i) → mm,        // = liftFn at vertex i (compatibility with display.js)
-  dentFn(segId, x_mm) → mm,     // ≤ 0: drop of the lower thread's axis under other threads' crossings (§1.7)
-  lengths: { perSeg: { [segId]: { sphere, axis, lifted } }, perThread, total },
-  liftMax, mMax, notes: [...]     // print of §1.9
+  mode: 'display' | 'ideal' | 'measured', displayOnly,                // §5.4
+  consts: { mode, R, w, h, T, k, B, kappa, tc, wc, rhoC, delta1, a1, x0, sigma, s0, lamT, lamB, lb, Pi, F1, dent1, psiStarDeg,
+            localStackWindowW, stackM, plateauCap, apexOff, status: { T, k, B, kappa, delta1, h } },
+  crossings: [{ id, kind, over, under, psiDeg, m, mPatch, mOrd, uUnder, support, zSup, sag, Fc, tcF, d1F, capRel, onGround,
+                gap27, delta, cap, xApex, xUnder, plateau: ℓ_p, … }],             // path order; no-apex kinds carry cls
+  legs: { [segId]: { apices, edges, bridges, dents, loads: [{ y, sag, s, a, b, dir, bridge, cid }] } },
+  lengths: { perSeg: { [segId]: { sphere, axis, lifted, extra, liftMax } }, perThread, total },
+  liftMax, mMax, mOrdMax, psiMinDeg, nApex, nLowPsi, bridges, notes: [...]  // print of §1.9
 }
+liftFnFor(mech, segId) → x_mm ↦ mm      // lift of the axis above the at-rest level (R + h/2), sign +; the LOADED profile
+ownLiftFnFor(mech, segId) → x ↦ mm      // the own profile (apices + bridges, before the loads of later threads)
+dentFnFor(mech, segId) → x ↦ mm         // ≤ 0: drop of the lower thread's axis under other threads' crossings (§1.7)
+A.mechanics.liftAt(segId, i) → mm       // = the loaded profile at vertex i (compatibility with display.js)
 ```
 
 Input: `path.crossings` (`kind`, `over/under`, `at`, `angleDeg`, `stack`, `dmin`, `lenMm`, `halfMm`, `climbMm`), `path.segs` (polylines on R), `base.R`, parameters. The output does not change `path` (the parent stamp is read only). **Two profiles per leg (v1.1):** the own profile (its apices + bridges) and the loaded one (after the kinks from later threads, §1.8); the display, the lengths and V25–V27 use the loaded profile. `mode: 'display'` → the layer returns an object with the former display profile and the flag `displayOnly: true`; then `A.mechanics.liftAt` is absent (display.js takes the former branch) — old tests are untouched.
@@ -192,7 +197,7 @@ Input: `path.crossings` (`kind`, `over/under`, `at`, `angleDeg`, `stack`, `dmin`
 | `c.kind` | apex | shape |
 |---|---|---|
 | crossing, tipCross (ψ ≥ ψ\*) | Δ_c (§1.6) at `c.at` | plateau ℓ_p(ψ) (capped by half the contact zone), chord to x₀, tail λ_T; several apices on a leg — hull §1.8 |
-| crossing at 5° < ψ < ψ\* | Δ_c | plateau over the whole contact zone, print "position ±w/tan ψ" (K19) |
+| crossing at ψ < ψ\* | Δ_c | plateau over the whole contact zone, print "position ±w/tan ψ" (K19) |
 | climb (Errata 6a.7) | Δ_c at the end of the climb ℓ_m | ramp: from 0 at the hole to Δ over ℓ_m = max(w, 3δ_e) — the same chord of §1.4 on one side (half a tent), not a cos² ramp |
 | wedge (uwagake at the upper hole) | by the stack: Δ(m_local) | one-sided profile: plateau from the hole over the wedge zone, then the flight; with m_local = 1 (legs lie side by side, not on each other) the height is Δ₁, not m·Δ₁ |
 | rail-parallel (d ≈ w) | 0 | 0 (dense laying; identical to the former) |
@@ -203,7 +208,7 @@ Between apices further apart than 2a — 0 (the thread at rest). The bridge is c
 
 ### 3.3 Lengths
 
-Three numbers per segment: `sphere` — the former lower bound (geodesic/arc on R, V3 checks it against calc.py — **unchanged**); `axis` = sphere·(1 + h/(2R)) — the axis at rest (the former diagnostic row `len.diag`); `lifted` = axis + Σ ΔL over the leg's apices (for a bridge ΔL = ∫(u'²/2 + u/R) dx numerically over the profile, step ≤ 0.1 mm) + climb/wedge ramps. The lengths table (main.js) shows all three columns and in the ideal/measured mode labels the total "by mechanics (estimate)", in display — the former "lower bound; lift not included". Scale: v1 expected 0.05–0.3 % of the total length for S8; with the support rule S8 gets +0.4–0.6 % (§6 step 8; measured +0.60 %), the axis correction +h/2R is 0.6 %. The #5 acceptance "lengths stop being a pure lower bound" is met, but no large value should be expected — this is an honest print, not a discovery.
+Three numbers per segment: `sphere` — the former lower bound (geodesic/arc on R, V3 checks it against calc.py — **unchanged**); `axis` = sphere·(1 + h/(2R)) — the axis at rest (the former diagnostic row `len.diag`); `lifted` = axis + Σ ΔL over the leg's apices (ΔL = ∫(u'²/2 + u/R) dx numerically over the loaded profile, step 0.01 mm between its known kinks — plateau edges, landings, load points and window ends; v1.1.1: at 0.1 mm without the kinks the total was 0.6 % short and single legs up to 4 %) + climb/wedge ramps. The lengths table (main.js) shows all three columns and in the ideal/measured mode labels the total "by mechanics (estimate)", in display — the former "lower bound; lift not included". Scale: v1 expected 0.05–0.3 % of the total length for S8; with the support rule S8 gets +0.4–0.6 % (§6 step 8; measured +0.60 %), the axis correction +h/2R is 0.6 %. The #5 acceptance "lengths stop being a pure lower bound" is met, but no large value should be expected — this is an honest print, not a discovery.
 
 ### 3.4 What does not change
 
@@ -212,11 +217,11 @@ None of the K placement constraints (G3, K12/V5, (8′)–(13), K16, K17): the c
 ### 3.5 Checks
 
 - **V14** (the thread does not float): display mode — as now; ideal/measured — the model on R (|r − R| ≤ 1e-9, unchanged) and the display: axis ≤ R + w/2 + max Δ_c + 1e-6, where max Δ_c comes from mechanics, not from `DISPLAY_STACK_LIFT_W`; criterion text: "lift — mechanics (mode …)".
-- **V25 (new) "The tent is physical".** For each leg: 0 ≤ lift ≤ the leg's highest apex; at crossing/tipCross apices lift = Δ_c ± 1e-9 (numerical class); the profile outside bridges ≤ the chord from the apex (nowhere above a straight line in space); landings monotone; symmetry of a single tent |u(x) − u(−x)| ≤ 1e-9; half-length to the level 0.05·Δ₁ in [0.8; 1.2]·√(2RΔ) (class (ii): vertex step 0.4 mm); for a bridge — midpoint ≥ 0 (otherwise the hull construction failed → fail). Print: number of apices, bridges, m_max, ψ_min, share of crossings with ψ < ψ\*.
-- **V26 (new) "Lengths with the lift".** sphere ≤ axis ≤ lifted on every segment; lifted − axis = Σ ΔL_c: the analytic path (isolated apices — crest + flights + tails, bridges — numerically) within 0.5 % (class (i)); the display polyline within 3 % (class (ii), vertex step 0.4 mm); the total per thread is printed in three columns; in the display mode V26 = n/a with the text "display, lengths — lower bound".
+- **V25 (new) "The tent is physical".** For each leg: 0 ≤ lift ≤ the leg's highest apex; at crossing/tipCross apices lift ≥ Δ_c − 1e-9·w (covered by a bridge: printed); for a bridge — minimum ≥ 0 (otherwise the hull construction failed → fail). Three groups of apices (v1.1.1, review of v1.1 §2), with reach = ℓ_p + x₀ + 3λ_T: **(a)(b) own-checked** — not in a hull edge, no other apex of the leg closer than reach_i + reach_j, the window [x ± reach] inside the leg: on the OWN profile the symmetry |u(x) − u(−x)| ≤ 1e-9·w and the half-length to 0.05·Δ₁ against its closed form ℓ_p + y\* (y\* on the flight, in the tail or on the crest) within 0.01 mm (search step 0.01); **(c) isolated (unloaded)** — additionally no load window of a later thread overlaps it: loaded = own over the window (1e-9·w); **loaded profile** on every leg with loads — u_loaded ≤ u_own, = u_own outside the load windows, u_own − u_loaded = sag at each load point (skipped: inside another window or at the floor, printed), ΔL_loaded/ΔL_own printed. The former "≤ the chord from the apex, landings monotone" is dropped (the loaded profile is not monotone by construction). Print: the three counters, apices, bridges, m_max, ψ_min, share of crossings with ψ < ψ\*.
+- **V26 (new) "Lengths with the lift".** sphere ≤ axis ≤ lifted on every segment; the lengths table integrates the loaded profile at 0.01 mm between its kinks (§3.3; convergence vs 0.002 mm ≤ 0.5 % per leg, class (i), test 5i); on the own-checked apices the numerical ΔL against the analytic one (crest + flights + tails) within 0.5 % (class (i)); the display polyline within 3 % (class (ii), vertex step 0.4 mm); the total per thread is printed in three columns; in the display mode V26 = n/a with the text "display, lengths — lower bound".
 - **V27 (new) "Axis distance at a crossing = t_c", against the loaded axis of the lower thread.** At each apex |z_U(c) − z_L,loaded(c)| = t_c(F_c) ± 0.1 w (class (iii): twist spread §1.9), where z_L,loaded = z_L,profile − d_low (on the ball: δ + (h − t_c)/2) or − sag − kink (on a bridge/flight). The version "at the apex's own height" is only an identity of the addition (class (i), 1e-9; kept as a self-check). On rail-parallel — axis distance along the surface w, radial 0 (as V23). This replaces the check "tube ≤ R + w + lift" as the only measure of contact.
 - **V8/V16/V19/U14:** classes unchanged; ψ and m are added to the V8 print; U14 gets the status "modelled in ideal, not measured".
-- **K18 (new constraint) — relative to the support:** Δ_c − z_sup ≤ 1.5·t_c(F_c) − h/2 (the crown of one level over the actual support) — by construction after §1.8, class (i); a violation is a support or stack error, fail.
+- **K18 (new constraint) — rise over the support by support kind:** Δ_c − z_sup equals the rule of §1.6 for its support kind (ground, plateau, bridge, flight; class (i), 1e-9·w; counts per kind and `apexOff` printed), which keeps it ≤ 1.5·t_c(F_c) − h/2 (the crown of one level over the actual support); a violation is a support or stack error, fail.
 - **K19 (new, diagnostic) — absolute height:** max Δ over the ball and m_eff = Δ_max/Δ₁ are printed with the place of the maximum; expectation for S8 ≤ 0.8 mm; warn above 1.2 mm (an order, not a golden number: two generations of the staircase beyond the expectation); no fail. The share of crossings with ψ < ψ\* and of stacks m ≥ 4 is printed.
 
 ---
@@ -269,7 +274,7 @@ If none of these happens — the defaults stay, no measurement is needed; the st
 5. **`validators.js`:** V14 by mode; V25, V26, V27, K18, K19 (§3.5); V11 — the mechanics stamp in the chain (base → … → path → mechanics); print in V8. **`main.js`:** lengths table in three columns, mode label.
 6. **`samples/lift/`:** `display-vs-physics.svg`, `numbers.md` (tables §1.3, §1.5, §1.6, §1.7, §2), `README.md` — §5 as photo instructions (one paragraph).
 7. **Documents:** model/spec.md — G14 rewritten ("display = the mechanics profile in the ideal/measured modes; display — the former bump, display only"), §3 Ф4 — reference to T7–T10, §4 — rows T7 (chord tent, a = √(2RΔ)), T8 (Δ₁ = 1.5t_c − h/2 − δ), T9 (stack κ, support rule), T10 (regime Π, dent δ) with labels; decisions-log — a new D: "lift — mechanics by lift-spec v1.1; D28 (display bump) stays only for the display mode"; uncertainties — U14 status "modelled (ideal), not measured; calibration by photo §5", a new U row "the maker pressing the thread down between crossings (bridge) — photo"; next-stage.md item 3 — closed by this.
-8. **Regression (`sim/test/run.mjs`, group '5i'):** display mode — all former tests pinned unchanged (the run.mjs wrapper pins `liftMode: 'display'`); ideal mode (v1.1, Fable Q5 §3 (d)): on S8 (braid, m 0.5, λ 0.32) Δ_c median ≈ 0.3, p95 ≈ 0.5, maximum 0.5–0.8 mm, lifted − axis +0.4–0.6 %; V14/V25/V26/V27 pass, K18 pass; fan/braid — both; stress m 1.0 λ 0.6 — maximum ≈ 1 mm expected, V25 pass, K18 pass. **Negative test:** support without sag/kink (a rigid bridge) → staircase > 1.5 mm (K19 prints it; K19 does not fail, the test asserts the height). Time: the hull O(n log n) per leg, budget ≤ 5 % of path.
+8. **Regression (`sim/test/run.mjs`, group '5i'):** display mode — all former tests pinned unchanged (the run.mjs wrapper pins `liftMode: 'display'`); ideal mode (v1.1, Fable Q5 §3 (d)): on S8 (braid, m 0.5, λ 0.32) Δ_c median ≈ 0.3, p95 ≈ 0.5, maximum 0.5–0.8 mm, lifted − axis +0.4–0.6 %; V14/V25/V26/V27 pass, K18 pass; fan/braid — both; stress m 1.0 λ 0.6 — two expectations (v1.1.1): at the petal tips ≤ 1 mm, at the centre the maximum is printed by K19 (plateau stacks), V25 pass, K18 pass. Regression "1 row per set": 4 isolated (unloaded) tents at λ 0.32 and 0.6 and at ×1.25, 0 at λ 0; negative tests — a landing tail of 12λ_T (no isolated tent) and the loaded profile without the sag (V25 fail). **Negative test:** support without sag/kink (a rigid bridge) → staircase > 1.5 mm (K19 prints it; K19 does not fail, the test asserts the height). Time: the hull O(n log n) per leg, budget ≤ 5 % of path.
 9. **Closing #5 by the checklist:** the spec section with labels — this file; implementation behind `liftAt` — item 3; lengths not a lower bound — items 3/5 (V26); the bump matches physics (ideal) or is labelled (display) — item 4; schemes — item 6; validators and modes — item 5, §5.4. The task's prerequisites (a macro with a ruler, a thickness gauge) move to §5.3 "when a measurement is needed" — by the owner's decision.
 
 ---
@@ -277,12 +282,12 @@ If none of these happens — the defaults stay, no measurement is needed; the st
 ## 7. Formula summary (for `numbers.md`)
 
 - s₀ = T/(kR); λ_T = √(T/k); λ_B = (4B/k)^{1/4}; ℓ_b = √(B/T); Π = T/(2√(Bk)).
-- t_c(F) = 0.491 − 0.068·ln(0.244·F[gf]) mm (pearl #5; for #8 the same ratio t_c/h at equal pressure, status (c)).
+- t_c(F, h, w) = (h/h₅)·(0.491 − 0.068·ln(0.244·F[gf]·(w₅h₅)/(w·h))) mm, w₅ = 0.714, h₅ = 0.464 — the pearl #5 law in reduced form (the force enters through the pressure; ×k in w and h and ×k² in F gives t_c ×k; v1.1.1, test 5m); for #5 it is the v1.1 law.
 - δ = F/(2√k·√(T + 2√(Bk))); d_low = δ + (h − t_c)/2.
 - Δ₁ = 1.5 t_c − h/2 − δ; F = 2T·σ; σ = x₀/R + √(s₀/R); x₀ = √(R(2Δ₁ − s₀)) − √(R s₀); a ≈ √(2RΔ₁).
 - u(x) = Δ₁ − σ|x| + x²/2R (|x| ≤ x₀), s₀e^{−(|x|−x₀)/λ_T} beyond; rigid limit Δ₁(1 − |x|/a)².
 - Bridge: u = Δ_i + (Δ_j − Δ_i)x/L − x(L − x)/2R, if ≥ 0; condition L ≤ √(8RΔ).
-- Support: z_sup = u_L(y_c) − sag − kink; sag = 2σ_U·ab/(a + b); kink u_L(x) → max(0, u_L(x) − 2σ_U(x − y)); Δ_c = z_sup + Δ₁(F_c), F_c = 2Tσ_U; κ only inside the patch.
+- Support: z_sup = u_L(y_c) − sag − kink; sag = 2σ_U·ab/(a + b); kink u_L(x) → max(f, u_L(x) − 2σ_U(x − y)), f = min(u_L, u_L,own(landing)) (a window ending at a rigid point: triangle); Δ_c = z_sup + Δ₁(F_c)·(m > 1 ? κ : 1), F_c = 2Tσ_U (pending: z_sup + t_c(F_c) off the sphere, §1.6); d_low at F_c.
 - ΔL₁ ≥ (4/3)·Δ₁·σ; Δ(m) = Δ₁(1 + κ(m − 1)); K18: Δ_c − z_sup ≤ 1.5·t_c(F_c) − h/2.
 - ρ_c = (w_c/2)²/(t_c/2), w_c = w·h/t_c; ℓ_p = min(σρ_c/sin²ψ, w_c/(2 sin ψ), max(w_c/2, c.lenMm/2)); ψ\* = asin(2σρ_c/w_c).
 
@@ -297,10 +302,12 @@ Measured (ideal, support rule; `samples/lift/numbers.md`):
 | Config | Δ_c median / p95 / max, mm | lifted − axis | Status |
 |---|---|---|---|
 | S8 braid m 0.5 λ 0.32 | 0.268 / 0.403 / 0.469 | +0.60 % | all pass (rigid support: max 2.73 mm, +2.13 %) |
-| fan m 0.5 λ 0.32 | 0.268 / 0.445 / 0.606 | +0.62 % | all pass |
-| stress braid m 1 λ 0.6 | 0.363 / 1.400 / 1.624 | +1.99 % | V25/V26/V27/K18 pass, K19 warn (plateau stacks up to m 13); V20 λ/μ fail (known, independent of the lift) |
+| fan m 0.5 λ 0.32 | 0.268 / 0.445 / 0.606 | +0.61 % | all pass |
+| stress braid m 1 λ 0.6 | 0.364 / 1.403 / 1.624 | +2.00 % | V25/V26/V27/K18 pass, K19 warn (plateau stacks up to m 13); V20 λ/μ fail (known, independent of the lift) |
 
-Implementation choices beyond the text, recorded for review: the dent of the lower thread used for V27 and the loaded profile is d_low(1) where the lower thread lies on the ball (no stack under the point, even if the patch window counts m > 1); (h − t_c)/2 off the sphere; plus (1 − κ)·Δ₁(F) on a plateau with m > 1. V27 prints, and does not fail, positive gaps where the upper thread is bridged over the lower (no contact) and where the lower thread was pressed down later by another thread (the upper one is not re-seated). Open: S8 max 0.47 mm is below the expected 0.5–0.8; the stress maximum 1.6 mm is above the expected ≈ 1 mm (tall plateau stacks at λ ≥ 0.5).
+v1.1.1 (#5 cleanup): the lengths now integrate the loaded profile at 0.01 mm between its kinks with the floor of §1.8 (S8 lifted − axis +0.596 → +0.603 %); the ×1.25 builds at λ 0.6 (m 0.5 and 1, fan and braid) pass V25/V26 (before: "isolated tents" with an asymmetry 0.09–0.12 mm — loaded tents taken for isolated ones). V20 prints per free-graze leg the measured rail gap against (Δs)²·λ_r/(8R) (closure 5, point 6).
+
+Implementation choices beyond the text, recorded for review: the dent of the lower thread used for V27 and the loaded profile is d_low(1) where the lower thread lies on the ball (no stack under the point, even if the patch window counts m > 1); (h − t_c)/2 off the sphere; plus (1 − κ)·Δ₁(F) on a plateau with m > 1. V27 prints, and does not fail, positive gaps where the upper thread is bridged over the lower (no contact) and where the lower thread was pressed down later by another thread (the upper one is not re-seated). Open: S8 max 0.47 mm is below the expected 0.5–0.8; the stress maximum 1.6 mm is above the expected ≈ 1 mm (tall plateau stacks at λ ≥ 0.5); the apex rule off the sphere (§1.6 "Pending", `apexOff`).
 
 ---
 
@@ -314,3 +321,13 @@ Implementation choices beyond the text, recorded for review: the dent of the low
 - §3.1 — two profiles per leg (own and loaded); display, lengths, V25–V27 by the loaded one.
 - §3.5 — V26: analytic path 0.5 % (class (i)), display polyline 3 % (class (ii)) (was 3 % class (i)); V27 — explicit z_L,loaded formula, self-check identity class (i) (was "r_lower accounts for dentFn"); K18 — Δ_c − z_sup ≤ 1.5·t_c(F_c) − h/2 (was Δ(m) ≤ Δ_cap(m)); K19 — the absolute maximum, warn > 1.2 mm.
 - §6 step 1 — B → 0 and ΔL tolerances as above (was "Δ₁ unchanged in the 4th digit", "≤ 1 %"); step 8 — the Q5 expectations and the negative test.
+
+**v1.1.1 (review of v1.1, #5 cleanup):**
+
+- §7 — t_c(F, h, w) in reduced form (the force through the pressure; t_c ×k for a build ×k); d_low at F_c.
+- §1.6 — the apex rule off the sphere Δ_c = z_sup + t_c(F_c) recorded as pending (`apexOff: 'tc'`, not the default; numbers there); K18 as the identity by support kind.
+- §1.8, §7 — the flight kink floored at min(u, u_own(landing)) (z_sup likewise), a triangle when the window ends at a rigid point: no step where the loaded profile rejoins the own one.
+- §3.1 — the contract as in the code (fields, `liftFnFor` / `ownLiftFnFor` / `dentFnFor`).
+- §3.2 — "5° < ψ < ψ\*" → "ψ < ψ\*".
+- §3.3, §3.5 — V25: three groups (own-checked, isolated (unloaded), loaded profile) with reach ℓ_p + x₀ + 3λ_T and the closed-form half-length; "≤ chord / landings monotone" dropped. V26: lengths at 0.01 mm between the kinks, convergence ≤ 0.5 % per leg.
+- §6 step 8 — two stress expectations (tips ≤ 1 mm, centre printed by K19), the 1-row regression and two negative tests.

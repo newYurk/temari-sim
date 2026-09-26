@@ -10,7 +10,7 @@ import { resolveBowLambda, numParam } from './params.js';
 import { widthDecomposition, u14Onset } from './diag-width.js';
 import { EPS_C, DEG_MAX_W, halfLineGraph, holeClearances, getLegSamples } from './path.js';
 import { arcEnd, arcTangent, arcPoint, Chain } from './arcs.js';
-import { liftFnFor, dentFnFor, capRise, stackRise, bridgeMin, extraLengthApex, extraLength1, extraLength } from './mechanics.js';
+import { liftFnFor, ownLiftFnFor, dentFnFor, bridgeMin, extraLengthApex, extraLength1, extraLength, loadWindow, kinksOf } from './mechanics.js';
 import { rotAbout } from './program.js';
 
 /** #53 case 1: the kiku frame of the build under validation (polar coordinates about the kiku centre, geom.js frameAt).
@@ -23,6 +23,9 @@ export function setV16AcausalForTest(on) { V16_ACAUSAL = !!on; }
 /** Test hook (review b080c58 §2 mutation): V24 without the row-1 trace end (yAt clamps to the leg's end instead of null). */
 let V24_TRACE_END = true;
 export function setV24TraceEndForTest(on) { V24_TRACE_END = !!on; }
+/** Test hook (review of lift-spec v1.1 §2 negative test): the landing tail in the V25/V26 isolation reach, × λ_T (3 by rule). */
+let ISO_TAIL_LAMT = 3;
+export function setIsoTailForTest(n) { ISO_TAIL_LAMT = n; }
 
 /**
  * #23 (6a.11 packing): a contact is `rail-parallel` only for line neighbours of one set — legs of rows n−1 and n of the
@@ -1830,7 +1833,7 @@ function runValidatorsIn(A, stage, ref) {
     let lambdaMax = 0;
     let worst = null;
     let badKink = 0, tolWorst = 0, nT2 = 0;
-    const tolBranch = {}, badTan = [], graze = [];
+    const tolBranch = {}, badTan = [], graze = [], clear = [];
     const kinkRows = [];
     for (const s of legs) {
       if (s.layMode === 'rail') {
@@ -1850,6 +1853,7 @@ function runValidatorsIn(A, stage, ref) {
           }
         }
         if (s.entryKind === 'free-graze') graze.push(s);
+        else if (s.entryKind === 'free' && s.grazeResMin) clear.push(s);   // (10′) no tangency from E, clean chord
         // 6a.19 / Codex block-B: splice checked by ANGLE — tangent ≤ 3·h·λ_r/R (§6.4 class (ii)), climb ≤20°; hole ≤20°.
         // κ_g excludes a window of width w around the splice join (discrete kink ≠ free curvature).
         if (s.joinMode === 'climb') {
@@ -1929,23 +1933,33 @@ function runValidatorsIn(A, stage, ref) {
         }
       }
     }
+    // closure-5 point 6 (Fable 2026-09-26): per free-graze leg Δs, λ_r of the rail piece carrying T₁ and T₂, the chord-gap
+    // identity (Δs)²·λ_r/(8R) and the measured gap to the rail (rail.continuedLateral) — printed (expected ratio 1 ± 0.1)
+    const grazeRows = graze.map((s) => {
+      const pc = s.grazePieces || [], one = pc.length === 1 ? pc[0] : null;
+      const pred = one && s.grazeDsMm != null ? s.grazeDsMm ** 2 * one.lr / (8 * R) : null;
+      return { id: s.id, dsMm: s.grazeDsMm, gapMm: s.grazeGapMm, gapW: s.grazeMinGapW, pieces: pc.length, lr: one ? one.lr : null, lrList: pc.map((q) => f(q.lr, 3)).join('/'),
+        predMm: pred, ratio: pred && s.grazeGapMm != null ? s.grazeGapMm / pred : null };
+    });
     let status = 'pass';
     if (ratio > FAIL_RATIO - 1e-12 || cmdMismatch || badKink > 0) status = 'fail';
     else if (ratio > WARN_RATIO + 1e-9) status = 'warn';
     add({ id: 'V20', name: 'Friction cone Φ3 (λ ≤ μWrap)',
-      crit: 'Errata 6a.9.1/block-B: λ_max κ_g on FREE only (row1 excl ≤w holes; n≥2 exterior tangent splice excl ≤w at hole and the join vertex T, #27; (10″) free-graze chords as free); rail+climb excluded; kink angles: hole≤20°, climb≤20°, tangency points T₁, T₂ ≤ 3·h_T·λ_r/R (v3.4.2 §6.4 class (ii): λ_r of the piece carrying the point, h_T the link next to it)',
+      crit: 'Errata 6a.9.1/block-B: λ_max κ_g on FREE only (row1 excl ≤w holes; n≥2 exterior tangent splice excl ≤w at hole and the join vertex T, #27; (10″) free-graze or (10′) clear chords as free); rail+climb excluded; kink angles: hole≤20°, climb≤20°, tangency points T₁, T₂ ≤ 3·h_T·λ_r/R (v3.4.2 §6.4 class (ii): λ_r of the piece carrying the point, h_T the link next to it)',
       status,
       value: `λ_max=${f(lambdaMax, 6)} · μWrap=${f(muW, 4)} · λ/μ=${f(ratio, 6)}` +
         ` [warn>${WARN_RATIO}, fail≥${FAIL_RATIO}; free-class κ_g]` +
         (badKink ? `; badKink ${badKink} (hole/climb > 20° or tangency > 3·h_T·λ_r/R${badTan.length ? ': ' + badTan.slice(0, 4).join(', ') : ''})` : '') +
         `; tangency turns (T₁, T₂ ${nT2}) ≤ 3·h_T·λ_r/R: worst ${Number.isFinite(tolWorst) ? f(tolWorst, 3) : '∞'} of the bound, tolerance branch ${Object.entries(tolBranch).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}` +
-        (graze.length ? `; (10″) free-graze ${graze.length}: ${graze.slice(0, 3).map((s) => `${s.id} Δs ${s.grazeDsMm == null ? `not found within 20 w${s.grazeResMin?.resMm != null ? ` (least residual ${f(s.grazeResMin.resMm, 4)} mm at ${f(s.grazeResMin.atMm, 3)} mm)` : ''}` : `${f(s.grazeDsMm, 3)} mm`}, rail gap ${f(s.grazeGapMm, 4)} mm, d to row n−1 ${f(s.grazeMinGapW, 3)} w`).join('; ')}` : '') +
+        (grazeRows.some((g) => g.ratio != null) ? `; (10″) measured rail gap / (Δs)²·λ_r/(8R) per leg: ${grazeRows.filter((g) => g.ratio != null || g.pieces > 1).map((g) => `${g.id} ${g.pieces > 1 ? `${g.pieces} pieces (λ_r ${g.lrList})` : `λ_r ${f(g.lr, 4)}, predicted ${f(g.predMm, 4)} mm, ratio ${f(g.ratio, 2)}`}`).join('; ')}` : '') +
+        (graze.length ? `; (10″) free-graze ${graze.length}: ${graze.slice(0, 3).map((s) => `${s.id} Δs ${f(s.grazeDsMm, 3)} mm, rail gap ${f(s.grazeGapMm, 4)} mm, d to row n−1 ${f(s.grazeMinGapW, 3)} w`).join('; ')}` : '') +
+        (clear.length ? `; (10′) clear chord ${clear.length}: ${clear.slice(0, 3).map((s) => `${s.id} no tangency from E: least residual ${s.grazeResMin.resMm == null ? '—' : `${f(s.grazeResMin.resMm, 4)} mm (${f(s.grazeResMin.resMm / w, 3)} w) at ${f(s.grazeResMin.atMm, 2)} mm from T₁`}, chord rail gap ${f(s.grazeGapMm, 4)} mm, d to row n−1 ${f(s.grazeMinGapW, 3)} w`).join('; ')}` : '') +
         (cmdMismatch ? `; CMD MISMATCH ${worstCmd.id} λ=${f(worstCmd.disc, 6)} vs cmd ${f(worstCmd.expect, 6)} (${cmdSource})` : '') +
         (worst ? ` (worst ${worst.id}/${worst.round})` : '') +
         (legs.length ? `; shoulders ${legs.length}` : ''),
       numbers: { lambdaMax, muWrap: muW, ratio, warnRatio: WARN_RATIO, failRatio: FAIL_RATIO,
         bowLambda: A.params.bowLambda ?? null, cmdLambda, cmdSource, cmdMismatch, worstCmd, badKink, kinkRows, tolBranch, tolWorst, badTan,
-        graze: graze.map((s) => ({ id: s.id, dsMm: s.grazeDsMm, gapMm: s.grazeGapMm, gapW: s.grazeMinGapW })), grazeDsNotFound: graze.filter((s) => s.grazeDsMm == null).length } });
+        graze: grazeRows, clear: clear.map((s) => ({ id: s.id, resMm: s.grazeResMin.resMm, atMm: s.grazeResMin.atMm, gapMm: s.grazeGapMm, gapW: s.grazeMinGapW })) } });
   }
 
   // V22 — exitKind by construction (spec v3.2 §3.2(9г)). Lower legs (end at the packing root): λ > 0 only root (code
@@ -2327,8 +2341,8 @@ function runValidatorsIn(A, stage, ref) {
   // в3), feet beyond the end of the row-n leg, the last row (nothing above it). Sets are compared only within themselves
   // (different half-line lengths). Legitimate asymmetries (§6.11) by address, as in V17 (review в4): pairs on the row-1
   // first leg or the row-1 closing leg (the start-line legs without an arriving leg) and the last round's closing leg —
-  // diagnostic, not a fail, counted by reason. Arcs of other classes (splice, climb, contradiction, corner, ext) are counted by
-  // class (в2); no packed point at all → n/a (в7).
+  // diagnostic, not a fail, counted by reason. Arcs of other classes (splice, climb, contradiction, corner) are counted by
+  // class (в2); 'ext' is a free part with its own counter (Fable bom-spec v1 §7 (3)); no packed point at all → n/a (в7).
   {
     const braid23 = A.params?.topRule === 'braid';
     const lBraid23 = numParam(A.params, 'lBraidMaxW') * w;
@@ -2341,6 +2355,7 @@ function runValidatorsIn(A, stage, ref) {
     for (const r of done) lastRow[r.set] = Math.max(lastRow[r.set] || 0, r.row);
     let pairs = 0, pts = 0, dMax = 0, dMaxAt = '—', tailFanMax = 0;
     const bad = [], diag = [], diagBy = {}, skipped = {};
+    const ext23 = { n: 0, lenMm: 0, pts: 0, minMm: Infinity, startDevMax: 0 };
     const legAt = new Map();
     for (const s of segsOk) if (s.type === 'leg') legAt.set(`${s.round}|${s.stitch}`, s);
     for (const rb of done) {
@@ -2361,6 +2376,20 @@ function runValidatorsIn(A, stage, ref) {
         for (const Ab of b.arcs) {
           const isFree = Ab.cls === 'tail' || Ab.cls === 'free';
           if (!(Ab.psi > 0)) continue;
+          // 'ext' (Fable bom-spec v1 §7 (3)): the lower leg continued along its great circle to E_n — no leg n−1 under it, a free
+          // part: only d ≥ w(1 − εc) against leg n−1, counted by class apart from the pairs (the E_n end itself is V5's)
+          if (Ab.cls === 'ext') {
+            ext23.n++; ext23.lenMm += R * Math.sin(Ab.rho) * Ab.psi;
+            for (let j = 0; j <= 8; j++) {
+              const q = arcPoint(Ab, (Ab.psi * j) / 8);
+              if (fS(R, VF, q) < sTop + lBraid23) continue;
+              const c = ch.closest(q);
+              if (c.clamped) continue;
+              ext23.pts++; ext23.minMm = Math.min(ext23.minMm, c.distMm); lowest = Math.min(lowest, c.distMm);
+              if (j === 0) ext23.startDevMax = Math.max(ext23.startDevMax, Math.abs(c.distMm - w));
+            }
+            continue;
+          }
           if (Ab.cls !== 'rail' && !isFree) { const k = Ab.cls || 'none'; skipped[k] = (skipped[k] || 0) + 1; continue; }
           const fanTail = !braid23 && Ab.cls === 'tail' && b.level === 'top';
           if (isFree && !fanTail && !free) free = { M: Ab.a, len: 0, prof: /** @type {number[]} */ ([]), exitKind: b.exitKind || null, kind: Ab.cls };
@@ -2395,15 +2424,17 @@ function runValidatorsIn(A, stage, ref) {
     const dr = drifts.filter((x) => x.driftMaxMm > EPS_C * w).sort((p, q) => q.driftMaxMm - p.driftMaxMm);
     const drT = dr.filter((x) => x.kind === 'tail'), drF = dr.filter((x) => x.kind !== 'tail');
     const nonMono = drifts.filter((x) => x.kind === 'tail' && !x.monotonic);
-    add({ id: 'V23', name: 'Shoulder coverage within the set', crit: '#54 Fable §6, 54b §3: rail part of leg n+1 at |d − w| ≤ εc·w from the leg n it lies on, free parts (tail, free) only d ≥ w(1 − εc) with the drift printed; same set; braid zone, last row excluded; fan: upper-leg tails excluded (lower tails checked); start-line / last-closing asymmetries diagnostic by address (§6.11, as V17); no packed point → n/a',
+    add({ id: 'V23', name: 'Shoulder coverage within the set', crit: '#54 Fable §6, 54b §3: rail part of leg n+1 at |d − w| ≤ εc·w from the leg n it lies on, free parts (tail, free, ext — the lower leg continued to E_n, counted apart) only d ≥ w(1 − εc) with the drift printed; same set; braid zone, last row excluded; fan: upper-leg tails excluded (lower tails checked); start-line / last-closing asymmetries diagnostic by address (§6.11, as V17); no packed point → n/a',
       status: pairs ? (bad.length ? 'fail' : pts ? 'pass' : 'n/a') : 'n/a',
       value: pairs ? `pairs ${pairs}, packed points ${pts}${pts ? '' : ' (nothing checked)'}; max axis distance ${f(dMax / w, 3)} w (${dMaxAt}), limit ${f(1 + EPS_C, 2)} w${!braid23 && tailFanMax > 0 ? `; fan: upper-leg tails not checked (diagnostic, max ${f(tailFanMax / w, 3)} w)` : ''}; ${braid23 ? 'braid' : 'top'} zone s < s_T(n+1) + ${f(lBraid23 / w, 0)}·w excluded`
         + `; arcs skipped by class: ${Object.entries(skipped).sort().map(([k, v]) => `${k} ${v}`).join(', ') || '—'}`
+        + (ext23.n ? `; ext (lower leg continued to E_n, free: d ≥ ${f(1 - EPS_C, 2)} w) ${ext23.n}, total ${f(ext23.lenMm, 1)} mm, ${ext23.pts} points, min ${ext23.pts ? f(ext23.minMm / w, 3) + ' w' : '—'}, max |d − w| at the start ${f(ext23.startDevMax / w, 3)} w` : '')
         + (drT.length ? `; tails drifting d − w > εc·w ${drT.length} (max ${f(drT[0].driftMaxMm / w, 3)} w, ${drT[0].leg}/${drT[0].round}.i${drT[0].i} row ${drT[0].row}, tail ${f(drT[0].tailMm, 1)} mm; U «thread pressed by the crafter», §7 No. 17); construction: ${drT.slice(0, 4).map((x) => `${x.leg}/${x.round} ${x.exitKind || '—'}, M→hole ${f(x.mHoleMm, 2)} mm, hole δ ${x.holeDeltaMm == null ? '—' : f(x.holeDeltaMm / w, 3) + ' w'}, profile min ${f(x.minMm / w, 3)} w ${x.monotonic ? 'monotonic' : 'NOT monotonic'}`).join('; ')}; non-monotonic tail profiles ${nonMono.length}` : '')
         + (drF.length ? `; free legs drifting d − w > εc·w ${drF.length} (max ${f(drF[0].driftMaxMm / w, 3)} w, ${drF[0].leg}/${drF[0].round}.i${drF[0].i} row ${drF[0].row}, free ${f(drF[0].tailMm, 1)} mm)` : '')
         + (bad.length ? `; fail ${bad.length}: ${bad.slice(0, 6).join('; ')}` : '') + (diag.length ? `; diagnostic (§6.11) ${diag.length} (${Object.entries(diagBy).map(([k, v]) => `${k} ${v}`).join(', ')}): ${diag.slice(0, 6).join('; ')}` : '')
         : 'needs rows n and n+1 of one set',
-      numbers: { pairs, pts, dMaxW: dMax / w, bad, diag, diagBy, skipped, drifts, nonMono: nonMono.length } });
+      numbers: { pairs, pts, dMaxW: dMax / w, bad, diag, diagBy, skipped, drifts, nonMono: nonMono.length,
+        ext: { n: ext23.n, lenMm: ext23.lenMm, pts: ext23.pts, minW: ext23.pts ? ext23.minMm / w : null, startDevMaxW: ext23.startDevMax / w } } });
   }
   // V24 — fan a priori overrun onto the neighbouring marking (#54; spec v3.3 §5.3, 3.3.1). β_T = the angle of the analytic
   // row-1 leg to the meridian at its top hole X₁ (arc (1) / great circle, grid-free); ρ_top = tan β_T / k_top — printed, no
@@ -2482,68 +2513,116 @@ function runValidatorsIn(A, stage, ref) {
     const naTxt = 'liftMode display: the former tent, display only; lengths are the lower bound';
     const ids5 = new Set(segs.filter((s) => s.type === 'leg').map((s) => s.id));
     if (!MX || MX.displayOnly) {
-      for (const [id, name] of [['V25', 'Tent is physical (lift mechanics)'], ['V26', 'Lengths with lift'], ['V27', 'Axis distance at a crossing = t_c'], ['K18', 'Stack rise ≤ physical ceiling'], ['K19', 'Low-angle crossings and tall stacks (diagnostic)']])
+      for (const [id, name] of [['V25', 'Tent is physical (lift mechanics)'], ['V26', 'Lengths with lift'], ['V27', 'Axis distance at a crossing = t_c'], ['K18', 'Rise over the support by support kind'], ['K19', 'Low-angle crossings and tall stacks (diagnostic)']])
         add({ id, name, crit: '#5 lift-spec v1 §3.5', status: 'n/a', value: naTxt });
     } else {
       const C5 = MX.consts, R5 = C5.R, s05 = C5.s0, lam5 = C5.lamT;
-      const reach5 = (ap) => ap.lp + ap.x0s + 12 * lam5;
-      const isolated5 = (leg, s) => { const inE = new Set(leg.edges.flat()); return leg.apices.filter((ap, i) => !inE.has(i) && ap.x - reach5(ap) > 0 && ap.x + reach5(ap) < s.length
+      // Review of lift-spec v1.1 §2: reach = ℓ_p + x₀ + 3λ_T (the landing tail e^{−3}: 5 % of s₀, below every tolerance). (a) no
+      // hull edge and no other apex of the leg closer than reach_i + reach_j, (b) [x − reach, x + reach] inside the leg → the OWN
+      // profile is checked against the analytics; (c) no load window of a later thread overlaps it → an isolated (unloaded) tent.
+      const tol5 = 1e-9 * w;
+      const reach5 = (ap) => ap.lp + ap.x0s + ISO_TAIL_LAMT * lam5;
+      const own5 = (leg, s) => { const inE = new Set(leg.edges.flat()); return leg.apices.filter((ap, i) => !inE.has(i) && ap.x - reach5(ap) > 0 && ap.x + reach5(ap) < s.length
         && leg.apices.every((b, j) => j === i || Math.abs(b.x - ap.x) > reach5(ap) + reach5(b))); };
+      const unloaded5 = (leg, ap) => (leg.loads || []).every((L) => { const [lo, hi] = loadWindow(L); return hi < ap.x - reach5(ap) || lo > ap.x + reach5(ap); });
+      // the half-length to 0.05·Δ₁ of the own profile §1.4 in closed form: ℓ_p + y*, y* the root on the flight
+      // (y* = R·(σ_s − √(σ_s² − 2(Δ_s − 0.05Δ₁)/R))), in the tail when 0.05·Δ₁ ≤ s₀ (y* = x₀ + λ_T·ln(s₀/(0.05Δ₁))), on the crest when
+      // 0.05·Δ₁ > Δ_s (√(2(Δ − 0.05Δ₁)/k_c))
+      const halfStar5 = (ap) => {
+        const L = 0.05 * C5.delta1;
+        if (L > ap.Ds) return ap.kc > 0 ? Math.sqrt(2 * (ap.D - L) / ap.kc) : ap.lp;
+        if (L <= s05) return ap.lp + ap.x0s + (lam5 > 0 ? lam5 * Math.log(s05 / L) : 0);
+        return ap.lp + R5 * (ap.ss - Math.sqrt(Math.max(0, ap.ss * ap.ss - 2 * (ap.Ds - L) / R5)));
+      };
       const cx5 = MX.crossings.filter((c) => c.delta > 0 && ids5.has(c.over) && ids5.has(c.under));
       // V25
       const bad25 = [];
-      let nSym = 0, symMax = 0, nHalf = 0, halfLo = Infinity, halfHi = -Infinity, nCovered = 0, nBr = 0, brMin = Infinity;
+      let nSym = 0, symMax = 0, nHalf = 0, halfLo = Infinity, halfHi = -Infinity, halfDevMax = 0, nCovered = 0, nBr = 0, brMin = Infinity;
+      let nIsoU = 0, isoEqMax = 0, nLoadLegs = 0, nLoadPts = 0, nLoadSkip = 0, overOwnMax = 0, offWinMax = 0, sagDevMax = 0, dlRatioMin = Infinity, dlShort = 0;
       for (const id of ids5) {
         const leg = MX.legs[id]; if (!leg || !leg.apices.length) continue;
         const s = segById.get(id), fn = liftFnFor(MX, id), capMax = Math.max(...leg.apices.map((ap) => ap.D));   // the loaded profile never exceeds its highest apex
-        for (let x = 0; x <= s.length; x += 0.1) { const u = fn(x); if (!(u >= -1e-12) || u > capMax + 1e-9) { bad25.push(`${id} lift ${f(u, 3)} at x ${f(x, 1)} outside [0, max Δ_c ${f(capMax, 3)}]`); break; } }
-        for (const ap of leg.apices) { const u = fn(ap.x); if (u < ap.D - 1e-9) bad25.push(`${id}/${ap.cid} apex lift ${f(u, 4)} < Δ(m) ${f(ap.D, 4)}`); else if (u > ap.D + 1e-9) nCovered++; }
-        for (const [i, j] of leg.edges) { nBr++; const a = leg.apices[i], b = leg.apices[j], mn = bridgeMin(a.x, a.D, b.x, b.D, R5); brMin = Math.min(brMin, mn); if (mn < -1e-12) bad25.push(`${id} bridge ${a.cid}–${b.cid} dips to ${f(mn, 4)}`); }
-        // an isolated tent (no bridge, no other apex within 2·reach, fully inside the leg): symmetry and the half-length to 0.05·Δ₁
-        for (const ap of isolated5(leg, s)) {
-          const reach = ap.lp + ap.x0s + 6 * lam5;
-          {
-            nSym++;
-            for (let d = 0; d <= reach; d += 0.05) symMax = Math.max(symMax, Math.abs(fn(ap.x + d) - fn(ap.x - d)));
-            let d = 0; while (d < reach && fn(ap.x + d) > 0.05 * C5.delta1) d += 0.01;
-            const ratio = d / Math.sqrt(2 * R5 * ap.D); nHalf++; halfLo = Math.min(halfLo, ratio); halfHi = Math.max(halfHi, ratio);
-            if (ratio < 0.8 || ratio > 1.2) bad25.push(`${id} half-length ${f(d, 2)} mm = ${f(ratio, 3)}·√(2RΔ)`);
+        for (let x = 0; x <= s.length; x += 0.1) { const u = fn(x); if (!(u >= -tol5) || u > capMax + tol5) { bad25.push(`${id} lift ${f(u, 3)} at x ${f(x, 1)} outside [0, max Δ_c ${f(capMax, 3)}]`); break; } }
+        for (const ap of leg.apices) { const u = fn(ap.x); if (u < ap.D - tol5) bad25.push(`${id}/${ap.cid} apex lift ${f(u, 4)} < Δ(m) ${f(ap.D, 4)}`); else if (u > ap.D + tol5) nCovered++; }
+        for (const [i, j] of leg.edges) { nBr++; const a = leg.apices[i], b = leg.apices[j], mn = bridgeMin(a.x, a.D, b.x, b.D, R5); brMin = Math.min(brMin, mn); if (mn < -tol5) bad25.push(`${id} bridge ${a.cid}–${b.cid} dips to ${f(mn, 4)}`); }
+        // own profile (a)(b): symmetry (class (i)) and the half-length to 0.05·Δ₁ against its closed form (search step 0.01 mm)
+        const fo = ownLiftFnFor(MX, id);
+        for (const ap of own5(leg, s)) {
+          const reach = reach5(ap);
+          nSym++;
+          for (let d = 0; d <= reach; d += 0.05) symMax = Math.max(symMax, Math.abs(fo(ap.x + d) - fo(ap.x - d)));
+          let d = 0; while (d < reach && fo(ap.x + d) > 0.05 * C5.delta1) d += 0.01;
+          const dStar = halfStar5(ap), dev = Math.abs(d - dStar), ratio = d / Math.sqrt(2 * R5 * ap.D);
+          nHalf++; halfLo = Math.min(halfLo, ratio); halfHi = Math.max(halfHi, ratio); halfDevMax = Math.max(halfDevMax, dev);
+          if (dev > 0.01 + 1e-9 * R5) bad25.push(`${id}/${ap.cid} half-length ${f(d, 3)} mm vs closed form ${f(dStar, 3)} mm`);
+          // (c) isolated (unloaded): the loaded profile is the own one over the whole window
+          if (unloaded5(leg, ap)) { nIsoU++; for (let q = -reach; q <= reach; q += 0.05) isoEqMax = Math.max(isoEqMax, Math.abs(fn(ap.x + q) - fo(ap.x + q))); }
+        }
+        // loaded profile (every leg with loads, Fable Q5 §2): u_loaded ≤ u_own everywhere, = u_own outside the load windows, and
+        // u_own − u_loaded = sag at a load point y (class (i); a point inside another load's window or at its floor is skipped)
+        const loads = leg.loads || [];
+        if (loads.length) {
+          nLoadLegs++;
+          const wins = loads.map(loadWindow);
+          for (let x = 0; x <= s.length; x += 0.1) {
+            const uo = fo(x), ul = fn(x);
+            overOwnMax = Math.max(overOwnMax, ul - uo);
+            if (wins.every(([lo, hi]) => x < lo - 1e-12 || x > hi + 1e-12)) offWinMax = Math.max(offWinMax, Math.abs(ul - uo));
           }
+          loads.forEach((L, i) => {
+            const inOther = wins.some(([lo, hi], j) => j !== i && L.y >= lo && L.y <= hi);
+            if (inOther || fo(L.y) - L.sag < (L.bridge || L.rigidEnd ? 0 : Math.min(fo(L.y), L.uEnd ?? C5.s0)) + tol5) { nLoadSkip++; return; }
+            nLoadPts++; sagDevMax = Math.max(sagDevMax, Math.abs(fo(L.y) - fn(L.y) - L.sag));
+          });
+          const dlL = MX.lengths.perSeg[id]?.extra ?? extraLength(fn, 0, s.length, R5, 0.01, kinksOf(leg)), dlO = extraLength(fo, 0, s.length, R5, 0.01, kinksOf({ apices: leg.apices }));
+          if (dlO > 0) { dlRatioMin = Math.min(dlRatioMin, dlL / dlO); if (dlL < dlO - tol5) dlShort++; }
         }
       }
-      if (symMax > 1e-9) bad25.push(`isolated tent asymmetry ${symMax.toExponential(1)} mm`);
+      if (symMax > tol5) bad25.push(`own tent asymmetry ${symMax.toExponential(1)} mm`);
+      if (isoEqMax > tol5) bad25.push(`isolated (unloaded) tent: loaded ≠ own by ${isoEqMax.toExponential(1)} mm`);
+      if (overOwnMax > tol5) bad25.push(`loaded profile above the own one by ${overOwnMax.toExponential(1)} mm`);
+      if (offWinMax > tol5) bad25.push(`loaded ≠ own outside the load windows by ${offWinMax.toExponential(1)} mm`);
+      if (sagDevMax > tol5) bad25.push(`own − loaded at a load point differs from its sag by ${sagDevMax.toExponential(1)} mm`);
       const nLow = cx5.filter((c) => c.lowPsi).length, mMax5 = Math.max(0, ...cx5.map((c) => c.m)), mOrd5 = Math.max(0, ...cx5.map((c) => c.mOrd));
       const psiMin5 = cx5.length ? Math.min(...cx5.map((c) => c.psiDeg)) : null;
-      add({ id: 'V25', name: 'Tent is physical (lift mechanics)', crit: '#5 lift-spec v1.1 §1.6, §1.8, §3.5 (Fable Q5): 0 ≤ loaded lift ≤ the leg\'s highest apex; lift at an apex ≥ Δ_c = z_sup + Δ₁(F_c)·(m > 1 ? κ : 1) (equal unless a bridge passes over it); bridges on or above the sphere; isolated tent symmetric (1e-9) with the half-length to 0.05·Δ₁ in [0.8, 1.2]·√(2RΔ) (class (ii))',
+      add({ id: 'V25', name: 'Tent is physical (lift mechanics)', crit: '#5 lift-spec v1.1.1 §1.6, §1.8, §3.5 (Fable Q5, review of v1.1 §2): 0 ≤ loaded lift ≤ the leg\'s highest apex; lift at an apex ≥ Δ_c (equal unless a bridge passes over it); bridges on or above the sphere; own profile of an apex without neighbours within ℓ_p + x₀ + 3λ_T (inside the leg): symmetric and the half-length to 0.05·Δ₁ = ℓ_p + y* (closed form, search step 0.01 mm) — class (i); isolated (no load window over it): loaded = own; loaded profile: ≤ own, = own outside the load windows, own − loaded = sag at a load point (class (i)), ΔL_loaded ≥ ΔL_own printed; tolerances 1e-9·w',
         status: bad25.length ? 'fail' : 'pass',
         value: `mode ${MX.mode}: Δ₁ ${f(C5.delta1, 3)} mm = ${f(C5.delta1 / w, 2)} w (${C5.status.delta1}), a₁ = √(2RΔ₁) ${f(C5.a1, 2)} mm; apices ${cx5.length} (under a bridge ${nCovered}), bridges ${nBr} (lowest ${Number.isFinite(brMin) ? f(brMin, 3) : '—'} mm); `
           + `m_max ${mMax5} (${C5.stackM}; c.stack max ${mOrd5}); ψ_min ${psiMin5 == null ? '—' : f(psiMin5, 1)}°, below ψ* ${f(C5.psiStarDeg, 1)}°: ${nLow} (${cx5.length ? f(100 * nLow / cx5.length, 1) : '0'} %); `
-          + `isolated tents ${nSym}: asymmetry ${symMax.toExponential(1)} mm, half-length ${nHalf ? `${f(halfLo, 3)}…${f(halfHi, 3)}` : '—'}·√(2RΔ)`
+          + `isolated (unloaded) ${nIsoU}, own-checked ${nSym}, loaded-checked ${nLoadPts} load points on ${nLoadLegs} legs (skipped: in another window or at the floor ${nLoadSkip}); `
+          + `own: asymmetry ${symMax.toExponential(1)} mm, half-length ${nHalf ? `${f(halfLo, 3)}…${f(halfHi, 3)}·√(2RΔ), |d − d*| ≤ ${f(halfDevMax, 4)} mm` : '—'}; `
+          + `loaded: above own ${overOwnMax > 0 ? overOwnMax.toExponential(1) : '0'} mm, off-window ${offWinMax.toExponential(1)} mm, sag dev ${sagDevMax.toExponential(1)} mm; ΔL_loaded/ΔL_own min ${Number.isFinite(dlRatioMin) ? f(dlRatioMin, 3) : '—'} (legs with ΔL_loaded < ΔL_own ${dlShort})`
           + (bad25.length ? `; fail ${bad25.length}: ${bad25.slice(0, 5).join('; ')}` : ''),
-        numbers: { apices: cx5.length, bridges: nBr, covered: nCovered, mMax: mMax5, mOrdMax: mOrd5, psiMinDeg: psiMin5, lowPsi: nLow, symMax, halfLo, halfHi, bad: bad25.length } });
-      // V26 — lengths: sphere ≤ axis ≤ lifted; an isolated interior tent: numeric ΔL vs the analytic (crest + flights + tails), 3 %
+        numbers: { apices: cx5.length, bridges: nBr, covered: nCovered, mMax: mMax5, mOrdMax: mOrd5, psiMinDeg: psiMin5, lowPsi: nLow, symMax, halfLo, halfHi, halfDevMax,
+          isolated: nIsoU, ownChecked: nSym, loadedChecked: nLoadPts, loadLegs: nLoadLegs, loadSkipped: nLoadSkip, isoEqMax, overOwnMax, offWinMax, sagDevMax, dlRatioMin: Number.isFinite(dlRatioMin) ? dlRatioMin : null, dlShort, bad: bad25.length } });
+      // V26 — lengths: sphere ≤ axis ≤ lifted; the own profile of an apex without neighbours (V25 (a)(b)): numeric ΔL (step 0.01)
+      // vs the analytic (crest + flights + tails) within 0.5 % (class (i))
       const bad26 = []; let tot = { sphere: 0, axis: 0, lifted: 0 }, nIso = 0, isoDev = 0;
       for (const id of ids5) {
         const L = MX.lengths.perSeg[id]; if (!L) continue;
-        if (!(L.sphere <= L.axis + 1e-12 && L.axis <= L.lifted + 1e-12)) bad26.push(`${id} sphere ${f(L.sphere, 3)} / axis ${f(L.axis, 3)} / lifted ${f(L.lifted, 3)}`);
+        if (!(L.sphere <= L.axis + tol5 && L.axis <= L.lifted + tol5)) bad26.push(`${id} sphere ${f(L.sphere, 3)} / axis ${f(L.axis, 3)} / lifted ${f(L.lifted, 3)}`);
         for (const k of ['sphere', 'axis', 'lifted']) tot[k] += L[k];
         const leg = MX.legs[id], s = segById.get(id);
-        if (leg) for (const ap of isolated5(leg, s)) {
-          const fn = liftFnFor(MX, id), num = extraLength(fn, ap.x - reach5(ap), ap.x + reach5(ap), R5, 0.01);
+        if (leg) for (const ap of own5(leg, s)) {
+          const fn = ownLiftFnFor(MX, id), num = extraLength(fn, ap.x - reach5(ap), ap.x + reach5(ap), R5, 0.01);
           const an = extraLengthApex(ap, R5, s05, lam5), dev = Math.abs(num / an - 1); nIso++; isoDev = Math.max(isoDev, dev);
           if (dev > 0.005) bad26.push(`${id}/${ap.cid} ΔL ${f(num, 5)} vs analytic ${f(an, 5)} (${f(100 * dev, 2)} %)`);
         }
       }
       const nCx = cx5.length;
-      add({ id: 'V26', name: 'Lengths with lift', crit: '#5 lift-spec v1.1 §3.3, §3.5: sphere ≤ axis ≤ lifted per segment; an isolated tent ΔL numeric (step 0.01) vs the full analytic (crest + flights + landing tails) within 0.5 % (class (i)); bridges numeric; the lengths table integrates at 0.1 mm (class (ii), 3 %)',
+      add({ id: 'V26', name: 'Lengths with lift', crit: '#5 lift-spec v1.1.1 §3.3, §3.5: sphere ≤ axis ≤ lifted per segment; the own profile of an apex without neighbours (V25 (a)(b)): ΔL numeric (step 0.01) vs the full analytic (crest + flights + landing tails) within 0.5 % (class (i)); the lengths table integrates the loaded analytic profile at 0.1 mm (convergence 0.1 vs 0.01 ≤ 0.5 %, class (i), test 5i); the display polyline is not in the lengths',
         status: bad26.length ? 'fail' : 'pass',
-        value: `legs in stage: sphere ${f(tot.sphere, 1)} mm (lower bound, V3), axis (R + h/2) ${f(tot.axis, 1)}, lifted ${f(tot.lifted, 1)} mm (+${f(tot.lifted - tot.axis, 2)} mm = ${f(100 * (tot.lifted - tot.axis) / tot.axis, 3)} % over the axis; ${nCx} apices × ΔL₁ ${f(extraLength1(C5.delta1, C5.sigma), 4)} = ${f(nCx * extraLength1(C5.delta1, C5.sigma), 1)} mm without bridges); isolated interior tents ${nIso}, max deviation from analytic ${f(100 * isoDev, 2)} %`
+        value: `legs in stage: sphere ${f(tot.sphere, 1)} mm (lower bound, V3), axis (R + h/2) ${f(tot.axis, 1)}, lifted ${f(tot.lifted, 1)} mm (+${f(tot.lifted - tot.axis, 2)} mm = ${f(100 * (tot.lifted - tot.axis) / tot.axis, 3)} % over the axis; ${nCx} apices × ΔL₁ ${f(extraLength1(C5.delta1, C5.sigma), 4)} = ${f(nCx * extraLength1(C5.delta1, C5.sigma), 1)} mm without bridges); own-profile tents ${nIso}, max deviation from analytic ${f(100 * isoDev, 2)} %`
           + (bad26.length ? `; fail ${bad26.length}: ${bad26.slice(0, 5).join('; ')}` : ''),
         numbers: { ...tot, nIso, isoDev, nApex: nCx } });
-      // V27 — axis distance at a crossing on the LOADED profiles (Fable Q5 §3 (c)): z_U(apex) − (z_L,loaded + dent_L) = gap₂₇ ± 0.1·w,
-      // gap₂₇ = t_c(F_c) on the sphere (lower drops by d_low) and t_c(F_c) − δ(F_c) off it (bridge / flight / own crest: the lower
-      // drops by its compression, the sag is in its loaded profile). An upper leg bridged over its own apex floats above the lower
-      // (no contact): a positive gap is printed, not a fail. Self-check: Δ_c − z_sup − Δ₁(F_c)·(m > 1 ? κ : 1) = 0 (class (i)).
+      // V27 — axis distance at a crossing on the LOADED profiles (Fable Q5 §3 (c)): z_U(apex) − (z_L,loaded + dent_L) = t_c(F_c)
+      // ± 0.1·w at every support (review of lift-spec v1.1 §1 row 1: on the sphere the lower drops by d_low; off it by nothing —
+      // no wrap, symmetric compression — and the sag is in its loaded profile; on its own crest with m > 1 it settles by
+      // (1 − κ)·Δ₁). An upper leg bridged over its own apex floats above the lower (no contact): a positive gap is printed, not a
+      // fail. Self-check: the height rule by support kind (as K18), class (i).
+      // the rise over the support by its kind: Δ₁(F_c) on the sphere; t_c(F_c) off it (− (1 − κ)·Δ₁(F_c) on its own crest, m > 1)
+      // (apexOff 'd1', lift-spec v1.1, the default until Fable's answer: Δ₁(F_c)·(m > 1 ? κ : 1) off the sphere, V27 target t_c − δ there)
+      const riseRule = (c) => (c.support === 'ground' ? c.d1F : C5.apexOff === 'tc' ? c.tcF - (c.support === 'plateau' && c.m > 1 ? (1 - C5.kappa) * c.d1F : 0) : c.d1F * (c.m > 1 ? C5.kappa : 1));
       const dd27 = []; let selfMax = 0, nCov = 0, covMax = 0, nPressed = 0, pressedMax = 0;
       for (const c of cx5) {
         const up = liftFnFor(MX, c.over)(c.xApex), low = liftFnFor(MX, c.under)(c.xUnder) + dentFnFor(MX, c.under)(c.xUnder);
@@ -2551,7 +2630,7 @@ function runValidatorsIn(A, stage, ref) {
         // the lower leg pressed down at y by a LATER load (lay order: the upper is not re-seated) — a gap, printed
         const pressed = c.zSup != null && c.support !== 'ground' && liftFnFor(MX, c.under)(c.xUnder) < c.zSup - 1e-6;
         if (pressed && d > 0.1 * w) { nPressed++; pressedMax = Math.max(pressedMax, d); }
-        if (c.zSup != null && c.d1F != null) selfMax = Math.max(selfMax, Math.abs(c.delta - c.zSup - c.d1F * (c.m > 1 && c.support !== 'ground' ? C5.kappa : 1)));
+        if (c.zSup != null && c.d1F != null) selfMax = Math.max(selfMax, Math.abs(c.delta - c.zSup - riseRule(c)));
         if (covered && d > 0.1 * w) { nCov++; covMax = Math.max(covMax, d); }
         dd27.push({ c, d, up, low, covered: covered || pressed });
       }
@@ -2559,18 +2638,19 @@ function runValidatorsIn(A, stage, ref) {
       const out27 = dd27.filter((x) => !x.c.orderExc && (x.d < -0.1 * w - 1e-12 || (x.d > 0.1 * w + 1e-12 && !x.covered)));
       const mx27 = out27.reduce((q, x) => (Math.abs(x.d) > Math.abs(q?.d ?? 0) ? x : q), null);
       const byKind27 = {}; for (const x of out27) byKind27[x.c.support ?? '—'] = (byKind27[x.c.support ?? '—'] || 0) + 1;
-      add({ id: 'V27', name: 'Axis distance at a crossing = t_c', crit: '#5 lift-spec v1.1 §3.5 (Fable Q5): on the loaded profiles |z_U − z_L,loaded| = t_c(F_c) ± 0.1·w (class (iii), twist scatter §1.9); z_L,loaded − d_low on the sphere, − compression off it (target t_c − δ(F_c), printed); upper bridged over its own apex — a gap, no contact, printed; self-check of the height rule 1e-9',
-        status: out27.length || selfMax > 1e-9 ? 'fail' : 'pass',
+      add({ id: 'V27', name: 'Axis distance at a crossing = t_c', crit: '#5 lift-spec v1.1.1 §3.5 (Fable Q5, review of v1.1 §1): on the loaded profiles |z_U − z_L,loaded| = t_c(F_c) ± 0.1·w (class (iii), twist scatter §1.9); z_L,loaded − d_low on the sphere; off it (apexOff \'tc\', review) no drop (δ = 0, symmetric compression), − (1 − κ)·Δ₁ on its own crest with m > 1, or (apexOff \'d1\', v1.1 default) − compression (h − t_c)/2 with the target t_c − δ(F_c); upper bridged over its own apex — a gap, no contact, printed; self-check of the height rule 1e-9·w',
+        status: out27.length || selfMax > tol5 ? 'fail' : 'pass',
         value: `apices ${dd27.length}, outside ±0.1 w: ${out27.length}${out27.length ? ` (${Object.entries(byKind27).map(([k, v]) => `${k} ${v}`).join(', ')})` : ''}${mx27 ? `; largest |Δ| ${f(Math.abs(mx27.d) / w, 3)} w at ${mx27.c.id} (${mx27.c.over} over ${mx27.c.under}, ${mx27.c.support}, m ${mx27.c.m}: upper ${f(mx27.up, 3)}, lower ${f(mx27.low, 3)} mm)` : ''}; `
           + `lower laid later (not checked) ${nExc27}; bridged over (upper floats, no contact) ${nCov}${nCov ? `, gap up to ${f(covMax / w, 2)} w` : ''}; lower pressed down later (upper not re-seated) ${nPressed}${nPressed ? `, gap up to ${f(pressedMax / w, 2)} w` : ''}; self-check ${selfMax.toExponential(1)} mm`,
         numbers: { n: dd27.length, out: out27.length, byKind: byKind27, covered: nCov, pressed: nPressed, orderExc: nExc27, covMaxW: covMax / w, selfMax, maxAbsW: mx27 ? Math.abs(mx27.d) / w : 0 } });
-      // K18 — one level over the actual support (Fable Q5 §3 (b)): Δ_c − z_sup ≤ 1.5·t_c(F_c) − h/2 (class (i) by construction)
-      const bad18 = cx5.filter((c) => c.zSup != null && c.delta - c.zSup > c.capRel + 1e-9);
-      const rel18 = cx5.reduce((q, c) => (c.zSup != null ? Math.max(q, (c.delta - c.zSup) / c.capRel) : q), 0);
-      add({ id: 'K18', name: 'Rise over the support ≤ one-level ceiling', crit: '#5 lift-spec v1.1 §3.5 (Fable Q5): Δ_c − z_sup ≤ 1.5·t_c(F_c) − h/2 (the crown of one level over the actual support: sphere, own crest, loaded bridge or flight); the absolute height is K19',
+      // K18 — the rise over the actual support is an identity by its kind (review of lift-spec v1.1 §1 row 1, class (i), 1e-9·w):
+      // Δ_c − z_sup = Δ₁(F_c) on the sphere, = t_c(F_c) off it (bridge, flight), = t_c(F_c) − (1 − κ)·Δ₁(F_c) on its own crest with m > 1
+      const bad18 = cx5.filter((c) => c.zSup != null && Math.abs(c.delta - c.zSup - riseRule(c)) > tol5);
+      const by18 = {}; for (const c of cx5) { const k = c.support ?? '—'; const q = by18[k] || (by18[k] = { n: 0, max: 0 }); q.n++; q.max = Math.max(q.max, c.delta - (c.zSup ?? 0)); }
+      add({ id: 'K18', name: 'Rise over the support by support kind', crit: '#5 lift-spec v1.1.1 §3.5 (Fable Q5, review of v1.1 §1): Δ_c − z_sup = Δ₁(F_c) on the sphere; off it (apexOff \'tc\', review) t_c(F_c) over a bridge or flight (no wrap under the thread, δ = 0), t_c(F_c) − (1 − κ)·Δ₁(F_c) on its own crest with m > 1, or (apexOff \'d1\', v1.1 default) Δ₁(F_c)·(m > 1 ? κ : 1) — an identity, class (i), 1e-9·w; the absolute height is K19',
         status: bad18.length ? 'fail' : 'pass',
-        value: `κ ${f(C5.kappa, 2)}; max (Δ_c − z_sup)/ceiling ${f(rel18, 3)}${bad18.length ? `; fail ${bad18.length}: ${bad18.slice(0, 4).map((c) => `${c.id} m ${c.m}`).join(', ')}` : ''}`,
-        numbers: { mMax: mMax5, bad: bad18.length, rel: rel18 } });
+        value: `apexOff ${C5.apexOff}; κ ${f(C5.kappa, 2)}; rise over the support by kind: ${Object.entries(by18).map(([k, q]) => `${k} ${q.n} (max ${f(q.max, 3)} mm)`).join(', ') || '—'}${bad18.length ? `; fail ${bad18.length}: ${bad18.slice(0, 4).map((c) => `${c.id} ${c.support} m ${c.m}`).join(', ')}` : ''}`,
+        numbers: { mMax: mMax5, bad: bad18.length, bySupport: by18 } });
       // K19 — the absolute height (Fable Q5 §3 (b), (d)): max Δ_c and m_eff = Δ_max/Δ₁ printed with its place; warn > 1.2 mm;
       // ψ < ψ* and m ≥ 4 printed
       const n4 = cx5.filter((c) => c.m >= 4).length;

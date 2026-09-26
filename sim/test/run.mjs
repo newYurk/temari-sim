@@ -321,12 +321,14 @@ if (G('20g'))
       const A = computeRaw(recipe, cfg(mode, m, lam)), V = Object.fromEntries(runValidators(A, 'all', null).map((v) => [v.id, v]));
       const L = ids.map((id) => A.path.segs.find((q) => q.id === id));
       const n = V.V20.numbers;
-      // review b080c58 §5: Δs is a root of the tangency residual (signed, ≤ 1e-9·R) or null = «not found within 20 w» with
-      // the least residual printed (fan m0.5 λ0.32: no sign change, least residual 0.034 mm at −1.728 mm)
-      const dsOk = (s) => (lam === 0.32 ? s.grazeDsMm === null && s.grazeResMin?.resMm > 0 : s.grazeDsMm < 0 && s.grazeResMin === null);
-      check(L.every((s) => s.entryKind === 'free-graze' && s.exitKind === 'free-graze' && s.joinMode === 'free' && s.arcs.length === 1 && dsOk(s) && s.grazeMinGapW >= 1 - 0.01)
-        && V.V20.status === 'pass' && n.badKink === 0 && !n.tolBranch.fallback && n.tolWorst <= 0.2 && V.V22.status === 'pass' && V.V23.status === 'pass' && V.V8.status !== 'fail' && /free-graze \(10″, no contact\) \d+: rail gap min/.test(V.V8.value),
-        `${mode} m${m} λ${lam}: ${ids.join('/')} free-graze chord X→E (Δs ${L[0].grazeDsMm === null ? `not found within 20 w, least residual ${fmt(L[0].grazeResMin?.resMm ?? NaN, 4)} mm at ${fmt(L[0].grazeResMin?.atMm ?? NaN, 3)} mm` : `${fmt(L[0].grazeDsMm, 3)} mm`}, rail gap ${fmt(L[0].grazeGapMm, 4)} mm, d ${fmt(L[0].grazeMinGapW, 3)} w); V20 pass, worst tangency turn ${fmt(n.tolWorst, 3)} of the bound, branch piece only; V22, V23 pass; V8 prints the free-graze class (§6.12, no contact)`);
+      // review b080c58 §5: Δs is a root of the tangency residual (signed, ≤ 1e-9·R); Fable bom-spec v1 §7 (2): no sign change
+      // (fan m0.5 λ0.32: least residual 0.034 mm = 0.048 w at −1.73 mm) = no tangency from E, branch (10′) clean chord, class free
+      const clearCase = lam === 0.32, kind = clearCase ? 'free' : 'free-graze';
+      const dsOk = (s) => (clearCase ? s.grazeDsMm === null && s.grazeResMin?.resMm > 0.01 * 0.714 : s.grazeDsMm < 0 && s.grazeResMin === null);
+      check(L.every((s) => s.entryKind === kind && s.exitKind === kind && s.joinMode === 'free' && s.arcs.length === 1 && dsOk(s) && s.grazeMinGapW >= 1 - 0.01)
+        && V.V20.status === 'pass' && n.badKink === 0 && !n.tolBranch.fallback && n.tolWorst <= 0.2 && V.V22.status === 'pass' && V.V23.status === 'pass' && V.V8.status !== 'fail'
+        && (clearCase ? n.clear.some((c) => c.id === ids[0]) && /\(10′\) clear chord \d+: \S+ no tangency from E: least residual/.test(V.V20.value) : /free-graze \(10″, no contact\) \d+: rail gap min/.test(V.V8.value)),
+        `${mode} m${m} λ${lam}: ${ids.join('/')} ${clearCase ? `clear chord X→E, class free (no tangency from E: least residual ${fmt(L[0].grazeResMin?.resMm ?? NaN, 4)} mm at ${fmt(L[0].grazeResMin?.atMm ?? NaN, 2)} mm from T₁)` : `free-graze chord X→E (Δs ${fmt(L[0].grazeDsMm, 3)} mm)`}, rail gap ${fmt(L[0].grazeGapMm, 4)} mm, d ${fmt(L[0].grazeMinGapW, 3)} w; V20 pass, worst tangency turn ${fmt(n.tolWorst, 3)} of the bound, branch piece only; V22, V23 pass; ${clearCase ? 'V20 prints the clear chord' : 'V8 prints the free-graze class (§6.12, no contact)'}`);
       setGrazeRuleForTest(false);
       const B = computeRaw(recipe, cfg(mode, m, lam)), VB = runValidators(B, 'all', null).find((v) => v.id === 'V20'), LB = B.path.segs.find((q) => q.id === ids[0]);
       setGrazeRuleForTest(true);
@@ -348,7 +350,7 @@ if (G('5m'))
 if (G('5i'))
 {
   const { mechanicsIdealTests } = await import('./mechanics.test.mjs');
-  mechanicsIdealTests(check, fmt, { computeAll: computeAllDefault, recipe, runValidators });
+  mechanicsIdealTests(check, fmt, { computeAll: computeAllDefault, recipe, runValidators, V_HOOKS: await import('../src/validators.js') });
 }
 
 // 6. Нить не парит (V14) и «крючки» у полюса на скриншоте 03 — проекция, а не отрыв от шара

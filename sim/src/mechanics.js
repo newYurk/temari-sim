@@ -8,8 +8,10 @@ import { alongPolylineMm, dist as dist3 } from './geom.js';
 
 /** gram-force per newton (t_c law is written in gf). */
 export const GF_PER_N = 1 / 0.00980665;
-/** Reference laid height h of the t_c law (pearl #5, 0.65·0.714 mm): the law is scaled by h/H_REF (equal pressure, (c)). */
+/** Reference laid height h₅ and width w₅ of the t_c law (pearl #5, 0.65·0.714 mm, 0.714 mm): the law is read at equal
+ *  pressure — t_c/h the same at the same F/(w·h) (c); lift-spec v1.1 §7, review of v1.1 §1 row 4. */
 export const H_REF_MM = 0.464;
+export const W_REF_MM = 0.714;
 /** §2 defaults — each with basis and status (the parameter schema carries the same). */
 export const LIFT_DEFAULTS = Object.freeze({
   T: { value: 1, range: [0.5, 3], status: 'assumed', basis: 'lift-spec v1.1 §2 (d): seam/embroidery analogues (Peirce 1.1–1.5 N at 150–200 tex, machine seam 1 N static); tension_N empty → 1 N' },
@@ -18,10 +20,11 @@ export const LIFT_DEFAULTS = Object.freeze({
   kappa: { value: 0.8, range: [0.7, 1.0], status: 'analogue', basis: 'lift-spec v1 §1.6 (b): Durur t6/(3t2) 0.82–1.02, Panneerselvam 2024' },
 });
 
-/** Compressed thickness in the overlap, t_c(F) = 0.491 − 0.068·ln(0.244·F[gf]) mm (b, Durur 2000 log law ×2.03), scaled
- *  by h/H_REF for another laid height (c). */
-export function tcAt(F_N, h = H_REF_MM) {
-  const gf = Math.max(1e-6, F_N * GF_PER_N);
+/** Compressed thickness in the overlap in the reduced form (b, Durur 2000 log law ×2.03; (c) equal pressure):
+ *  t_c(F; w, h) = (h/h₅)·[0.491 − 0.068·ln(0.244·F[gf]·(w₅h₅)/(w·h))] mm — the force enters through the pressure, so a
+ *  similar build ×k (F ×k², w, h ×k) has t_c ×k exactly. At w₅, h₅ it is the published law. */
+export function tcAt(F_N, h = H_REF_MM, w = W_REF_MM) {
+  const gf = Math.max(1e-6, F_N * GF_PER_N * (W_REF_MM * H_REF_MM) / (w * h));
   return (0.491 - 0.068 * Math.log(0.244 * gf)) * (h / H_REF_MM);
 }
 /** Regime lengths (=, lift-spec §1.1–1.2): λ_T = √(T/k), λ_B = (4B/k)^¼, ℓ_b = √(B/T), Π = T/(2√(Bk)). k = ∞ → 0 lengths. */
@@ -41,23 +44,23 @@ export function flight(D, R, s0) {
 }
 /** Single-crossing rise (=, §1.3, T8): Δ₁ = 1.5·t_c(F) − h/2 − δ(F), F = 2T·σ(Δ₁) — fixed point, damping ½, ≤ 50 steps,
  *  Δ₁ ≥ 0. Returns every derived constant of §2. */
-export function rise1({ T = 1, k = 3, B = 0.0155, h = H_REF_MM, R }) {
+export function rise1({ T = 1, k = 3, B = 0.0155, h = H_REF_MM, w = W_REF_MM, R }) {
   const s0 = Number.isFinite(k) ? T / (k * R) : 0;
   let D = 0.27 * h / H_REF_MM, it = 0, F = 0, tc = 0, dent = 0;
   for (; it < 50; it++) {
     const { sigma } = flight(D, R, s0);
-    F = 2 * T * sigma; tc = tcAt(F, h); dent = dentOf(F, T, B, k);
+    F = 2 * T * sigma; tc = tcAt(F, h, w); dent = dentOf(F, T, B, k);
     const Dn = Math.max(0, 1.5 * tc - h / 2 - dent);
     if (Math.abs(Dn - D) < 1e-13) { D = Dn; break; }
     D = Math.max(0, 0.5 * (D + Dn));
   }
   const { x0, sigma } = flight(D, R, s0);
-  F = 2 * T * sigma; tc = tcAt(F, h); dent = dentOf(F, T, B, k);
+  F = 2 * T * sigma; tc = tcAt(F, h, w); dent = dentOf(F, T, B, k);
   return { delta1: D, dent, F, sigma, x0, s0, tc, a1: Math.sqrt(2 * R * D), iterations: it, ...regime(T, B, k) };
 }
 /** Stack of m threads under the upper one (§1.6, T9): Δ(m) = Δ₁·[1 + κ(m − 1)]. */
 export const stackRise = (D1, m, kappa) => D1 * (1 + kappa * (Math.max(1, m) - 1));
-/** Physical ceiling (K18): Δ_cap(m) = (m + ½)·t_c − h/2. */
+/** Crown of m levels (printed): Δ_cap(m) = (m + ½)·t_c − h/2 (K18 is the identity by support kind, lift-spec v1.1.1 §3.5). */
 export const capRise = (m, tc, h) => (Math.max(1, m) + 0.5) * tc - h / 2;
 /** Local widening and crest radius (§1.4): w_c = w·h/t_c, ρ_c = (w_c/2)²/(t_c/2). */
 export const crest = (w, h, tc) => { const wc = w * h / tc; return { wc, rhoC: (wc / 2) ** 2 / (tc / 2) }; };
@@ -129,7 +132,7 @@ export function envelopeAt(H, x, R, s0, lamT) {
   return u;
 }
 /** Single-crossing rise at a given crossing force F (lift-spec v1.1 §1.8, Fable Q5 §2): Δ₁(F) = 1.5·t_c(F) − h/2 − δ(F) ≥ 0. */
-export const rise1At = (F, { T, k, B, h }) => Math.max(0, 1.5 * tcAt(F, h) - h / 2 - dentOf(F, T, B, k));
+export const rise1At = (F, { T, k, B, h, w }) => Math.max(0, 1.5 * tcAt(F, h, w) - h / 2 - dentOf(F, T, B, k));
 /** Where y lies on a leg's own profile (hull H, §1.8, Fable Q5 §2): 'plateau' (on its own crest — rigid, a = b = 0), 'bridge'
  *  between apices i < j (a, b to their plateau edges), 'flight' of the dominant apex (a back to its plateau edge, b ahead to
  *  its landing, dir = +1 / −1 along x toward the landing) or 'ground' (on the sphere). */
@@ -149,16 +152,28 @@ export function regionOf(H, y, R, s0, lamT) {
   return { kind: 'flight', a: d - best.lp, b: land - d, dir: y >= best.x ? 1 : -1 };
 }
 /** Loaded profile (Fable Q5 §2, lift-spec v1.1 §3.1): the own envelope minus the loads of later threads, in lay order. A load
- *  { y, sag, s, a, b, dir, bridge }: on a bridge a triangle of depth sag at y to both plateau edges (a behind, b ahead);
- *  on a flight the triangle back to the plateau edge and ahead the kink u − sag − s·t (s = 2σ_U, t from y toward the
- *  landing) up to the landing b; each step clamped at 0 (the thread lies on the sphere). */
+ *  { y, sag, s, a, b, dir, bridge, rigidEnd, uEnd }: on a bridge a triangle of depth sag at y to both plateau edges (a behind,
+ *  b ahead); on a flight the triangle back to the plateau edge and ahead the kink u − sag − s·t (s = 2σ_U, t from y toward
+ *  the landing) up to the landing b, both sides floored at min(u, uEnd) (uEnd = the own profile at the landing when laid);
+ *  a flight window cut at another apex's plateau edge (rigidEnd) is a triangle, as on a bridge. So the loaded profile
+ *  rejoins the own one without a step (a step made the length integral grow as 1/step, #5 cleanup); each step clamped at 0. */
+/** Test hook (review of lift-spec v1.1 §2, negative test): loadedAt without the sag of each load (the kink only). */
+let LOADED_NO_SAG = false;
+export function setLoadedNoSagForTest(on) { LOADED_NO_SAG = !!on; }
+/** The x-interval a load acts on (its window [y − a, y + b] along its direction), for the isolation predicate (V25). */
+export const loadWindow = (L) => { const lo = L.bridge ? L.y - L.a : L.y - L.dir * L.a, hi = L.bridge ? L.y + L.b : L.y + L.dir * L.b; return [Math.min(lo, hi), Math.max(lo, hi)]; };
 export function loadedAt(H, loads, x, R, s0, lamT) {
   let u = envelopeAt(H, x, R, s0, lamT);
   if (!loads || !loads.length) return u;
   for (const L of loads) {
-    const t = L.bridge ? x - L.y : L.dir * (x - L.y);
-    if (t < 0 && -t <= L.a) u -= L.sag * (1 + t / Math.max(1e-12, L.a));
-    else if (t >= 0 && t <= L.b) u -= L.bridge ? L.sag * (1 - t / Math.max(1e-12, L.b)) : L.sag + L.s * t;
+    const t = L.bridge ? x - L.y : L.dir * (x - L.y), sag = LOADED_NO_SAG ? 0 : L.sag;
+    // a flight load ending at its landing is floored at min(u, u_end) on both sides, u_end = the own profile at the landing
+    // when the load was laid (s₀, or another apex's flight holding the envelope up): no step at y or at t = b; a flight load
+    // whose window ends at a rigid point (another apex's plateau edge) is a triangle to it, as on a bridge (a string between
+    // two rigid points) — the kink there would end in a step back up to the own profile
+    const tri = L.bridge || L.rigidEnd, fl = tri || !(t >= -L.a && t <= L.b) ? 0 : Math.min(u, L.uEnd ?? s0);
+    if (t < 0 && -t <= L.a) u = Math.max(fl, u - sag * (1 + t / Math.max(1e-12, L.a)));
+    else if (t >= 0 && t <= L.b) u = tri ? u - sag * (1 - t / Math.max(1e-12, L.b)) : Math.max(fl, u - sag - L.s * t);
     if (u < 0) u = 0;
   }
   return u;
@@ -173,11 +188,23 @@ export function extraLengthApex(ap, R, s0 = 0, lamT = 0) {
   return (kc * kc * lp ** 3) / 3 + (2 * lp * D - kc * lp ** 3 / 3) / R + extraLength1(ap.Ds, ap.ss) + tails;
 }
 /** Numeric extra length ∫(u'²/2 + u/R) dx of a profile over [x0, x1], step ≤ h (default 0.05 mm). */
-export function extraLength(fn, x0, x1, R, h = 0.05) {
+export function extraLength(fn, x0, x1, R, h = 0.05, breaks = null) {
+  if (breaks && breaks.length) {   // piecewise between the profile's kinks (step ≤ h in each piece; #5 cleanup, V26 convergence)
+    const xs = [x0, ...breaks.filter((b) => b > x0 + 1e-9 && b < x1 - 1e-9).sort((a, b) => a - b), x1];
+    let sum = 0; for (let i = 1; i < xs.length; i++) if (xs[i] - xs[i - 1] > 1e-9) sum += extraLength(fn, xs[i - 1], xs[i], R, h);
+    return sum;
+  }
   const n = Math.max(2, Math.ceil((x1 - x0) / h)), dx = (x1 - x0) / n;
   let sum = 0, prev = fn(x0);
   for (let i = 1; i <= n; i++) { const u = fn(x0 + i * dx), du = (u - prev) / dx, um = (u + prev) / 2; sum += (du * du / 2 + um / R) * dx; prev = u; }
   return sum;
+}
+/** The known kinks of a leg's profile: plateau edges and landings of each apex, and each load's point and window ends. */
+export function kinksOf(leg) {
+  const k = [];
+  for (const ap of leg.apices || []) k.push(ap.x - ap.lp, ap.x + ap.lp, ap.x - ap.lp - ap.x0s, ap.x + ap.lp + ap.x0s);
+  for (const L of leg.loads || []) k.push(L.y, ...loadWindow(L));
+  return k;
 }
 /** Dent profile of the lower thread (§1.7): −d_low on the spot (half-width w_c/(2 sin ψ)), e^{−…/λ} beyond. */
 export function dentAt(dn, x, lamT) {
@@ -200,8 +227,12 @@ export const LOCAL_STACK_WINDOW_W = 0.5;   // the contact-patch window's lower b
 /** #5 Q1/Q2 switches (one place): the stack rule — 'patch' (Fable C.1: m by the contact patch, Δ_c = u_under + Δ₁·(m > 1 ? κ : 1)),
  *  'ordinal' (Q1 a, rejected: Δ(c.stack)), 'one' (Q1 c, rejected: Δ₁ everywhere); the plateau cap — 'contact' (Fable C.2:
  *  ℓ_p ≤ max(w_c/2, c.lenMm/2), every apex) or 'none' (ℓ_p(ψ) of §1.5 as is). The alternatives stay for sweeps and tests. */
-/** @type {{ stackM: string, plateauCap: string }} */
-export const LIFT_CHOICES = Object.freeze({ stackM: 'support', plateauCap: 'contact' });
+/*  apexOff — the apex height over a bridge / flight / own crest: 'd1' (lift-spec v1.1: Δ_c = z_sup + Δ₁(F_c)·(m > 1 ? κ : 1), the
+ *  lower drops by its compression (h − t_c)/2) or 'tc' (review of v1.1 §1 row 1: no wrap under the thread, δ = 0, symmetric
+ *  compression → Δ_c = z_sup + t_c(F_c), minus (1 − κ)·Δ₁ on its own crest with m > 1; the lower does not drop). 'tc' is held
+ *  back pending Fable (compounding on S8: max 0.47 → 0.98 mm, V27 fails where another crossing's dent lies under a flight point). */
+/** @type {{ stackM: string, plateauCap: string, apexOff?: string }} */
+export const LIFT_CHOICES = Object.freeze({ stackM: 'support', plateauCap: 'contact', apexOff: 'd1' });
 
 /** Resolved mode: display | ideal | measured (lift1_w given → measured, §5.2). */
 export function liftModeOf(P) {
@@ -219,19 +250,20 @@ export function buildMechanics(P, path, base, choices = LIFT_CHOICES) {   // cho
   const k = P.wrapK_Nmm2 ?? LIFT_DEFAULTS.k.value, B = P.bendB_Nmm2 ?? LIFT_DEFAULTS.B.value, kappa = P.stackKappa ?? LIFT_DEFAULTS.kappa.value;
   const notes = [];
   if (!(P.tension_N > 0)) notes.push('T = 1 N assumed (tension_N empty, lift-spec §2 (d))');
-  const r = rise1({ T, k, B, h, R });
+  const r = rise1({ T, k, B, h, w, R });
+  const TC_OFF = choices.apexOff === 'tc';
   let delta1 = r.delta1, F = r.F, tc = r.tc, dent = r.dent, sigma = r.sigma, x0 = r.x0;
   if (mode === 'measured') {
     if (P.lift1_w != null) {
       delta1 = P.lift1_w * w;
-      ({ x0, sigma } = flight(delta1, R, r.s0)); F = 2 * T * sigma; tc = tcAt(F, h); dent = 1.5 * tc - h / 2 - delta1;
+      ({ x0, sigma } = flight(delta1, R, r.s0)); F = 2 * T * sigma; tc = tcAt(F, h, w); dent = 1.5 * tc - h / 2 - delta1;
       if (dent < 0.02 || dent > 0.2) notes.push(`measured Δ₁ implies δ = ${dent.toFixed(3)} mm outside 0.02–0.2: t_c or h out of range, check the cross-section (#44)`);
     } else notes.push('measured without lift1_w: the model Δ₁ (ideal) is used');
   }
   const { wc, rhoC } = crest(w, h, tc);
   const pStar = psiStar(sigma, rhoC, wc);
   const consts = { mode, R, w, h, T, k, B, kappa, tc, wc, rhoC, delta1, a1: Math.sqrt(2 * R * delta1), x0, sigma, s0: r.s0, lamT: r.lamT, lamB: r.lamB, lb: r.lb, Pi: r.Pi,
-    F1: F, dent1: dent, psiStarDeg: pStar * 180 / Math.PI, localStackWindowW: LOCAL_STACK_WINDOW_W, orderExceptions: 0, stackM: choices.stackM, plateauCap: choices.plateauCap,
+    F1: F, dent1: dent, psiStarDeg: pStar * 180 / Math.PI, localStackWindowW: LOCAL_STACK_WINDOW_W, orderExceptions: 0, stackM: choices.stackM, plateauCap: choices.plateauCap, apexOff: choices.apexOff ?? 'd1',
     status: { T: P.tension_N > 0 ? 'given' : 'assumed', k: 'estimate', B: 'measured (analogue thread)', kappa: 'analogue', delta1: mode === 'measured' && P.lift1_w != null ? 'photo' : 'model (=)', h: 'analogue' } };
   const segById = new Map(path.segs.map((s) => [s.id, s]));
   const stepOf = (s) => s.length / Math.max(1, s.pts.length - 1);
@@ -241,7 +273,10 @@ export function buildMechanics(P, path, base, choices = LIFT_CHOICES) {   // cho
   const idxOf = new Map(path.segs.map((q, i) => [q.id, i]));
   const cfg = { R, s0: r.s0, rhoC, wc };
   const crossings = [], apicesBy = new Map(), dentsBy = new Map(), hullBy = new Map();
-  const dLowOf = (m) => { let q = 0; for (let i = 1; i <= m; i++) q += Math.sqrt(stackRise(delta1, i, kappa) / delta1); return dent * q + (h - tc) / 2; };
+  // d_low on the sphere at the crossing force F_c (review of v1.1 §1, T8/T10: the same force as Δ₁(F_c)); measured mode keeps
+  // the photo-implied dent at F₁
+  const dLowOf = (m, Fc) => { let q = 0; for (let i = 1; i <= m; i++) q += Math.sqrt(stackRise(delta1, i, kappa) / delta1);
+    const dn = mode === 'measured' && P.lift1_w != null ? dent : dentOf(Fc, T, B, k); return dn * q + (h - tcAt(Fc, h, w)) / 2; };
   const hullOfSeg = (segId) => { const aps = apicesBy.get(segId) || []; let H = hullBy.get(segId); if (!H) { H = hullOf(aps, R); hullBy.set(segId, H); } return H; };
   const liftOf = (segId, x) => {   // the lower thread's own lift at x: final hull once the leg is complete (every apex of it is laid)
     const aps = apicesBy.get(segId); if (!aps || !aps.length) return 0;
@@ -249,7 +284,7 @@ export function buildMechanics(P, path, base, choices = LIFT_CHOICES) {   // cho
   };
   const loadsBy = new Map();   // #5 Q5: loads of later threads on each leg, in lay order
   const loadedOf = (segId, x) => { const aps = apicesBy.get(segId); if (!aps || !aps.length) return 0; return loadedAt(hullOfSeg(segId), loadsBy.get(segId), x, R, r.s0, r.lamT); };
-  const mat = { T, k, B, h };
+  const mat = { T, k, B, h, w };
   let nSup = { plateau: 0, bridge: 0, flight: 0, ground: 0 };
   let nLowPsi = 0, nApex = 0, mMax = 0, mOrdMax = 0, psiMin = 180, nOrderExc = 0;
   const order = path.crossings.map((c, i) => [c, i]).sort((p, q) => (idxOf.get(p[0].over) ?? 0) - (idxOf.get(q[0].over) ?? 0) || p[1] - q[1]);
@@ -274,9 +309,15 @@ export function buildMechanics(P, path, base, choices = LIFT_CHOICES) {   // cho
     const uUnder = under.type === 'leg' && (choices.stackM === 'patch' || (choices.stackM === 'patchStack' && mPatch > 1)) ? liftOf(c.under, xu) : 0;
     let D = choices.stackM === 'patch' || choices.stackM === 'patchStack' ? uUnder + delta1 * (m > 1 ? kappa : 1) : stackRise(delta1, m, kappa);
     // 'support' (Fable Q5 §2): the lower leg after its last apex is a string — z_sup = u_L,loaded(y) − sag, sag = 2σ_U·ab/(a+b)
-    // (a, b to the nearest rigid points: its plateau edges, a landing); Δ_c = z_sup + Δ₁(F_c)·(m > 1 ? κ : 1), F_c = 2T·σ_U, two
-    // iterations of σ_U from Δ_c. The load then kinks L's flight (loadedAt). Ground support: the dent d_low (§1.7).
-    let zSup = 0, sag = 0, reg = { kind: 'ground', a: 0, b: 0, dir: 0 }, Fc = F, tcF = tc, d1F = delta1;
+    // (a, b to the nearest rigid points: its plateau edges, a landing); F_c = 2T·σ_U, two iterations of σ_U from Δ_c. The load
+    // then kinks L's flight (loadedAt). The apex height by support kind — apexOff 'd1' (v1.1, default): Δ_c = z_sup + Δ₁(F_c)·(m > 1 ? κ : 1)
+    // off the sphere; apexOff 'tc' (review of lift-spec v1.1 §1 row 1, held back pending Fable): on the sphere
+    // Δ_c = Δ₁(F_c) (the lower axis drops by d_low = δ + (h − t_c)/2, §1.7); off it (bridge, flight, own crest) there is no wrap
+    // under the thread (δ = 0) and the floating section compresses symmetrically about its axis, so Δ_c = z_sup + t_c(F_c); on
+    // its own crest with m > 1 the lower also settles by (1 − κ)·Δ₁(F_c) (the definition of κ), Δ_c = z_sup + t_c − (1 − κ)·Δ₁.
+    /** @type {{ kind: string, a: number, b: number, dir: number, rigidEnd?: boolean }} */
+    let reg = { kind: 'ground', a: 0, b: 0, dir: 0 };
+    let zSup = 0, sag = 0, uEnd = 0, Fc = F, tcF = tc, d1F = delta1;
     if (choices.stackM === 'support') {
       if (under.type === 'leg' && (apicesBy.get(c.under) || []).length) {
         const HL = hullOfSeg(c.under);
@@ -286,18 +327,22 @@ export function buildMechanics(P, path, base, choices = LIFT_CHOICES) {   // cho
           for (const q of HL.apices) {
             const lo = q.x - q.lp, hi = q.x + q.lp;
             const fwd = reg.kind === 'bridge' ? 1 : reg.dir;
-            if (fwd * (lo - xu) > 0 || fwd * (hi - xu) > 0) reg.b = Math.min(reg.b, Math.max(0, Math.min(fwd > 0 ? lo - xu : xu - hi, Infinity)));
+            if (fwd * (lo - xu) > 0 || fwd * (hi - xu) > 0) { const nb = Math.max(0, Math.min(fwd > 0 ? lo - xu : xu - hi, Infinity)); if (nb < reg.b) { reg.b = nb; reg.rigidEnd = true; } }
             if (fwd * (xu - hi) > 0 || fwd * (xu - lo) > 0) reg.a = Math.min(reg.a, Math.max(0, fwd > 0 ? xu - hi : lo - xu));
           }
         }
         if (reg.kind !== 'ground' && loadedOf(c.under, xu) <= r.s0 * (1 + 1e-9)) reg = { kind: 'ground', a: 0, b: 0, dir: 0 };
       }
       const u0 = reg.kind === 'ground' ? 0 : loadedOf(c.under, xu), le = reg.a + reg.b > 1e-12 ? reg.a * reg.b / (reg.a + reg.b) : 0;
+      // a flight load ending at a landing: the loaded profile does not go below the own profile at that landing (s₀, or the
+      // flight of another apex that holds the envelope up there) — the same floor as loadedAt, so z_sup is its loaded level
+      uEnd = reg.kind === 'flight' && !reg.rigidEnd ? envelopeAt(hullOfSeg(c.under), xu + reg.dir * reg.b, R, r.s0, r.lamT) : 0;
+      const flr = reg.kind === 'flight' && !reg.rigidEnd ? Math.min(u0, uEnd) : 0;
       let sig = flight(delta1, R, r.s0).sigma;
       for (let it = 0; it < 3; it++) {
         sag = reg.kind === 'bridge' || reg.kind === 'flight' ? Math.min(u0, 2 * sig * le) : 0;
-        zSup = Math.max(0, u0 - sag); Fc = 2 * T * sig; tcF = tcAt(Fc, h); d1F = rise1At(Fc, mat);
-        D = zSup + d1F * (m > 1 && reg.kind !== 'ground' ? kappa : 1);   // on the sphere there is no stack under the point
+        zSup = Math.max(flr, u0 - sag); Fc = 2 * T * sig; tcF = tcAt(Fc, h, w); d1F = rise1At(Fc, mat);
+        D = reg.kind === 'ground' ? zSup + d1F : TC_OFF ? zSup + tcF - (reg.kind === 'plateau' && m > 1 ? (1 - kappa) * d1F : 0) : zSup + d1F * (m > 1 ? kappa : 1);
         sig = flight(D, R, r.s0).sigma;
       }
       nSup[reg.kind]++;
@@ -308,24 +353,24 @@ export function buildMechanics(P, path, base, choices = LIFT_CHOICES) {   // cho
     if (!apicesBy.has(c.over)) apicesBy.set(c.over, []);
     apicesBy.get(c.over).push({ x, ...ap, cid: c.id, m, psiDeg });
     hullBy.delete(c.over);
-    const dLow = dLowOf(choices.stackM === 'support' && reg.kind === 'ground' ? 1 : m), half = Math.min(wc / (2 * Math.max(1e-6, Math.sin(psi))), Math.max(lpMax ?? 0, wc / 2));
+    const dLow = dLowOf(choices.stackM === 'support' && reg.kind === 'ground' ? 1 : m, Fc), half = Math.min(wc / (2 * Math.max(1e-6, Math.sin(psi))), Math.max(lpMax ?? 0, wc / 2));
     const onGround = choices.stackM !== 'support' || reg.kind === 'ground';
-    // on the sphere the lower axis drops by d_low = δ + (h − t_c)/2 (§1.7); off the sphere (bridge, flight) only by its own section
-    // compression (h − t_c(F_c))/2 — the sag is in the loaded profile (Fable Q5 §3 (c)), the wrap dent δ does not exist there
-    // on its own crest (a stack, m > 1) the lower thread also settles by (1 − κ)·Δ₁(F) — the definition of κ (§1.6)
-    const dUnder = onGround ? dLow : Math.max(0, (h - tcF) / 2) + (reg.kind === 'plateau' && m > 1 ? (1 - kappa) * d1F : 0);
+    // on the sphere the lower axis drops by d_low = δ(F_c) + (h − t_c(F_c))/2 (§1.7); off the sphere (bridge, flight) it does not
+    // drop (no wrap, symmetric compression; the sag is in the loaded profile, Fable Q5 §3 (c)); on its own crest (a stack, m > 1)
+    // the lower thread settles by (1 − κ)·Δ₁(F_c) — the definition of κ (§1.6)
+    const dUnder = onGround ? dLow : (TC_OFF ? 0 : Math.max(0, (h - tcF) / 2)) + (reg.kind === 'plateau' && m > 1 ? (1 - kappa) * d1F : 0);
     if (under.type === 'leg') { if (!dentsBy.has(c.under)) dentsBy.set(c.under, []); dentsBy.get(c.under).push({ x: xu, d: dUnder, half, cid: c.id }); }
     if (under.type === 'leg' && choices.stackM === 'support' && (reg.kind === 'bridge' || reg.kind === 'flight')) {
       if (!loadsBy.has(c.under)) loadsBy.set(c.under, []);
-      loadsBy.get(c.under).push({ y: xu, sag, s: 2 * flight(D, R, r.s0).sigma, a: reg.a, b: reg.b, dir: reg.dir, bridge: reg.kind === 'bridge', cid: c.id });
+      loadsBy.get(c.under).push({ y: xu, sag, s: 2 * flight(D, R, r.s0).sigma, a: reg.a, b: reg.b, dir: reg.dir, bridge: reg.kind === 'bridge', cid: c.id, rigidEnd: reg.kind === 'flight' && !!reg.rigidEnd, uEnd });
     }
     const lowPsi = psiDeg < consts.psiStarDeg;
     if (lowPsi) nLowPsi++;
     nApex++; mMax = Math.max(mMax, m); mOrdMax = Math.max(mOrdMax, c.stack ?? 1); psiMin = Math.min(psiMin, psiDeg);
     recOf.set(c, { id: c.id, kind: c.kind, over: c.over, under: c.under, psiDeg, m, mPatch, mOrd: c.stack ?? 1, uUnder, support: reg.kind, zSup, sag, Fc, tcF, d1F, capRel: 1.5 * tcF - h / 2, onGround, orderExc,
-      // V27 target: on the sphere t_c(F_c) (Δ₁ + d_low = t_c); off it Δ_c = z_sup + Δ₁(F) keeps the wrap dent δ(F) inside Δ₁(F) while the
-      // lower axis drops only by its compression, so the identity is t_c(F_c) − δ(F_c) (printed; a question to Fable)
-      gap27: onGround ? tcF : tcF - dentOf(Fc, T, B, k), delta: D, cap: capRise(m, tc, h), xApex: x, xUnder: xu, plateau: ap.lp,
+      // V27 target: 'tc' t_c(F_c) at every support (on the sphere Δ₁ + d_low = t_c; off it Δ_c − z_sup + dUnder = t_c); 'd1' (v1.1)
+      // off the sphere t_c(F_c) − δ(F_c) (Δ₁(F) keeps the wrap dent while the lower drops only by its compression)
+      gap27: onGround || TC_OFF ? tcF : tcF - dentOf(Fc, T, B, k), delta: D, cap: capRise(m, tc, h), xApex: x, xUnder: xu, plateau: ap.lp,
       aFree: ap.lp + ap.x0s, F: 2 * T * ap.ss, dent: -dUnder, extraLen: extraLengthApex(ap, R, r.s0, r.lamT), lowPsi, cls: lowPsi ? `ψ < ψ* (position ±w/tan ψ)` : 'tent' });
   }
   for (const c of path.crossings) crossings.push(recOf.get(c));   // printed in the path order
@@ -343,7 +388,7 @@ export function buildMechanics(P, path, base, choices = LIFT_CHOICES) {   // cho
     bridges += Hs.bridges;
     const fn = (x) => loadedAt(leg, leg.loads, x, R, r.s0, r.lamT);
     const sphere = s.length, axis = sphere * (1 + h / (2 * R));
-    const extra = leg.apices.length ? extraLength(fn, 0, s.length, R, 0.1) : 0;
+    const extra = leg.apices.length ? extraLength(fn, 0, s.length, R, 0.01, kinksOf(leg)) : 0;   // 0.01 mm between the kinks (V26 convergence)
     let lm = 0; for (const ap of leg.apices) lm = Math.max(lm, fn(Math.min(s.length, Math.max(0, ap.x))));
     liftMax = Math.max(liftMax, lm);
     perSeg[s.id] = { sphere, axis, lifted: axis + extra, extra, liftMax: lm };

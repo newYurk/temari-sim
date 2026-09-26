@@ -241,6 +241,8 @@ Do **not** ask Fable about δ until packing was restored (now restored); remaini
 
 **Commits.** c8abe77 (#5 steps 2–4), 13ffc13 (support rule, ideal default, V25–V27/K18/K19), 9e9e7ef (samples/lift), this commit (docs).
 
+**v1.1.1 (#5 cleanup, review of v1.1).** t_c in reduced form (force through pressure), V25 in three groups (own-checked, isolated (unloaded), loaded profile), K18 as the identity by support kind, lengths at 0.01 mm between the profile's kinks with the loaded profile rejoining the own one without a step (floor at the landing, triangle to a rigid point); the apex rule z_sup + t_c(F_c) off the sphere is implemented as a choice but not adopted (S8 max 0.47 → 0.98 mm, V27 fails) — open.
+
 
 ## D47 — Round palette: 18 named colours, golden-angle hues beyond (2026-09-26)
 

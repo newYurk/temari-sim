@@ -28,6 +28,16 @@ export function mechanicsTests(check, fmt) {
   console.log(`  Δ₁(T, k) table §1.3 deviations: ${table.map(([T, k], i) => `T${T}/k${k} ${tDev[i] >= 0 ? '+' : ''}${fmt(tDev[i], 3)}`).join(', ')}`);
   // §1.3 is an illustration at B 0.01 (lift-spec v1.1 C.3: acceptance by formulas and limits, not reprinted numbers)
   check(tDev.every((d) => Math.abs(d) <= 0.003), 'Δ₁(T, k) table §1.3 (B 0.01) within ±0.003 mm at B 0.0155');
+  // review of lift-spec v1.1 §1 row 4: the t_c law in the reduced form (force through the pressure) — at ×k (F ×k², w, h ×k)
+  // t_c ×k exactly; with T ×k², B ×k⁴ (k_wrap ×1) every length of rise1 is ×k and σ, Π unchanged
+  {
+    const F0 = 0.2349, tc1 = M.tcAt(F0, h, w), rel = (a, b) => Math.abs(a / b - 1);
+    const ks = [1.25, 2, 0.8], okTc = ks.every((k) => rel(M.tcAt(F0 * k * k, h * k, w * k), k * tc1) <= 1e-9);
+    const rs = ks.map((k) => [k, M.rise1({ R: R * k, T: k * k, k: 3, B: 0.0155 * k ** 4, h: h * k, w: w * k })]);
+    const okR = rs.every(([k, q]) => ['delta1', 'x0', 'tc', 'dent', 'a1', 'lamT', 'lamB', 'lb', 's0'].every((f) => rel(q[f], k * r[f]) <= 1e-6) && rel(q.sigma, r.sigma) <= 1e-6 && rel(q.Pi, r.Pi) <= 1e-6);
+    check(okTc && okR && Math.abs(M.tcAt(F0, 0.464, 0.714) - (0.491 - 0.068 * Math.log(0.244 * F0 * M.GF_PER_N))) < 1e-15,
+      `t_c at equal pressure: t_c(F·k², h·k, w·k) = k·t_c (1e-9) for k ${ks.join(' / ')}; rise1 with T ×k², B ×k⁴: Δ₁, x₀, t_c, δ, a₁, λ_T, λ_B, ℓ_b, s₀ ×k, σ, Π ×1 (1e-6); at w₅, h₅ the published law`);
+  }
   // tent (§1.4): u(x₀) = s₀, slope continuous at x₀, rigid limit u = Δ(1 − |x|/a)²
   const tp = M.tentProfile({ D: r.delta1, R, s0: r.s0, lamT: r.lamT });
   const e = 1e-7, jump = Math.abs((tp(r.x0 + e) - tp(r.x0)) / e - (tp(r.x0) - tp(r.x0 - e)) / e);
@@ -71,7 +81,7 @@ export function mechanicsTests(check, fmt) {
 /** #5 step 3: the mechanics layer and V25–V27, K18, K19 on whole patterns in liftMode 'ideal' (group '5i').
  *  Support rule (lift-spec v1.1 §1.6, Fable Q5): the upper thread rests on the loaded lower thread, which sags between its
  *  supports under F = 2Tσ (bridges are strings, not rigid). V20 at λ 0.6 is the known λ/μ fail (A2). */
-export function mechanicsIdealTests(check, fmt, { computeAll, recipe, runValidators }) {
+export function mechanicsIdealTests(check, fmt, { computeAll, recipe, runValidators, V_HOOKS }) {
   console.log('\n## #5 lift mechanics — ideal mode on whole patterns (V25–V27, K18, K19)');
   const cases = [
     // name, params, m_max, known fails, ψ < ψ*, [median band], [max band], [lifted − axis % band], K19 status
@@ -93,6 +103,46 @@ export function mechanicsIdealTests(check, fmt, { computeAll, recipe, runValidat
       && ['V11', 'V14', 'V25', 'V26', 'V27', 'K18'].every((id) => V[id].status === 'pass') && V.K19.status === k19 && fails.length === 0
       && inB(N19.median, bMed) && inB(N19.dMax, bMax) && T.sphere <= T.axis && T.axis < T.lifted && inB(pct, bPct),
       `${name}: m_max ${MX.mMax} (c.stack max ${MX.mOrdMax}), apices ${MX.nApex}, ψ < ψ* ${MX.nLowPsi}, Δ_c median ${fmt(N19.median, 3)} / max ${fmt(N19.dMax, 3)} mm (K19 ${V.K19.status}), lifted − axis ${fmt(pct, 3)} %; V25/V26/V27/K18 pass (V27 outside ${V.V27.numbers.out} of ${V.V27.numbers.n}), other fails ${fails.join(',') || 'none'}`);
+  }
+  // Review of lift-spec v1.1 §2: the isolation predicate by loads (reach ℓ_p + x₀ + 3λ_T, no load window over it) — regression
+  // where the branch always runs: S8 with one row per set (A1 + B1, no later loads on B1): 4 isolated unloaded tents at λ 0.32
+  // and 0.6 (B1 over A1 near the tips), 0 at λ 0 (every apex near a leg end or in a bridge); ×1.25 without scaling the mechanics
+  // — the same 4 (no flip: the tail is 3λ_T, not an absolute 12λ_T)
+  {
+    const { setIsoTailForTest } = V_HOOKS;
+    const one = (lam, k = 1, x = {}) => computeAll(recipe, { C_mm: 240 * k, w_mm: 0.714 * k, m_mm: 0.5 * k, startRun_mm: 35 * k, rowsMode: 'count', rowsCount: 1, liftMode: 'ideal',
+      shoulderForm: lam ? 'bow' : 'geodesic', bowLambda: lam || undefined, muWrap: Math.max(0.32, lam), ...x });
+    const V5 = (A) => Object.fromEntries(runValidators(A, 'all', null).filter((v) => ['V25', 'V26'].includes(v.id)).map((v) => [v.id, v]));
+    const res = [0, 0.32, 0.6].map((lam) => [lam, V5(one(lam))]), s125 = V5(one(0.6, 1.25));
+    const ok = res.every(([lam, V]) => V.V25.status === 'pass' && V.V26.status === 'pass' && V.V25.numbers.isolated === (lam ? 4 : 0) && V.V25.numbers.ownChecked === (lam ? 4 : 0)
+      && (!lam || (V.V25.numbers.symMax <= 1e-9 * 0.714 && V.V25.numbers.halfDevMax <= 0.01 && V.V26.numbers.isoDev <= 0.005)))
+      && s125.V25.numbers.isolated === 4 && s125.V25.status === 'pass' && s125.V26.status === 'pass';
+    check(ok, `1 row per set (group 5i regression): isolated (unloaded) ${res.map(([lam, V]) => `λ${lam} ${V.V25.numbers.isolated}`).join(', ')}; ×1.25 λ0.6 ${s125.V25.numbers.isolated}; own profile: asymmetry ≤ ${res.map(([, V]) => V.V25.numbers.symMax.toExponential(0)).join('/')} mm, |d − d*| ≤ ${res.map(([, V]) => fmt(V.V25.numbers.halfDevMax, 4)).join('/')} mm (closed form ℓ_p + y*; ${res.filter(([l]) => l).map(([, V]) => `${fmt(V.V25.numbers.halfLo, 3)}…${fmt(V.V25.numbers.halfHi, 3)}`).join(', ')}·√(2RΔ)), ΔL vs analytic ${res.map(([, V]) => fmt(100 * V.V26.numbers.isoDev, 2)).join('/')} %`);
+    setIsoTailForTest(12);
+    let n12; try { n12 = V5(one(0.32)).V25.numbers.isolated; } finally { setIsoTailForTest(3); }
+    check(n12 === 0, `negative: the isolation tail 12λ_T (absolute ≈ 6.9 mm) → isolated ${n12} instead of 4 at λ 0.32`);
+  }
+  // loaded profile checks (V25): ≤ own, = own outside the windows, own − loaded = sag at a load point; negative: loadedAt without the sag
+  {
+    const A = computeAll(recipe, { topRule: 'braid', m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.32, liftMode: 'ideal' });
+    const V = runValidators(A, 'all', null).find((v) => v.id === 'V25'), n = V.numbers;
+    M.setLoadedNoSagForTest(true);
+    let Vm; try { Vm = runValidators(A, 'all', null).find((v) => v.id === 'V25'); } finally { M.setLoadedNoSagForTest(false); }
+    check(V.status === 'pass' && n.loadedChecked > 100 && n.sagDevMax <= 1e-9 * 0.714 && n.overOwnMax <= 1e-9 * 0.714 && n.offWinMax <= 1e-9 * 0.714 && n.isolated === 0 && n.dlShort === 0
+      && Vm.status === 'fail' && Vm.numbers.sagDevMax > 1e-3,
+      `S8 λ0.32 uwagake: loaded profile at ${n.loadedChecked} load points on ${n.loadLegs} legs — sag dev ${n.sagDevMax.toExponential(0)} mm, above own ${n.overOwnMax}, off-window ${n.offWinMax}; isolated 0, own-checked ${n.ownChecked}; ΔL_loaded/ΔL_own ≥ ${fmt(n.dlRatioMin, 3)}; negative (loadedAt without the sag): V25 fail, sag dev ${fmt(Vm.numbers.sagDevMax, 3)} mm`);
+    // V26: the lengths table (0.01 mm between the kinks) vs 0.002 mm on every leg with loads (class (i), ≤ 0.5 %); the loaded
+    // profile has no step (a step would make ΔL grow as 1/step: 0.1 → 0.002 mm must move the total by < 0.5 % too)
+    let worst = 0, wid = '', nL = 0, t1 = 0, t2 = 0, tc = 0;
+    for (const [id, leg] of Object.entries(A.mechanics.legs)) {
+      if (!leg.loads.length || !leg.apices.length) continue;
+      const s = A.path.segs.find((q) => q.id === id), fn = M.liftFnFor(A.mechanics, id), K = M.kinksOf(leg);
+      const e1 = A.mechanics.lengths.perSeg[id].extra, e2 = M.extraLength(fn, 0, s.length, A.base.R, 0.002, K);
+      nL++; t1 += e1; t2 += e2; tc += M.extraLength(fn, 0, s.length, A.base.R, 0.1, K);
+      if (Math.abs(e1 / e2 - 1) > worst) { worst = Math.abs(e1 / e2 - 1); wid = id; }
+    }
+    check(nL > 20 && worst <= 0.005 && Math.abs(tc / t2 - 1) <= 0.01,
+      `V26 convergence on ${nL} loaded legs: table (0.01 mm) vs 0.002 mm worst ${fmt(100 * worst, 3)} % (${wid}); total ${fmt(t1, 3)} vs ${fmt(t2, 3)} mm; at 0.1 mm ${fmt(tc, 3)} mm (${fmt(100 * Math.abs(tc / t2 - 1), 2)} %)`);
   }
   // Fable Q5 §4 negative test: a rigid support (the lower thread's hull held fixed, choice 'patch') rebuilds the staircase
   const A8 = computeAll(recipe, { topRule: 'braid', m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.32, liftMode: 'ideal' });
