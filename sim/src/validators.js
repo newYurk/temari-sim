@@ -1899,14 +1899,14 @@ function runValidatorsIn(A, stage, ref) {
       const ok = role === 'lower' ? (lam0 ? ['free'] : lowerFree ? ['free'] : ['atE']) : (lam0 ? ['drain', 'free'] : ['root', 'drain', 'free']);
       const key = `${role} λ${lam0 ? '=0' : '>0'} ${SPEC[s.exitKind] ?? s.exitKind}`;
       counts[key] = (counts[key] || 0) + 1;
-      // (9б) diagnostic, not a fail: joinMode against the band of d_n (8′). At λ > 0 a station outside by d > 0.02 w with no
+      // (9б) diagnostic, not a fail: joinMode against the band of d_n (8′). At λ > 0 a station outside by d > 0.1 w with no
       // tangency on the finite rail (L_j beyond the rail, or outside the entry parallel but inside the core's continuation)
       // falls back to climb — printed for Fable (#39 item 3), rule (9б) does not cover it.
       if (role === 'lower' || lam0) {
         const d = s.lateralMm ?? 0;
-        // (9а) at λ = 0: the d_n band ±0.02·w. (9б′) at λ > 0 (#46): no band — |d| ≤ 1e−9·w is round-off (X on the rail,
+        // (9а) at λ = 0: the d_n band ±DEG_MAX_W·w = ±0.1·w (spec v3.3: unified with (9б′), the construction's band). (9б′) at λ > 0 (#46): no band — |d| ≤ 1e−9·w is round-off (X on the rail,
         // tangency at the foot), d < 0 climb, d > 0 by construction: tangent | free | degenerate (|d| ≤ 0.1·w) | contradiction.
-        const tolD = lam0 ? 0.02 * wMm : 1e-9 * wMm;
+        const tolD = lam0 ? DEG_MAX_W * wMm : 1e-9 * wMm;
         const band = d < -tolD ? 'climb' : d <= tolD ? (lam0 ? 'onRail' : 'tangent') : (lam0 ? 'free' : 'tangent');
         const byConstruction = !lam0 && d > tolD && ['free', 'degenerate', 'contradiction'].includes(s.joinMode);
         if (role === 'lower' && !lam0 && d > tolD && s.joinMode === 'climb') entryBad.push(`${s.id}/${s.round} climb from exterior d=${f(d / wMm, 3)} w`);

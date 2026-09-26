@@ -632,9 +632,9 @@ function turnDegAt(a, b, c) {
 /**
  * Spec v3.2 §3.2(9а–д): leg of row n ≥ 2 on a row n−1 whose curve has κ_g = 0 at its end (λ = 0, geodesic form).
  * No rail: the body is a free great circle. Lower leg (endLevel 'bottom'): E_n = E_n⁰ (the packing root), no tangent
- * tail, no contacts; the top end X_n by the sign of d_n (8′): d < −0.02 w → drain (11) X_n → M on the parallel ℓ_m =
- * max(w, 3δ_e) forward from the foot, then free M → E_n⁰; |d| ≤ 0.02 w → start on the parallel at the foot; d > 0.02 w →
- * free X_n → E_n⁰. Upper leg (E_n given, (9в)) mirrored: d(E_n) < −0.02 w → drain to the hole from the parallel point ℓ_m
+ * tail, no contacts; the top end X_n by the sign of d_n (8′): d < −0.1 w → drain (11) X_n → M on the parallel ℓ_m =
+ * max(w, 3δ_e) forward from the foot, then free M → E_n⁰; |d| ≤ 0.1 w → start on the parallel at the foot; d > 0.1 w →
+ * free X_n → E_n⁰ (band DEG_MAX_W·w, spec v3.3 (9б) unified with (9б′), class (iii)). Upper leg (E_n given, (9в)) mirrored: d(E_n) < −0.1 w → drain to the hole from the parallel point ℓ_m
  * before E_n's foot; degenerate → arrival via the foot; outside → free arrival. exitKind (9г): 'free' or 'drain'.
  * (9д) check, not decision: the free part (from M / the foot, not from X_n) keeps ≥ w(1 − ε_c) from the axis of the laid
  * leg of row n−1, ε_c = 0.01; otherwise a contradiction — exitFail (loud, V8).
@@ -642,7 +642,7 @@ function turnDegAt(a, b, c) {
 function freeLegLambda0(R, from, to, prevArm, w, endLevel) {
   const n = getLegSamples();
   const wE = Math.max(w || W0_MM, 1e-9);
-  const tol = 0.02 * wE;
+  const tol = DEG_MAX_W * wE;   // spec v3.3 (9б) = (9б′): the «on the parallel» band is the axis-position budget 0.1·w (class (iii))
   const X = unit(from), E = unit(to);
   const par0 = actualParallel(R, prevArm, w);
   // Stations beyond the parallel's ends see its great-circle continuation (8′): extend by more than the leg length.
@@ -974,8 +974,8 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
   // at this station — the entry segment's parallel before the body, the body's parallel inside, the tangent great-circle
   // continuation past the end — never the distance to a chain end.
   const dLat = stationLateral(core, X).signedMm;
-  // onRail band: |d| ≤ 0.02·w (dimensionless, so ×k similarity cannot flip it).
-  const onRailTol = 0.02 * Math.max(w || W0_MM, 1e-9);
+  // onRail band: |d| ≤ DEG_MAX_W·w = 0.1·w (spec v3.3 (9б′), class (iii); dimensionless, so ×k similarity cannot flip it).
+  const onRailTol = DEG_MAX_W * Math.max(w || W0_MM, 1e-9);
   // Geometry (foot, splice target) lies on the laid rail (core + tangent great-circle continuation). A station beyond
   // the sampled extension gets a longer continuation of the same great circle (no end clamp as a foot).
   if (rail.closest(X).clamped) rail = core.extended(Math.max(5 * (w || 0), mmAtW(10, w || W0_MM)) + R * Math.max(angle(X, core.start), angle(X, core.end)));
