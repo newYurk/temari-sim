@@ -2309,6 +2309,57 @@ if (G('8r'))
   }
 }
 
+// 8s. #3 row order (recipe intent): alternate (default, classic A1 B1 A2 …) vs blocks of blockSize per set (Suess 5A/5B, kousa).
+// Holes from occupancy, no fixed width: leg geometry must not depend on the order (A and B on different lines); only
+// which thread lies on top changes. Both orders pass the same checks in fan and braid; A and B never meet at the lower tips.
+if (G('8s'))
+{
+  console.log('\n## #3 row order alternate / blocks');
+  const { roundSequence } = await import('../src/path.js');
+  setLegSamples(96);
+  const cfg = (x = {}) => ({ C_mm: 240, w_mm: 0.714, m_mm: 1.0, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, ...x });
+  const P0 = { ...defaults(), rowsMode: 'count', rowsCount: 7 };
+  const seq = (x) => roundSequence(recipe, { ...P0, ...x }).letters.join('');
+  check(defaults().order === 'alternate' && seq({}) === 'AB'.repeat(7) && seq({ order: 'blocks', blockSize: 5 }) === 'AAAAABBBBBAABB' && seq({ order: 'blocks', blockSize: 3 }) === 'AAABBBAAABBBAB',
+    'row order: default alternate (A1 B1 A2 …); blocks k×A, k×B, … (k = blockSize, last block short)');
+  for (const tr of ['fan', 'braid']) {
+    const Aa = computeAll(recipe, cfg({ topRule: tr })), Ab = computeAll(recipe, cfg({ topRule: tr, order: 'blocks', blockSize: 5 }));
+    const ids = Ab.path.rounds.map((r) => r.id).join(',');
+    // per round, segments in laying order (legs + pickups; several pickups share round/line/i, so no key map)
+    const perRound = (A) => { const m = new Map(); for (const q of A.path.segs) if (q.type === 'leg' || q.type === 'pickup') (m.get(q.round) || m.set(q.round, []).get(q.round)).push(q); return m; };
+    const ra = perRound(Aa), rb = perRound(Ab);
+    let n = 0, dmax = 0, miss = 0;
+    for (const [rid, qa] of ra) for (let t = 0; t < qa.length; t++) {
+      const q = qa[t], r = rb.get(rid)?.[t];
+      if (!r || r.type !== q.type || r.line !== q.line || r.pts.length !== q.pts.length) { miss++; continue; } n++;
+      for (let k = 0; k < q.pts.length; k++) dmax = Math.max(dmax, Math.hypot(...q.pts[k].map((c, j) => c - r.pts[k][j])));
+    }
+    const holes = (A) => A.path.stitches.map((x) => `${x.round}.${x.i}:${x.eOff.toFixed(9)}/${x.xOff.toFixed(9)}/${x.s.toFixed(9)}`).sort().join(';');
+    check(ids.startsWith('A1,A2,A3,A4,A5,B1,B2,B3,B4,B5,A6') && miss === 0 && dmax < 1e-9 && holes(Aa) === holes(Ab),
+      `${tr}: blocks changes only the order (${Ab.path.rounds.length} rounds): holes from occupancy and ${n} legs/pickups identical (max ${dmax.toExponential(1)} mm)`);
+    const sa = validatorStatuses(Aa), sb = validatorStatuses(Ab), flips = Object.keys(sa).filter((k) => sa[k] !== sb[k]);
+    check(flips.length === 0 && !Object.values(sb).includes('fail'), `${tr}: both orders pass the same checks (0 fail, 0 status flips${flips.length ? ': ' + flips.join(',') : ''})`);
+    // who is above whom: at a crossing of A × B the later-laid thread is over (at the pole: the later row on top)
+    const idx = (A) => new Map(A.path.segs.map((q, i) => [q.id, i]));
+    for (const [name, A] of [['alternate', Aa], ['blocks', Ab]]) {
+      const ix = idx(A), set = new Map(A.path.segs.map((q) => [q.id, q.set]));
+      const ab = A.path.crossings.filter((c) => c.over && set.get(c.a) !== set.get(c.b));
+      const laterOver = ab.filter((c) => c.over === (ix.get(c.a) > ix.get(c.b) ? c.a : c.b)).length;
+      const bOver = ab.filter((c) => set.get(c.over) === 'B').length;
+      console.log(`  ${tr} ${name}: A×B crossings ${ab.length}, later thread over ${laterOver}, B over ${bOver} (${(100 * bOver / Math.max(1, ab.length)).toFixed(0)}%)`);
+      check(ab.length > 0 && laterOver === ab.length, `${tr} ${name}: at every A×B crossing the later-laid thread is on top`);
+    }
+    // lower tips: A and B on different lines, no contact
+    const bot = (A, s) => A.path.stitches.filter((x) => x.level === 'bottom' && x.set === s);
+    const dmin = Math.min(...bot(Ab, 'A').flatMap((a) => bot(Ab, 'B').map((b) => Math.hypot(...a.E.map((c, j) => c - b.E[j])))));
+    const smax = Math.max(...Ab.path.stitches.map((x) => x.s)), by = new Map(Ab.path.segs.map((q) => [q.id, q]));
+    const tipAB = Ab.path.crossings.filter((c) => by.get(c.a)?.set !== by.get(c.b)?.set && Number.isFinite(c.s) && c.s > 0.75 * smax).length;
+    check(dmin > 10 && tipAB === 0 && new Set(bot(Ab, 'A').map((x) => x.line)).size > 0 && [...new Set(bot(Ab, 'A').map((x) => x.line))].every((l) => !bot(Ab, 'B').some((b) => b.line === l)),
+      `${tr}: lower tips — A and B on different lines, nearest A/B tip holes ${dmin.toFixed(1)} mm apart, 0 A×B crossings in the tip zone`);
+  }
+}
+
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');

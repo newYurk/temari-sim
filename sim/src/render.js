@@ -302,7 +302,7 @@ export class Renderer {
     if (mode === 'type') return () => new THREE.Color(COLORS[s.type]);
     if (mode === 'set') {
       const base = new THREE.Color(SET_COLORS[s.set] || 0x888888);
-      const c = base.clone().offsetHSL(0, 0, (s.row - 1) * 0.14);
+      const c = base.clone().offsetHSL(0, 0, ((Math.max(1, s.row || 1) - 1) % 3) * 0.1);   // #3: rows cycle 3 shades so the set colour survives past row 4
       return () => c;
     }
     const pal = s.thread === 'B' ? warm : viridis;

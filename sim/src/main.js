@@ -164,7 +164,9 @@ function recompute(first = false) {
     R3.view(state.view, A.base.R, q.has('dist') ? Number(q.get('dist')) : null, q.has('dir') ? q.get('dir').split(',').map(Number) : null);
     const fq = q.get('focus');
     const stOf = (round, i) => A.path.stitches.find((st) => st.round === round && st.i === i);
-    const focus = fq === 'np' ? [0, 0, A.base.R] : fq === 'tip1' ? stOf('A1', 1).E : fq === 'a2top' ? stOf('A2', 2).E : fq === 'a2tip' ? stOf('A2', 1).E : null;
+    const fxyz = fq ? fq.split(',').map(Number) : [];   // #3: focus=x,y,z (mm, model frame) for close-ups of any point
+    const focus = fq === 'np' ? [0, 0, A.base.R] : fq === 'tip1' ? stOf('A1', 1).E : fq === 'a2top' ? stOf('A2', 2).E : fq === 'a2tip' ? stOf('A2', 1).E
+      : fxyz.length === 3 && fxyz.every(Number.isFinite) ? fxyz : null;
     if (state.zoom !== 1 || focus) R3.zoomTo(state.zoom, focus);
   }
   setStage(state.stage, first && state.k !== null ? state.k : null);
