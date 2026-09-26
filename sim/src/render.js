@@ -108,6 +108,8 @@ export class Renderer {
     this.static = null; this.dynamic = null;
     this.opts = { transparent: false, hidden: true, labels: true, pins: true, color: 'round', hidMode: 'surf' };
     window.addEventListener('resize', () => this.resize());
+    // #33: also follow the container itself (orientation change, phone/desktop layout switch).
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.resize()).observe(container);
     this.controls.addEventListener('change', () => this.draw());
     this.resize();
   }
