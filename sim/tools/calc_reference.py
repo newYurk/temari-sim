@@ -21,6 +21,18 @@ def sim_defaults():
     out = subprocess.run(['node', '--input-type=module', '-e', js], cwd=root, check=True, capture_output=True, text=True)
     return json.loads(out.stdout)
 
+# #48: bow reference for row 1. A row-1 leg built at λ = κ_g·R is an arc of a small circle of angular radius ρ = atan(1/λ)
+# through the same two holes as the geodesic leg (the holes do not depend on the leg shape). Its length in closed form:
+# L = 2·R·sin ρ·asin(sin(γ/2)/sin ρ), γ = central angle between the holes (both small circles through the two points with
+# this ρ are mirror images across their great circle, so the bulge side does not change the length). λ values: the sweep.
+BOW_LAMBDAS = (0.1, 0.2, 0.32, 0.4, 0.45, 0.52, 0.6)
+
+def bow_arm(geod_mm, R, lam):
+    g = geod_mm / R
+    sr = 1.0 / math.sqrt(1.0 + lam * lam)
+    x = math.sin(g / 2) / sr
+    return float(2 * R * sr * math.asin(x)) if x <= 1 else float('nan')
+
 def key(C, w, m, N, s_top, bfe, rule, run):
     return f"C={C:g}|w={w:g}|m={m:g}|N={N}|sTop={s_top:.6f}|bfe={bfe:.6f}|start={rule}:{run:g}"
 
@@ -47,7 +59,11 @@ def one(C, w, m, N, s_top=5.0, bfe=1/3, rule='TK-ANCHOR', run=35.0):
                 E0=[float(v) for v in E0], start_channel=start_channel,
                 # (12′): row 1 without the round-1 closing stitch (the L0 top of row 2) and its leg, plus the start channel
                 row1_open=float(sum(arms[:-1]) + sum(bites[:-1]) + start_channel),
-                hidden_start=run * (2 if rule == 'TK-ANCHOR' else 1), n_rows_geom_equator=len(rows))
+                hidden_start=run * (2 if rule == 'TK-ANCHOR' else 1), n_rows_geom_equator=len(rows),
+                # #48: new keys only (the geodesic keys above are unchanged); λ keys as in JS String(λ)
+                arms_bow={f'{lam:g}': [bow_arm(float(a), calc.R, lam) for a in arms] for lam in BOW_LAMBDAS},
+                row1_open_bow={f'{lam:g}': float(sum(bow_arm(float(a), calc.R, lam) for a in arms[:-1]) + sum(bites[:-1]) + start_channel)
+                               for lam in BOW_LAMBDAS})
 
 def main():
     out = []

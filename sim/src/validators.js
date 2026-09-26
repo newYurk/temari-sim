@@ -10,6 +10,10 @@ import { resolveBowLambda } from './params.js';
 import { widthDecomposition, u14Onset } from './diag-width.js';
 import { EPS_C, DEG_MAX_W } from './path.js';
 
+/** Test hook (#26 mutation): V16 fan onset over ALL threads (future ones included) instead of the causal prefix. */
+let V16_ACAUSAL = false;
+export function setV16AcausalForTest(on) { V16_ACAUSAL = !!on; }
+
 const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : String(x));
 
 /** Discrete geodesic curvature κ_g (Fable (7)): tangent-plane turn / ds. Returns max |κ_g|.
@@ -551,21 +555,28 @@ export function runValidators(A, stage = '2b', ref = null) {
       const rowSegs = a1Segs.filter((s) => s.type !== 'hidden-start' && s.stitch !== Nn);
       const rowLen = rowSegs.reduce((a, s) => a + s.length, 0);
       const full = kEnd >= A1.opLast;
-      let refLen = 0;
-      if (full) refLen = e.row1_open;
-      else for (const s of rowSegs) refLen += s.stitch === 0 ? e.start_channel : s.type === 'leg' ? e.arms[s.stitch - 1] : e.bites[s.stitch - 1];
-      const hid = a1Segs.filter((s) => s.type === 'hidden-start').reduce((a, s) => a + s.length, 0);
-      // #47 (temporary weakening, tracked in #48 — bow length reference): calc.py (and refKey) model geodesic legs (λ = 0). For a bow build (λ > 0, now the site default) the row-1
-      // length is not comparable — it is printed, not compared; stitch E/X, E₀/X₀ and the hidden start (independent of
-      // the leg shape) are still compared. Geodesic builds: unchanged.
+      // #48: a bow build (λ > 0, the site default since #47) is compared with the bow reference of calc_reference.py —
+      // the small-circle arc (ρ = atan(1/λ)) through calc.py's own holes, in closed form (arms_bow / row1_open_bow, keyed by
+      // String(λ)); class (i) tolerance (the sim's row-1 leg length is the analytic arc). A λ outside the reference set
+      // (or a sag-commanded bow) has no reference: the length is printed, not compared (E/X, E₀/X₀, hidden start still are).
       const form = A.params.shoulderForm;
       const bowLam = form === 'bow' || form === 'bowToMarking' ? (resolveBowLambda(A.params, { R: A.base.R })?.lambda ?? NaN) : 0;
       const bowRow1 = (form === 'bow' || form === 'bowToMarking') && (!(bowLam === 0) || +A.params.bowSagMm > 0);
-      const ok = (bowRow1 || Math.abs(rowLen - refLen) < TOL_REF) && dXY < TOL_REF && Math.abs(hid - e.hidden_start) < TOL_REF;
+      const sagCmd = A.params.bowSagMm !== '' && A.params.bowSagMm != null && Number.isFinite(+A.params.bowSagMm) && +A.params.bowSagMm > 0;
+      const bowKey = bowRow1 && !sagCmd && Number.isFinite(bowLam) ? String(Number(bowLam)) : null;
+      const bowArms = bowKey ? e.arms_bow?.[bowKey] : null;
+      const bowRef = bowRow1 && Array.isArray(bowArms) && Number.isFinite(e.row1_open_bow?.[bowKey]);
+      const arms = bowRef ? bowArms : e.arms;
+      let refLen = 0;
+      if (full) refLen = bowRef ? e.row1_open_bow[bowKey] : e.row1_open;
+      else for (const s of rowSegs) refLen += s.stitch === 0 ? e.start_channel : s.type === 'leg' ? arms[s.stitch - 1] : e.bites[s.stitch - 1];
+      const hid = a1Segs.filter((s) => s.type === 'hidden-start').reduce((a, s) => a + s.length, 0);
+      const lenCompared = !bowRow1 || bowRef;
+      const ok = (!lenCompared || Math.abs(rowLen - refLen) < TOL_REF) && dXY < TOL_REF && Math.abs(hid - e.hidden_start) < TOL_REF;
       add({ id: 'V3', name: 'A1 agrees with calc.py', crit: 'cross-check of two implementations of one geometry',
         status: ok ? 'pass' : 'fail',
-        value: `${full ? 'row 1 without the closing (legs + pickups + start channel; (12′))' : 'row-1 prefix'}: sim ${f(rowLen, 4)} mm, calc.py ${f(refLen, 4)} mm (Δ ${f(Math.abs(rowLen - refLen), 9)}${bowRow1 ? `; bow λ ${f(bowLam, 3)}: calc.py legs are geodesic — length printed, not compared` : ''}); E/X Δmax ${f(dXY, 9)} mm; skrytyy start ${f(hid)} vs ${f(e.hidden_start)} mm`,
-        numbers: { rowLen, refLen, dXY, hid, refHidden: e.hidden_start, refRow1: e.row1_open } });
+        value: `${full ? 'row 1 without the closing (legs + pickups + start channel; (12′))' : 'row-1 prefix'}: sim ${f(rowLen, 4)} mm, calc.py ${f(refLen, 4)} mm (Δ ${f(Math.abs(rowLen - refLen), 9)}${bowRef ? `; bow λ ${f(bowLam, 3)}: calc.py small-circle arms (#48)` : bowRow1 ? `; bow λ ${f(bowLam, 3)}: no bow reference for this λ — length printed, not compared` : ''}); E/X Δmax ${f(dXY, 9)} mm; skrytyy start ${f(hid)} vs ${f(e.hidden_start)} mm`,
+        numbers: { rowLen, refLen, dXY, hid, refHidden: e.hidden_start, refRow1: e.row1_open, bowRef: !!bowRef, lenCompared } });
     }
   }
   // V4 — catch ⟂ linii, protiv khoda, under potopnostyu
@@ -1436,7 +1447,8 @@ export function runValidators(A, stage = '2b', ref = null) {
     for (const st of stitchesDone.filter((x) => x.level === 'top')) {
       const key = `${st.set}:${st.line}`;
       const halfW = Math.abs((st.eOff ?? 0) - (st.xOff ?? 0)) / 2;
-      const dFan = foreignLatAt(st.line, st.s, st.set, order.get(st.pickupId));
+      // #26: causal — only threads laid before this top pickup (idxSeg); the acausal variant is a test mutation only.
+      const dFan = foreignLatAt(st.line, st.s, st.set, V16_ACAUSAL ? Infinity : order.get(st.pickupId));
       if (halfW + w / 2 >= dFan && (geoFirst[key] == null || st.row < geoFirst[key])) geoFirst[key] = st.row;
     }
     for (const h of hitDetails) {
@@ -1597,17 +1609,18 @@ export function runValidators(A, stage = '2b', ref = null) {
         if (s.joinMode === 'contradiction') continue;
         if (s.joinMode === 'tangent') {
           const splice = Math.max(0, s.spliceMm ?? 0);
-          // Degenerate short splice (<w): hole and merge coincide — only hole ≤20° (not exterior ≤1°).
+          // Degenerate short splice (<w): hole and merge coincide — only hole ≤20° (not exterior ≤1°). The whole splice lies
+          // in the pierce neighbourhood (≤ w from the hole), so there is no free span to score (#27).
           if (splice < wMm) {
             if (hole > 20 + 1e-6) badKink++;
             continue;
           }
           if (hole > 20 + 1e-6 || merge > 1 + 1e-6) badKink++; // exterior tangent ≤1°
-          // Free κ_g on exterior tangent splice only, excluding ≤w at hole AND ≤w around splice join.
-          const exclHole = Math.min(Math.max(0, splice - wMm), wMm);
-          const freeEnd = Math.max(exclHole, splice - wMm); // stop w before splice
-          if (freeEnd - exclHole < wMm * 0.5) continue; // too short to score
-          const lam = maxAbsGeodesicKg(s.pts, R, exclHole, 0, freeEnd) * R;
+          // #27: free κ_g on the whole exterior splice X_n → T except the pierce neighbourhood (≤ w at the hole, where the
+          // thread bends into the ball) and the vertex T itself (its turn is the join, checked by angle ≤ 1° above, (13б)).
+          // No window around the join and no minimum span: every splice vertex beyond w from the hole is scored.
+          const iT = Number.isInteger(s.mIdx) && s.mIdx > 0 ? s.mIdx : -1;
+          const lam = iT >= 2 ? maxAbsGeodesicKg(s.pts.slice(0, iT + 1), R, wMm, 0) * R : 0;
           if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
           continue;
         }
@@ -1658,7 +1671,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     if (ratio > FAIL_RATIO - 1e-12 || cmdMismatch || badKink > 0) status = 'fail';
     else if (ratio > WARN_RATIO + 1e-9) status = 'warn';
     add({ id: 'V20', name: 'Friction cone Φ3 (λ ≤ μWrap)',
-      crit: 'Errata 6a.9.1/block-B: λ_max κ_g on FREE only (row1 excl ≤w holes; n≥2 exterior tangent excl ≤w at hole and ≤w around splice); rail+climb excluded; kink angles: hole≤20°, tangent splice≤1°, climb≤20°',
+      crit: 'Errata 6a.9.1/block-B: λ_max κ_g on FREE only (row1 excl ≤w holes; n≥2 exterior tangent splice excl ≤w at hole and the join vertex T, #27); rail+climb excluded; kink angles: hole≤20°, tangent splice≤1°, climb≤20°',
       status,
       value: `λ_max=${f(lambdaMax, 6)} · μWrap=${f(muW, 4)} · λ/μ=${f(ratio, 6)}` +
         ` [warn>${WARN_RATIO}, fail≥${FAIL_RATIO}; free-class κ_g]` +
@@ -1704,7 +1717,8 @@ export function runValidators(A, stage = '2b', ref = null) {
         const byConstruction = !lam0 && d > tolD && ['free', 'degenerate', 'contradiction'].includes(s.joinMode);
         if (role === 'lower' && !lam0 && d > tolD && s.joinMode === 'climb') entryBad.push(`${s.id}/${s.round} climb from exterior d=${f(d / wMm, 3)} w`);
         if (!lam0 && s.entryKind === 'degenerate' && !(d <= DEG_MAX_W * wMm + 1e-12)) entryBad.push(`${s.id}/${s.round} degenerate with d=${f(d / wMm, 3)} w > ${DEG_MAX_W} w`);
-        if (!lam0 && s.entryFail) entryBad.push(`${s.id}/${s.round} contradiction: no tangency, chord X→E⁰ min clearance ${f(s.entryMinGapW, 3)} w at ${f(s.entryGapAtMm, 2)} mm; d_n=${f(d / wMm, 3)} w > ${DEG_MAX_W} w; λr=${f(s.lambda ?? 0, 3)}`
+        if (!lam0 && s.entryFail && s.entryBackward) entryBad.push(`${s.id}/${s.round} contradiction: E⁰ behind the foot along the rail (travel reversed, #30)`);
+        else if (!lam0 && s.entryFail) entryBad.push(`${s.id}/${s.round} contradiction: no tangency, chord X→E⁰ min clearance ${f(s.entryMinGapW, 3)} w at ${f(s.entryGapAtMm, 2)} mm; d_n=${f(d / wMm, 3)} w > ${DEG_MAX_W} w; λr=${f(s.lambda ?? 0, 3)}`
           + (s.entryBest ? `; best cand sin ${f(s.entryBest.sin, 4)} res ${f(s.entryBest.resMm, 4)} mm on ${s.entryBest.cls}` : '; no root on any piece'));
         if (s.entryScan?.mismatch) entryBad.push(`${s.id}/${s.round} closed-form tangency ${s.entryScan.closedS ?? '—'} vs grid scan ${s.entryScan.scanS ?? '—'}`);
         if (s.joinMode !== band && !byConstruction && !(band === 'tangent' && s.joinMode === 'free')) joinDiag.push(`${s.id}/${s.round} ${s.joinMode}≠${band} d=${f(d / wMm, 3)} w`);

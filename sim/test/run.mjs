@@ -135,6 +135,30 @@ if (G('2b'))
     if ((segs1[i].joinMode || null) !== (segs2[i].joinMode || null)) classFlip++;
   }
   check(classFlip === 0, `similarity: no joinMode class flips under ×k (flips ${classFlip})`);
+  // #28: interiorXn is decided by a fraction of w (λ > 0: d_n < −1e−9·w, path.railLeg onRailEps; λ = 0: d_n < −0.02·w,
+  // freeLegLambda0) — no flips under ×k at λ = 0.32 and λ = 0; the nearest station to its threshold is printed in w.
+  {
+    // λ = 0 at m = 1.0 (the default m has no interior X_n at λ = 0).
+    const A1g = computeAll(recipe, { ...base, m_mm: 1.0, rowsMode: 'untilEquator', shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32 });
+    const A2g = computeAll(recipe, { ...base, C_mm: 240 * k, w_mm: 0.714 * k, m_mm: 1.0 * k, startRun_mm: 35 * k,
+      rowsMode: 'untilEquator', shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32 });
+    const flips = (P1, P2) => {
+      const a = P1.path.segs.filter((s) => s.type === 'leg'), b = P2.path.segs.filter((s) => s.type === 'leg');
+      let n = 0, nIn = 0, margin = Infinity;
+      for (let i = 0; i < Math.min(a.length, b.length); i++) {
+        if (!!a[i].interiorXn !== !!b[i].interiorXn) n++;
+        if (a[i].interiorXn) nIn++;
+        if (a[i].row < 2 || a[i].layMode !== 'rail') continue;
+        const thr = a[i].lam0 ? 0.02 : 1e-9, dW = (a[i].lateralMm ?? 0) / P1.params.w_mm;
+        if (Math.abs(dW) > 1e-12) margin = Math.min(margin, Math.abs(dW + thr));
+      }
+      return { n, nIn, margin, same: a.length === b.length };
+    };
+    const fb = flips(A1f, A2f), fg = flips(A1g, A2g);
+    console.log(`  #28 interiorXn under ×${k}: λ0.32 ${fb.nIn} interior, flips ${fb.n}, nearest |d/w − thr| ${fmt(fb.margin, 4)}; λ0 ${fg.nIn} interior, flips ${fg.n}, nearest ${fmt(fg.margin, 4)}`);
+    check(fb.same && fg.same && fb.n === 0 && fg.n === 0 && fb.nIn > 0 && fg.nIn > 0,
+      `#28 similarity: interiorXn (threshold in w) does not flip under ×${k} at λ 0.32 (${fb.nIn} interior) and λ 0 (${fg.nIn} interior)`);
+  }
 }
 
 // 2c. S16: dense marking (N = 16). 6a.22: at the default (thin) m the 5 mm top no longer reaches the neighbour line → S16
@@ -770,6 +794,13 @@ if (G('8b2'))
       }
       return NaN;
     };
+    // #29 (1): the "splice ≈ 0" tolerance of an exterior d ≈ 0 join is a fraction of w with a matching label: 0.01·w (εc).
+    // A round-off station (|d| ≤ 1e−9·w) has L_j ≤ √(2·1e−9·w·R·tan ρ) ≈ 1e−3·w, so 0.01·w leaves 10× margin; the old
+    // 0.07·(w/0.714) mm (= 0.098·w, labelled "≈0.05 mm") let a 0.06 mm false L_j pass.
+    const SPLICE0_TOL_W = 0.01;
+    const splice0Ok = (sp, wMm) => (sp ?? 0) < SPLICE0_TOL_W * wMm;
+    check(!splice0Ok(0.06, 0.714) && !splice0Ok(0.01 * 0.714, 0.714) && splice0Ok(0.009 * 0.714, 0.714) && !splice0Ok(0.06 * 1.25, 0.714 * 1.25),
+      `#29 splice ≈ 0 tolerance ${SPLICE0_TOL_W}·w: a 0.06 mm false L_j fails (mutation), 0.009·w passes, same under ×1.25`);
     let ljOk = 0, ljN = 0;
     for (const s of ext) {
       const d = Math.abs(s.lateralMm ?? 0);
@@ -785,8 +816,8 @@ if (G('8b2'))
       // (entryKind onRail) is the rail from X_n (splice 0); a degenerate entry is checked as |X_n M| and the turn at M.
       const tang = ext.filter((s) => s.entryKind !== 'onRail' && s.entryKind !== 'degenerate'), deg = ext.filter((s) => s.entryKind === 'onRail' || s.entryKind === 'degenerate');
       const bad = deg.map((s) => degenEntryBad(s, A.base.R, A.params.w_mm)).filter(Boolean);
-      check(tang.every((s) => (s.spliceMm ?? 0) < 0.07 * (A.params.w_mm / 0.714)) && bad.length === 0,
-        `exterior d≈0 ⇒ tangent spliceMm ≈ 0 (no false L_j); ${deg.length} round-off / degenerate entries: rail from X_n (splice 0) / spliceMm = |X_n M| ±1e−6 mm, turn at M ≤ bound+0.2° (bad ${bad.join(',') || 0})`);
+      check(tang.every((s) => splice0Ok(s.spliceMm, A.params.w_mm)) && bad.length === 0,
+        `exterior d≈0 ⇒ tangent spliceMm < ${SPLICE0_TOL_W}·w (no false L_j); ${deg.length} round-off / degenerate entries: rail from X_n (splice 0) / spliceMm = |X_n M| ±1e−6 mm, turn at M ≤ bound+0.2° (bad ${bad.join(',') || 0})`);
     } else {
       check(ljOk === ljN, `L_j = closed-form tangency on the actual rail piece(s) within 1e−6·w for all ${ljN} exterior tangent joins (10′)`);
     }
@@ -1380,40 +1411,74 @@ if (G('8e'))
     const a = proj(sub(p[i], p[i - 1])), b = proj(sub(p[i + 1], p[i]));
     return Math.atan2(dot(cross(a, b), n), dot(a, b)) * 180 / Math.PI;
   };
+  // #29: the tube rule is two-sided and covers both sets. Chord gap to row n−1 ≥ w ⇒ free body (no rail arcs), exitKind
+  // free, joinMode by the d_n band (§3.2(9а–б), #39); gap < w ⇒ never joinMode 'free' (climb or onRail at X_n).
+  const gapOf = (R, s, prior) => { let g = Infinity; for (let j = 0; j <= 200; j++) g = Math.min(g, pointPolyDist(R, interp(s.from, s.to, j / 200), prior.pts)); return g; };
+  const tubeRule = (A, gaps = null) => {
+    const R = A.base.R, w = A.params.w_mm;
+    const legs = A.path.segs.filter((x) => x.type === 'leg');
+    const table = new Map(legs.map((x) => [`${x.set}/${x.row}/${x.stitch}`, x]));
+    const out = { freeAll: 0, near: 0, viol: 0, sets: new Set(), bad: [], gaps: gaps || new Map() };
+    for (const s of legs) {
+      if (s.row < 2) continue;
+      const prior = table.get(`${s.set}/${s.row - 1}/${s.stitch}`);
+      if (!prior) continue;
+      if (!out.gaps.has(s.id)) out.gaps.set(s.id, gapOf(R, s, prior));
+      const minG = out.gaps.get(s.id);
+      out.sets.add(s.set);
+      if (minG >= w) {
+        out.freeAll++;
+        const tol = 0.02 * w, d = s.lateralMm;
+        const band = d < -tol ? 'climb' : d <= tol ? 'onRail' : 'free';
+        if (s.arcs.some((a) => a.cls === 'rail' || a.cls === 'ext' || a.cls === 'corner') || s.joinMode !== band || s.exitKind !== 'free') { out.viol++; out.bad.push(s.id); }
+      } else {
+        out.near++;
+        if (s.joinMode === 'free') { out.viol++; out.bad.push(s.id); }
+      }
+    }
+    return out;
+  };
   const peaks = [], freeAlls = [];
   for (const N of [96, 192, 384]) {
     setLegSamples(N);
     const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, rowsMode: 'untilEquator' });
-    const R = A.base.R, w = A.params.w_mm;
     const legs = A.path.segs.filter((x) => x.type === 'leg');
-    const table = new Map(legs.map((x) => [`${x.set}/${x.row}/${x.stitch}`, x]));
-    let freeAll = 0, viol = 0, peakOver = 0, maxPeak = 0;
+    const tr = tubeRule(A);
+    const freeAll = tr.freeAll, viol = tr.viol;
+    let peakOver = 0, maxPeak = 0;
     for (const s of legs) {
-      if (s.set !== 'A' || s.row < 2) continue;
-      const prior = table.get(`${s.set}/${s.row - 1}/${s.stitch}`);
-      if (!prior) continue;
-      let minG = Infinity;
-      for (let j = 0; j <= 200; j++) minG = Math.min(minG, pointPolyDist(R, interp(s.from, s.to, j / 200), prior.pts));
-      // Spec v3.2 §3.2(9а–б) (#39): at λ = 0 the body is free (no rail arcs) and joinMode names the X_n end by the
-      // band of d_n (8′): climb (drain) / onRail (degenerate) / free — no longer 'free' for every arm with gap ≥ w.
-      if (minG >= w) {
-        freeAll++;
-        const tol = 0.02 * w, d = s.lateralMm;
-        const band = d < -tol ? 'climb' : d <= tol ? 'onRail' : 'free';
-        if (s.arcs.some((a) => a.cls === 'rail' || a.cls === 'ext' || a.cls === 'corner') || s.joinMode !== band || s.exitKind !== 'free') viol++;
-      }
+      if (s.row < 2) continue;
       let peak = 0;
       for (let i = 1; i < s.pts.length - 1; i++) peak = Math.max(peak, Math.abs(turnDeg(s.pts, i)));
       if (peak > 20) peakOver++;
       maxPeak = Math.max(maxPeak, peak);
     }
     peaks.push(maxPeak);
-    console.log(`  N=${N}: freeAll=${freeAll} viol=${viol} peakOver=${peakOver} maxPeak=${fmt(maxPeak, 2)}`);
-    // The count depends on m (22 at m = 1.0, Codex 6a.15); the rule is: every arm with min gap ≥ w is free.
+    console.log(`  N=${N}: freeAll=${freeAll} gap<w=${tr.near} viol=${viol} peakOver=${peakOver} maxPeak=${fmt(maxPeak, 2)} (sets ${[...tr.sets].join('')})`);
+    // The count depends on m; the rule is two-sided (#29): gap ≥ w ⇒ free body, gap < w ⇒ not joinMode free; both sets.
     freeAlls.push(freeAll);
-    check(freeAll > 0 && viol === 0, `N=${N}: all ${freeAll} freeAll arms have a free body, exitKind free and joinMode by the d_n band (v3.2 (9а–б))`);
+    check(freeAll > 0 && viol === 0 && tr.sets.size === 2, `N=${N}: sets A+B, all ${freeAll} gap ≥ w arms have a free body, exitKind free and joinMode by the d_n band (v3.2 (9а–б)); ${tr.near} gap < w arms not free (#29)`);
     // #22: gated at every grid, 384 included (M and every joint are output vertices; no resample across a corner).
     check(peakOver === 0 && maxPeak <= 20, `N=${N}: all peaks ≤20° (max ${fmt(maxPeak, 2)})`);
+  }
+  // #29: m = 1.0 has gap < w arms on both sets (the default m has none): two-sided rule + negative mutations.
+  {
+    setLegSamples(96);
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: 1.0, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, rowsMode: 'untilEquator' });
+    const w = A.params.w_mm, tr = tubeRule(A);
+    const segOf = (id) => A.path.segs.find((x) => x.id === id);
+    const near = (set) => A.path.segs.find((x) => x.type === 'leg' && x.set === set && x.row >= 2 && tr.gaps.has(x.id) && tr.gaps.get(x.id) < w);
+    const far = (set) => A.path.segs.find((x) => x.type === 'leg' && x.set === set && x.row >= 2 && tr.gaps.has(x.id) && tr.gaps.get(x.id) >= w);
+    const nearA = near('A'), nearB = near('B'), farB = far('B');
+    console.log(`  #29 m1 N=96: gap ≥ w ${tr.freeAll}, gap < w ${tr.near} (A ${[...tr.gaps].filter(([id, g]) => g < w && segOf(id).set === 'A').length}, B ${[...tr.gaps].filter(([id, g]) => g < w && segOf(id).set === 'B').length}), viol ${tr.viol}; mutate ${nearA?.id}/${nearA?.round} (gap ${fmt(tr.gaps.get(nearA?.id), 3)} mm, ${nearA?.joinMode}), ${nearB?.id}/${nearB?.round}, ${farB?.id}/${farB?.round}`);
+    check(tr.viol === 0 && tr.near > 0 && tr.freeAll > 0 && tr.sets.size === 2 && nearA && nearB && farB, `#29 m1: two-sided tube rule holds on A and B (${tr.freeAll} gap ≥ w free, ${tr.near} gap < w not free)`);
+    const mut = (leg, patch) => { const keep = { joinMode: leg.joinMode, exitKind: leg.exitKind, arcs: leg.arcs }; Object.assign(leg, patch); const r = tubeRule(A, tr.gaps); Object.assign(leg, keep); return r; };
+    const m1 = mut(nearA, { joinMode: 'free' });
+    const m2 = mut(nearB, { joinMode: 'free' });
+    const m3 = mut(farB, { arcs: [...farB.arcs, { cls: 'rail' }] });
+    const m4 = mut(farB, { exitKind: 'drain' });
+    check(m1.bad.includes(nearA.id) && m2.bad.includes(nearB.id) && m3.bad.includes(farB.id) && m4.bad.includes(farB.id) && tubeRule(A, tr.gaps).viol === 0,
+      `#29 negative mutations caught: A gap < w → free, B gap < w → free, B gap ≥ w + rail arc, B gap ≥ w exit drain (viol ${m1.viol}/${m2.viol}/${m3.viol}/${m4.viol}); restored clean`);
   }
   setLegSamples(null);
   check(freeAlls.every((x) => x === freeAlls[0]), `B.8 freeAll count grid-invariant 96/192/384 (${freeAlls.join('/')})`);
@@ -2028,6 +2093,107 @@ if (G('8o'))
     console.log(`  m${m} λ${lam}: ${n} rows (${sets.join('/')}), max |ΔW − Σ terms| ${worst.toExponential(1)} mm; U14 n₀ ${U.map((u) => `${u.set} obs ${u.observed.any ?? '—'} causal ${u.causal?.n0 ?? '—'}`).join(', ')}`);
     check(n > 0 && sets.length === 2 && worst <= 1e-6 && d4 && d4.status === 'info',
       `#4 D4 m${m} λ${lam}: decomposition sums to W_n − W_(n−1) within 1e−6 mm (both sets, ${n} rows; worst ${worst.toExponential(1)} mm), info-only`);
+  }
+}
+
+// 8q. Cleanup batch: #30 backward rail entry is an explicit contradiction (railLeg, reached by a reversed setup); #26 V16
+// fan onset is causal (A/L0, B/L7 at λ 0.6; acausal mutation moves A/L0 earlier); #27 V20 scores every exterior splice
+// vertex beyond the pierce neighbourhood (a mutated 1.7·w span fails, a bend within w of the hole is the pierce window).
+if (G('8q'))
+{
+  console.log('\n## #30 / #26 / #27 cleanup');
+  const { railLeg } = await import('../src/path.js');
+  const { setV16AcausalForTest } = await import('../src/validators.js');
+  setLegSamples(96);
+  const cfg = (lam, m) => ({ C_mm: 240, w_mm: 0.714, m_mm: m, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: lam, muWrap: Math.max(0.32, lam) });
+  // #30: towardE = −1 never occurs in a build (0 of 2076 entries, grids 96/384, 7λ×2m, ×1.25, S16); the reversed case is an
+  // explicit contradiction (V22 fail), not a collapsed scan window. Reached by calling railLeg with E_n⁰ behind the foot.
+  {
+    const A = computeAll(recipe, cfg(0.32, 1.0)), w = A.params.w_mm, R = A.base.R;
+    const rows = [];
+    for (const s of A.path.segs.filter((q) => q.type === 'leg' && q.row >= 2 && q.layMode === 'rail' && q.level === 'bottom' && q.entryKind === 'tangent')) {
+      const prevR = A.path.rounds.find((r) => r.set === s.set && r.row === s.row - 1);
+      const prev = A.path.segs.find((x) => x.round === prevR?.id && x.type === 'leg' && x.stitch === s.stitch);
+      if (!prev) continue;
+      const fwd = railLeg(R, s.pts[0], s.pts[s.pts.length - 1], prev, w, s.level);
+      const p0 = unit(prev.pts[0]), pB = unit(prev.pts[Math.min(10, prev.pts.length - 1)]);
+      const behind = unit(sub(mul(p0, 2), pB));   // ~10 output links behind the start of row n−1, i.e. against the travel
+      const back = railLeg(R, s.pts[0], behind, prev, w, s.level);
+      rows.push({ id: s.id, fwd: fwd.entryKind === s.entryKind && !fwd.entryBackward && Math.abs(fwd.spliceMm - s.spliceMm) < 1e-9 * w,
+        back: back.entryKind === 'contradiction' && back.entryFail && back.entryBackward && back.joinMode === 'contradiction' });
+    }
+    const all = A.path.segs.filter((q) => q.type === 'leg' && q.entryBackward).length;
+    console.log(`  #30 λ0.32 m1: ${rows.length} bottom tangent legs re-laid forward (same entry) and reversed (E⁰ ~10 links behind the start of row n−1): back → contradiction ${rows.filter((r) => r.back).length}/${rows.length}; entryBackward in the build ${all}`);
+    check(rows.length > 0 && rows.every((r) => r.fwd && r.back) && all === 0,
+      `#30 railLeg: E⁰ behind the foot → explicit contradiction (entryBackward, V22), forward call reproduces the build; 0 backward entries in the build`);
+    const leg = A.path.segs.find((q) => q.id === rows[0].id);
+    Object.assign(leg, { entryKind: 'contradiction', joinMode: 'contradiction', entryFail: true, entryBackward: true });
+    const v22 = runValidators(A, 'all', null).find((v) => v.id === 'V22');
+    check(v22.status === 'fail' && /travel reversed, #30/.test(v22.value), `#30 V22 fails loudly on a backward entry (${String(v22.value).match(/[^;]*#30[^;]*/)?.[0] ?? v22.status})`);
+  }
+  // #26: V16 fan onset counts only threads laid before the current top pickup (since f48c05b, #38).
+  {
+    const A = computeAll(recipe, cfg(0.6, 1.0));
+    const g = runValidators(A, 'all', null).find((v) => v.id === 'V16').numbers.geoFirst;
+    let gA;
+    try { setV16AcausalForTest(true); gA = runValidators(A, 'all', null).find((v) => v.id === 'V16').numbers.geoFirst; } finally { setV16AcausalForTest(false); }
+    console.log(`  #26 λ0.6 m1 fan onset causal A/L0 ${g['A:0']}, B/L7 ${g['B:7']}; acausal (mutation) A/L0 ${gA['A:0']}, B/L7 ${gA['B:7']}`);
+    check(g['A:0'] === 10 && g['B:7'] === 10 && gA['A:0'] < g['A:0'],
+      `#26 V16 causal fan onset at λ0.6: A/L0 row ${g['A:0']}, B/L7 row ${g['B:7']}; counting future threads moves A/L0 to ${gA['A:0']} (caught)`);
+  }
+  // #27: V20 κ_g on the exterior splice X_n → T excludes only ≤ w at the hole and the join vertex T.
+  {
+    const mk = (pick) => {
+      const A = computeAll(recipe, cfg(0.32, 1.0)), w = A.params.w_mm, R = A.base.R;
+      const leg = A.path.segs.find((s) => s.type === 'leg' && s.layMode === 'rail' && s.joinMode === 'tangent' && s.spliceMm >= 2 * w && s.mIdx >= 4);
+      const cum = [0]; for (let i = 1; i < leg.pts.length; i++) cum.push(cum[i - 1] + R * angle(leg.pts[i - 1], leg.pts[i]));
+      const j = pick(cum, w, leg.mIdx);
+      const n = unit(cross(leg.pts[0], leg.pts[leg.mIdx]));
+      leg.pts[j] = mul(unit(add(unit(leg.pts[j]), mul(n, 0.02 / R))), R);   // 0.02 mm lateral kink at vertex j
+      return { A, leg, j, cumJ: cum[j] / w, cum, w };
+    };
+    const short = mk((cum, w, iT) => { for (let i = 1; i + 1 < iT; i++) if (cum[i] > w && cum[i + 1] < 2.5 * w) return i; return -1; });
+    Object.assign(short.leg, { mIdx: short.j + 1, spliceMm: short.cum[short.j + 1] });   // a splice of < 2.5·w ending right after the kink
+    const vS = runValidators(short.A, 'all', null).find((v) => v.id === 'V20');
+    const clean = runValidators(computeAll(recipe, cfg(0.32, 1.0)), 'all', null).find((v) => v.id === 'V20');
+    console.log(`  #27 V20: clean λ/μ ${fmt(clean.numbers.ratio, 6)}; kink at ${fmt(short.cumJ, 3)} w on a ${fmt(short.leg.spliceMm / short.w, 3)} w splice → ${vS.status} λ/μ ${fmt(vS.numbers.ratio, 2)}`);
+    check(short.j > 0 && short.leg.spliceMm < 2.5 * short.w && vS.status === 'fail' && vS.numbers.ratio >= 1.2,
+      `#27 V20 fails on a mutated short exterior splice (${fmt(short.leg.spliceMm / short.w, 2)} w < 2.5 w, no blind window)`);
+    check(clean.status === 'pass' && Math.abs(clean.numbers.lambdaMax - 0.32) < 1e-4,
+      `#27 clean build: V20 pass with the minimal window, λ_max ${fmt(clean.numbers.lambdaMax, 6)} (unchanged: the splice is a great-circle arc)`);
+  }
+  // #48: V3 compares a bow row 1 with the independent bow reference (calc_reference.py: small-circle arcs through calc.py's
+  // holes, closed form); class (i) tolerance 1e−6 mm. A leg 2e−6 mm longer fails; a λ outside the reference set is printed.
+  {
+    const rows = [];
+    for (const m of [0.5, 1.0]) for (const lam of [0.1, 0.32, 0.6]) {
+      const A = computeAll(recipe, { ...cfg(lam, m), rowsMode: 'count', rowsCount: 1 });
+      const v = runValidators(A, 'all', ref).find((x) => x.id === 'V3');
+      rows.push({ m, lam, ok: v.status === 'pass' && v.numbers.lenCompared && v.numbers.bowRef, d: Math.abs(v.numbers.rowLen - v.numbers.refLen) });
+    }
+    const Am = computeAll(recipe, { ...cfg(0.32, 1.0), rowsMode: 'count', rowsCount: 1 });
+    const leg = Am.path.segs.find((q) => q.round === 'A1' && q.type === 'leg' && q.stitch === 3);
+    leg.length += 2e-6;
+    const vm = runValidators(Am, 'all', ref).find((x) => x.id === 'V3');
+    const Ao = computeAll(recipe, { ...cfg(0.25, 1.0), rowsMode: 'count', rowsCount: 1 });
+    const vo = runValidators(Ao, 'all', ref).find((x) => x.id === 'V3');
+    console.log(`  #48 V3 bow: ${rows.map((r) => `m${r.m} λ${r.lam} Δ ${r.d.toExponential(1)} mm`).join('; ')}; +2e−6 mm on A1.i3 → ${vm.status}; λ0.25 → compared ${vo.numbers.lenCompared} (${vo.status})`);
+    check(rows.every((r) => r.ok && r.d < 1e-6), `#48 V3 bow row-1 length = calc_reference small-circle arms within 1e−6 mm (λ 0.1/0.32/0.6 × m 0.5/1; max Δ ${Math.max(...rows.map((r) => r.d)).toExponential(1)} mm)`);
+    check(vm.status === 'fail' && vo.numbers.lenCompared === false && vo.status === 'pass',
+      `#48 V3 bow: a 2e−6 mm longer leg fails; a λ without a reference (0.25) prints the length (E/X still compared)`);
+  }
+  // V6 at λ 0.1: the free exit (E_n outside, no tangency) is the maximum of co-directionality, refined as the root of the
+  // central difference of |sin ψ| (the golden section on cos ψ scattered 4e−5 mm between rotation-equivalent stitches).
+  for (const m of [0.5, 1.0]) {
+    const A = computeAll(recipe, cfg(0.1, m)), w = A.params.w_mm;
+    const by = {};
+    for (const s of A.path.segs.filter((q) => q.type === 'leg' && q.exitKind === 'free' && q.entryKind !== 'free' && !q.lam0)) (by[`${s.round}:${s.level}`] ||= []).push(s.exitAlongMm);
+    let spread = 0;
+    for (const v of Object.values(by)) spread = Math.max(spread, Math.max(...v) - Math.min(...v));
+    const v6 = runValidators(A, 'all', null).find((v) => v.id === 'V6');
+    console.log(`  V6 λ0.1 m${m}: ${Object.keys(by).length} rounds with free exits, max spread of the exit point ${spread.toExponential(1)} mm; V6 ${v6.status}`);
+    check(v6.status === 'pass' && spread <= 1e-6 * w && Object.keys(by).length > 0,
+      `V6 λ0.1 m${m}: pass (clean class and B = rot(A) ≤ 1.4e−6·w); free-exit point equal on rotation-equivalent stitches within 1e−6·w (${spread.toExponential(1)} mm)`);
   }
 }
 

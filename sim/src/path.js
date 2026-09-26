@@ -875,7 +875,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
 
   let Tpt, sT, splice, joinMode;
   // (10′) entry diagnostics (#46): entryKind tangent | free | noTangency (V22 fail) | onRail | climb (interior only)
-  let entryRoots = null, entrySkipped = 0, entryKind = null, entryPiece = null, entryMinGapW = null, entryGapAtMm = null, entryFail = false, entryBest = null, entryScan = null;
+  let entryRoots = null, entrySkipped = 0, entryKind = null, entryPiece = null, entryMinGapW = null, entryGapAtMm = null, entryFail = false, entryBest = null, entryScan = null, entryBackward = false;
   // Scale with w so xk similarity does not flip onRail/climb (absolute 1e-6 mm thresh).
   // v3.2 §3.2(9б), §6.4 (#39, #22): |d_n| ≤ 0.02·w is the degenerate entry — X_n is on the rail within the band, no
   // tangency search. The leg starts at X_n itself (as at λ = 0): a jog X_n → foot, or X_n replacing the foot as vertex 0,
@@ -892,6 +892,12 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     splice = 0;   // X_n on the rail within round-off (|X_n − foot| ~ 1e−9·w; angle() noise ~1e−6 mm): the rail from X_n, no splice
     joinMode = 'tangent';
     entryKind = 'onRail';
+  } else if (hitE.s < lat.s) {
+    // #30: travel along the rail is foot → E by construction (row n runs the same way as row n−1). E_n⁰ behind the foot
+    // has no tangency window or climb point in travel order: explicit contradiction (V22 fail, build invalid from this
+    // row), never a collapsed or reversed search window. Measured: 0 of 2076 entries (grids 96/384, 7λ×2m, ×1.25, S16).
+    entryKind = 'contradiction'; entryFail = true; entryBackward = true; sT = hitE.s; Tpt = E; splice = R * angle(X, E);
+    joinMode = entryKind;
   } else if (dLat < 0) {
     // 6a.7(3) climb/merge: M at ℓ_m = max(w, 3δ) forward toward E
     const Lm = Math.max(w || 0, 3 * delta);
@@ -919,9 +925,9 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     const LjSpec = Math.sqrt(Math.max(0, 2 * Math.abs(dLat) * R / lamR));
     const toCore = Number.isFinite(rail.coreS0) ? Math.max(0, rail.coreS0 + (bodyS0 || 0) - lat.s) : 0;
     const span = Math.max(8 * Lj, 12 * (w || 0), mmAtW(12, w || W0_MM), toCore + 2 * LjSpec);
-    const towardE = sE >= s0 ? 1 : -1;
+    // sE ≥ s0 here (a backward E_n⁰ is the explicit contradiction above, #30): the window runs forward from the foot.
     const sLo = Math.max(0, s0 - 0.5 * span);
-    const sHi = Math.max(sLo + 1e-9, s0 + towardE * span);
+    const sHi = s0 + span;
     const spliceCap = Math.max(span, 20 * (w || 0));
     const cos1 = Math.cos(Math.PI / 180);
     const tangRes = (s) => {
@@ -930,7 +936,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       const Ta = P.T; // v3 §3.2(8): the rail's exact, continuous tangent field (same as the exit)
       const spl = R * angle(X, q);
       // Co-directional arrival∥rail along travel toward E (no abs — abs accepted ~180° reverse).
-      const Tdir = towardE > 0 ? Ta : mul(Ta, -1);
+      const Tdir = Ta;
       const arrive = mul(tangentTo(q, X), -1); // inbound at q from X
       return { q, Ta, P, res: dot(X, cross(q, Tdir)), score: dot(arrive, Tdir), spl };
     };
@@ -973,9 +979,9 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     // joint between pieces curving opposite ways) is printed as a near miss, not taken.
     let scanBest = null, scanGraze = null;
     for (const c of cands) {
-      if (!entryOk(c) || (c.s - s0) * towardE < -1e-9 || (sE - c.s) * towardE < -1e-9) continue;
+      if (!entryOk(c) || c.s - s0 < -1e-9 || sE - c.s < -1e-9) continue;
       if (!c.root) { if (!scanGraze || Math.abs(c.res) < Math.abs(scanGraze.res)) scanGraze = c; continue; }
-      if (!scanBest || (c.s - s0) * towardE < (scanBest.s - s0) * towardE) scanBest = c;
+      if (!scanBest || c.s < scanBest.s) scanBest = c;
     }
     // Spec (10′) (#46): the tangency is found in closed form on each piece of the rail (entry-segment parallel, corner
     // arcs, core, continuation), in travel order from the foot; the first one meeting (13б) is taken. No silent climb:
@@ -1041,8 +1047,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
         // (9б′) degenerate entry: chord X_n → M, ℓ_m = max(w, 3|d_n|) from the foot in travel order, then the rail (#22 rule at M).
         entryKind = 'degenerate';
         const Lm = Math.max(w || 0, 3 * Math.abs(dLat));
-        const dirE = sE >= s0 ? 1 : -1;
-        sT = dirE > 0 ? Math.min(s0 + Lm, Math.max(s0 + 1e-9, sE * 0.999)) : Math.max(s0 - Lm, sE);
+        sT = Math.min(s0 + Lm, Math.max(s0 + 1e-9, sE * 0.999));
         Tpt = rail.at(sT).q; splice = R * angle(X, Tpt);
       } else {
         // (9б′) |d_n| > 0.1·w: contradiction — chord X_n → E_n⁰ laid as is, V22 fail, build invalid from this row.
@@ -1147,6 +1152,21 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       }
       const pk2 = exitRes(0.5 * (a + b));
       best = pk2.score > pk.score ? pk2 : pk;
+      // V6 at λ 0.1: the maximum of score = cos ψ is flat (ψ ≈ 0.02, ψ(s) ≈ ψ* + c·(s − s*)², c ≈ 1e−5/mm²), so the golden
+      // section on cos ψ resolves s* only to √(ε/(sin ψ·c)) ≈ 2e−5 mm and rotation-equivalent stitches differed by up to
+      // 4e−5 mm (clean class, B = rot(A)). Same point, well-conditioned: the root of the central difference of |sin ψ|
+      // (slope 4·c·h) within one scan step; kept only if it is a sign change and not worse (a window end / joint kink keeps
+      // the section result).
+      {
+        const hD = 1e-3 * wEff, stepS = (sHi - sLo) / nScan;
+        const gD = (sv) => exitRes(sv + hD).sin - exitRes(sv - hD).sin;
+        let ra = Math.max(sLo + hD, best.s - stepS), rb = Math.min(sHi - hD, best.s + stepS);
+        if (ra < rb && gD(ra) < 0 && gD(rb) > 0) {
+          for (let it = 0; it < 60; it++) { const mid = 0.5 * (ra + rb); if (gD(mid) < 0) ra = mid; else rb = mid; }
+          const ref = exitRes(0.5 * (ra + rb));
+          if (ref.score >= best.score - 1e-12) best = ref;
+        }
+      }
       exitKind = 'free';
       // Contradiction (the only fail): the free geodesic re-enters the tube of row n−1.
       const om = angle(best.q, E);
@@ -1308,7 +1328,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     joinTurnConDeg, mIdx: iM, mTurnExpDeg, railCornerFootToM, clearFreeW, clearChordW,
     // (9б′) degenerate entry: expected turn at M ≤ atan(|d_n|/ℓ_m) + the rail's own turn foot → M (#22 rule)
     mTurnBoundDeg: entryKind === 'degenerate' ? Math.atan(Math.abs(dLat) / Math.max(w || 0, 3 * Math.abs(dLat))) * 180 / Math.PI + Math.abs(railTurnFootToMDegV) : null,
-    entryRoots, entrySkipped, entryChordGapW: entryKind === 'tangent' && entryRoots ? (entryRoots.find((r) => r.chordGapW >= 1 - EPS_C)?.chordGapW ?? null) : null, entryKind, entryPiece, entryMinGapW, entryGapAtMm, entryFail, entryBest, entryScan,
+    entryRoots, entrySkipped, entryChordGapW: entryKind === 'tangent' && entryRoots ? (entryRoots.find((r) => r.chordGapW >= 1 - EPS_C)?.chordGapW ?? null) : null, entryKind, entryPiece, entryMinGapW, entryGapAtMm, entryFail, entryBackward, entryBest, entryScan,
   };
 }
 
@@ -1661,7 +1681,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         mIdx: legShape.mIdx ?? null, mTurnExpDeg: legShape.mTurnExpDeg ?? null, mTurnBoundDeg: legShape.mTurnBoundDeg ?? null, railCornerFootToM: legShape.railCornerFootToM ?? 0,
         clearFreeW: legShape.clearFreeW ?? null, clearChordW: legShape.clearChordW ?? null, footS: legShape.footS ?? null, mS: legShape.mS ?? null,
         entrySkipped: legShape.entrySkipped ?? 0, entryChordGapW: legShape.entryChordGapW ?? null, entryKind: legShape.entryKind ?? null, entryPiece: legShape.entryPiece ?? null, entryMinGapW: legShape.entryMinGapW ?? null, entryGapAtMm: legShape.entryGapAtMm ?? null,
-        entryFail: !!legShape.entryFail, entryBest: legShape.entryBest ?? null, entryScan: legShape.entryScan ?? null,
+        entryFail: !!legShape.entryFail, entryBackward: !!legShape.entryBackward, entryBest: legShape.entryBest ?? null, entryScan: legShape.entryScan ?? null,
         lam0: legShape.lam0 ?? null, railLateralMm: legShape.railLateralMm ?? null, exitTurnDeg: legShape.exitTurnDeg ?? null, minGapMm: legShape.minGapMm ?? null });
       if (i === 1) RD.firstLegId = leg.id;
       if (i === 1 && spec.begin === 'hiddenStart' && !W.virtualArrive[spec.set]) {
