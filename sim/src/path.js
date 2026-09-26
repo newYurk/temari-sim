@@ -570,7 +570,8 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       // Free leg — no rail.
       const pts = slerp(R, from, to, n);
       const latHit = laidChain(R, prevArm).lateral(X0);
-      const dLat = Math.max(0, latHit.distMm - (w || 0)) * (latHit.signedMm >= 0 ? 1 : -1);
+      // Foot clamped at an end of the laid leg: no side from the numbers (#40); a free leg's X is outside by construction.
+      const dLat = Math.max(0, latHit.distMm - (w || 0)) * (latHit.clamped || latHit.signedMm >= 0 ? 1 : -1);
       let holeTurnDeg = 0;
       if (pts.length >= 3) {
         const nrm = unit(pts[1]);
@@ -616,11 +617,15 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   // arms), use the core lateral — otherwise tiny splices + tip knees ∝ N (B.8).
   const latExt = rail.lateral(X);
   const latCore = core.lateral(X);
+  // X beyond even the continued rail (foot clamped at an end of the extension; bow bottom legs whose top X_n
+  // lies ≥ 14 w beyond the core start): the side comes from the construction — the new row is outside
+  // (v3.1 §3.2(8), (12); #40) — not from the sign of the along-track dot; the magnitude is the distance to that end.
+  const dExt = latExt.clamped ? latExt.distMm : latExt.signedMm;
   let lat, dLat;
   // onRail band: |d| < 0.02·w (dimensionless, so ×k similarity cannot flip it).
   const onRailTol = 0.02 * Math.max(w || W0_MM, 1e-9);
   // When the core foot is clamped at a core END (X lies beyond the core along-track), the core
-  // distance is along-track, not lateral, and its sign is the sign of a near-zero quantity. There the
+  // distance is along-track, not lateral, and the core gives no side (signedMm null, #40). There the
   // lateral side is read from the extended rail, which is the true lateral measure (spec v3 §3.2(8):
   // consumers see the rail's continuation). Clamped is exact on the analytic core (#36).
   const coreFootAtEnd = latCore.clamped !== null;
@@ -628,22 +633,22 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   // to the rail at its end, so the geodesic from X to the core end is a tangency when it meets the
   // rail tangent with sin ≤ 0.01, the same dimensionless tangency criterion as §3.2(13б) (junction
   // free → rail is a tangency, §3.2(13д)). sin = |d_ext| / (distance beyond the end) (#35).
-  const endSin = coreFootAtEnd ? Math.abs(latExt.signedMm) / Math.max(latCore.distMm, 1e-15) : Infinity;
+  const endSin = coreFootAtEnd ? Math.abs(dExt) / Math.max(latCore.distMm, 1e-15) : Infinity;
   const onExtension = coreFootAtEnd && endSin <= 0.01;
   // Otherwise X counts as outside only if it is off the extension by more than the onRail band; with
   // endSin > 0.01 and X ≥ 2 w beyond the end, |d_ext| > 0.02 w, so this is not a sign-of-zero test.
-  const coreOutside = coreFootAtEnd ? latExt.signedMm > onRailTol : latCore.signedMm > (w || 0);
+  const coreOutside = coreFootAtEnd ? dExt > onRailTol : latCore.signedMm > (w || 0);
   // Only when CORE says clearly OUTSIDE (not a bow tip/climb interior) yet extension
   // claims nearly on-rail — the λ=0 geodesic false-foot pattern.
   const falseExtFoot = !onExtension && coreOutside
     && latCore.distMm > 2 * (w || 0)
-    && Math.abs(latExt.signedMm) < 0.5 * (w || 0);
+    && Math.abs(dExt) < 0.5 * (w || 0);
   if (falseExtFoot) {
     dLat = latCore.distMm; // outside ⇒ positive; magnitude only (sign may be round-off at an end)
     lat = { ...rail.closest(latCore.q), signedMm: dLat };
   } else {
-    lat = latExt;
-    dLat = latExt.signedMm;
+    lat = { ...latExt, signedMm: dExt };
+    dLat = dExt;
   }
   const delta = dLat < 0 ? -dLat : 0;
   const hitE = rail.closest(E);
@@ -842,7 +847,10 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   // a construction contradiction: exitKind 'offRail', exitFail — a loud fail (V8), never a silent
   // continuation (§2, §5.6, #36). A TOP leg ends at a given hole: tangent from a point (13), drain
   // (13г) or free geodesic, never 'atE'.
-  const latE = rail.lateral(E);
+  // E_n beyond the sampled extension: its lateral is the exact offset from the continued great circle (§3.2(8),
+  // (12): the tail is continued to the root without a length limit), not the distance to the extension's end
+  // signed by a near-zero dot (#40).
+  const latE = rail.continuedLateral(E);
   const dE = latE.signedMm;
   const eOnRail = endLevel === 'bottom';
   const eOffRail = eOnRail && !(Math.abs(dE) < onRailTol);
@@ -907,7 +915,8 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   legArcs.push(...rail.sub(sT0, best.s));
   // Bottom leg ('atE', §3.2(12)): E_n is the packing root on the rail, so the rail itself ends at E_n
   // (|d_E| is round-off of the root on the same analytic rail; the arcs end at E_n's foot).
-  if (exitKind === 'atE' && pts.length >= 2) pts[pts.length - 1] = mul(unit(to), R);
+  // Past the sampled extension (latE clamped) the continuation to E_n is appended below instead (#40).
+  if (exitKind === 'atE' && !latE.clamped && pts.length >= 2) pts[pts.length - 1] = mul(unit(to), R);
   // Geodesic Tex → E (tangent when exit score is high).
   {
     const last = unit(pts[pts.length - 1]);
@@ -923,8 +932,12 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       }
       // The exit root is a tangency by construction (§3.2(13)); drain and free exits are real corners.
       // A bottom leg ('atE' / 'offRail') has no tail: its arcs end at E_n's foot on the rail.
-      const tail = exitKind === 'atE' || exitKind === 'offRail' ? null : arcGC(exitQ, Eend, 'tail');
-      if (tail) legArcs.push(exitKind === 'root' ? { ...tail, join: 'tangent' } : tail);
+      // A bottom leg whose packing root lies past the sampled extension (latE clamped, #40) continues along the
+      // same tangent great circle to E_n: that piece is the continuation ('ext', a tangency by construction).
+      const tail = exitKind === 'offRail' ? null
+        : exitKind === 'atE' ? (latE.clamped ? arcGC(exitQ, Eend, 'ext') : null)
+        : arcGC(exitQ, Eend, 'tail');
+      if (tail) legArcs.push(exitKind === 'root' || exitKind === 'atE' ? { ...tail, join: 'tangent' } : tail);
     }
   }
 
@@ -1100,7 +1113,10 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
     // the great circle tangent at its end; g(s) = signed distance of E(s) to it is exact and smooth, so
     // the first transversal root is found by bisection without polyline-tip artefacts.
     const { rail } = railOf(R, prevArm, w);
-    const gHit = (s) => rail.lateral(unit(perpPt(R, s, phiK, sidesAt(s).eOff)));
+    // §3.2(12): the tail great circle is continued to the first root with the E-line, without a length limit. Past
+    // the sampled extension g is the exact offset from that great circle (continuedLateral), not the distance to
+    // the extension's end signed by a near-zero dot (#40; the root is the same point, now of a continuous g).
+    const gHit = (s) => rail.continuedLateral(unit(perpPt(R, s, phiK, sidesAt(s).eOff)));
     const g = (s) => gHit(s).signedMm;
     // First transversal root with s > sInside. Skip spurious early roots (dense-grid chatter)
     // that would shrink Δ below ~0.7·expected (6a.12 / 6a.17 packing stability on 96/192/384).

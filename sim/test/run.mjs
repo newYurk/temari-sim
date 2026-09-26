@@ -1057,6 +1057,44 @@ if (G('8d0f'))
   check(fwd.some((c) => c.s === 2), `exit window start T₁ is a tangency candidate (forward; cands at ${fwd.map((c) => c.s.toFixed(3)).join(',')})`);
   const bwd = exitCandidates(mk((sv) => 1e-4 + 1e-3 * (2 - sv)), 0, 2, 160).cands;
   check(bwd.some((c) => c.s === 2), `exit window end T₁ is a tangency candidate (backward; cands at ${bwd.map((c) => c.s.toFixed(3)).join(',')})`);
+  // #40: arcs.js degenerate cases are loud, and no side is read from a near-zero number.
+  {
+    const { offsetChain, trimConcave, arcSmall, arcGC, Chain, TRIM_MARGIN } = await import('../src/arcs.js');
+    const sph = (th, ph) => [Math.sin(th) * Math.cos(ph), Math.sin(th) * Math.sin(ph), Math.cos(th)];
+    const throws = (f, re) => { try { f(); return false; } catch (e) { return re.test(e.message); } };
+    const z = [0, 0, 1];
+    const P = arcSmall(sph(0.1, 0), sph(0.1, 1), z, 'rail');
+    const Qfar = arcSmall(sph(Math.PI / 2 - 0.1, 0), sph(Math.PI / 2 + 0.1, 0), [1, 0, 0], 'rail'); // circle of radius 0.1 about x: disjoint
+    const kT = sph(0.2, 0.5);
+    const Qtan = arcSmall(rot3(kT, 0.1, 0), rot3(kT, 0.1, 1), kT, 'rail'); // radius 0.1 about a pole 0.2 away: externally tangent
+    function rot3(k, rho, t) { // point at angular radius rho about k, azimuth t
+      const e1 = unit(cross(k, Math.abs(k[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0])), e2 = cross(k, e1);
+      return unit(add(mul(k, Math.cos(rho)), mul(add(mul(e1, Math.cos(t)), mul(e2, Math.sin(t))), Math.sin(rho))));
+    }
+    check(throws(() => trimConcave(P, Qfar), /do not meet/), 'trimConcave: offset arcs that do not meet → loud fail (no acos clamp)');
+    check(throws(() => trimConcave(P, Qtan), /tangent|do not meet/), `trimConcave: (near) double intersection, 1 − |C/H| < ${TRIM_MARGIN} → loud fail`);
+    check(throws(() => trimConcave(P, arcSmall(sph(0.2, 0), sph(0.2, 1), z, 'rail')), /coaxial/), 'trimConcave: coaxial offset arcs (H = 0) → loud fail');
+    check(throws(() => offsetChain([{ ...P, rho: 0.001 }], 0.002, 1), /outside \(0, π\)/), 'offsetChain: offset radius ρ′ ≤ 0 → loud fail');
+    // A convex corner arc is a tangency by construction at both joints; its re-offset asks no sign of ≈ 0.
+    const a0 = sph(1.0, 0), a1 = sph(1.0, 0.3), a2 = sph(1.2, 0.5);
+    const off = offsetChain([arcGC(a0, a1, 'free'), arcGC(a1, a2, 'free')], 0.01, 1);
+    const off2 = offsetChain([arcGC(a0, a1, 'free'), arcGC(a1, a2, 'free')], 0.01, -1);
+    const corner = [...off, ...off2].find((A) => A.cls === 'corner');
+    check(!!corner && corner.join === 'tangent', 'offsetChain: corner arcs carry join "tangent" at their start (and the next arc at its start)');
+    const re = offsetChain(corner === off.find((A) => A.cls === 'corner') ? off : off2, 0.01, off.includes(corner) ? 1 : -1);
+    check(re.filter((A) => A.cls === 'corner').length === 0, 're-offset of a chain with a corner arc adds no micro-corner at its tangent joints');
+    // lateral() at a clamped end gives no side (the caller decides from the construction).
+    const ch = new Chain(1, [arcGC(a0, a1, 'free')], 1);
+    const beyond = ch.lateral(unit(add(a1, mul(sub(a1, a0), 0.5))));
+    const inside = ch.lateral(sph(0.99, 0.15));
+    check(beyond.clamped === 'end' && beyond.signedMm === null && inside.clamped === null && Number.isFinite(inside.signedMm),
+      'Chain.lateral: foot clamped at an end → signedMm null (no sign from a near-zero dot); interior foot → signed');
+    // §3.2(12): the continued great circle gives a continuous signed offset past the end (packing root).
+    const k0 = unit(cross(a0, a1)), off3 = unit(add(mul(unit(add(a1, mul(sub(a1, a0), 0.5))), Math.cos(0.003)), mul(k0, -Math.sin(0.003))));
+    const cl = ch.continuedLateral(off3);
+    check(cl.clamped === 'end' && Math.abs(Math.abs(cl.signedMm) - 0.003) < 1e-12,
+      `Chain.continuedLateral past a great-circle end = exact offset from the continued circle (got ${cl.signedMm})`);
+  }
   const prevN = getLegSamples();
   for (const c of cases) {
     setLegSamples(c.N);

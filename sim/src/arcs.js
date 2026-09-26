@@ -89,22 +89,41 @@ function arcClosest(A, u) {
 /** Offset of one arc by angle al on side (+1 = left of travel, −1 = right). Left of travel on an arc
  *  about k is toward k, so the radius becomes ρ − side·al. */
 function arcOffset(A, al, side) {
+  const rho = A.rho - side * al;
+  // #40: an offset radius outside (0, π) means the offset passes through the pole of the arc — the parallel
+  // is not an arc of this class there (a construction contradiction, loud).
+  if (!(rho > 0 && rho < Math.PI)) throw new Error(`offsetChain: offset radius ρ′ = ${rho} rad outside (0, π) (ρ = ${A.rho}, offset ${side * al})`);
   const toK = unit(sub(A.k, mul(A.a, Math.cos(A.rho))));
   const a = add(mul(A.a, Math.cos(al)), mul(toK, side * Math.sin(al)));
-  return { k: A.k, rho: A.rho - side * al, a: unit(a), psi: A.psi, cls: 'rail' };
+  return { k: A.k, rho, a: unit(a), psi: A.psi, cls: 'rail' };
 }
 
 /** Signed turn at joint vertex v from tangent T1 to T2 (+ = left, counter-clockwise about v). */
 function turnAt(v, T1, T2) { return Math.atan2(dot(cross(T1, T2), v), dot(T1, T2)); }
 
+/** Margin of the concave trim (#40), class (i): the circle intersection angle is dl = acos(C/H); a round-off
+ *  error ε_m ≈ 1e−16 in C/H moves it by ε_m / √(1 − (C/H)²) ≈ ε_m / √(2·(1 − |C/H|)). With 1 − |C/H| ≥ 1e−8
+ *  that is ≤ 1e−12 rad; closer to 1 the two offset circles are (nearly) tangent — a double root, which a concave
+ *  corner (a real turn, not a tangency by construction) cannot give. Real trims have 1 − |C/H| ≥ 2.6e−2. */
+export const TRIM_MARGIN = 1e-8;
+
 /** Intersection of offset arcs P (ending near the corner) and Q (starting near it): the solution on the
- *  circle of P nearest P's end. Returns { psiP, psiQ } (psiQ measured on Q from its start). */
-function trimConcave(P, Q) {
+ *  circle of P nearest P's end. Returns { psiP, psiQ } (psiQ measured on Q from its start). psiP < 0 means
+ *  the intersection lies before P's start (P is consumed; the caller drops it). No intersection, a (near)
+ *  double intersection or an intersection beyond P's end is a construction contradiction: throws (#40). */
+export function trimConcave(P, Q) {
   const c = mul(P.k, Math.cos(P.rho));
   const e1 = sub(P.a, c), e2 = cross(P.k, P.a);
   const A = dot(e1, Q.k), B = dot(e2, Q.k), C = Math.cos(Q.rho) - dot(c, Q.k);
   const H = Math.hypot(A, B);
-  const base = Math.atan2(B, A), dl = Math.acos(Math.max(-1, Math.min(1, C / H)));
+  // H = 0: the circles are coaxial (same or opposite pole) — equal or disjoint, never a transversal corner.
+  if (!(H > 0)) throw new Error('offsetChain: concave trim of coaxial offset arcs (no transversal intersection)');
+  const r = C / H;
+  if (!(1 - Math.abs(r) >= TRIM_MARGIN)) {
+    throw new Error(`offsetChain: concave trim without a transversal intersection (|C/H| = 1 − ${(1 - Math.abs(r)).toExponential(2)}; `
+      + (Math.abs(r) > 1 ? 'offset arcs do not meet' : 'offset arcs are tangent') + ')');
+  }
+  const base = Math.atan2(B, A), dl = Math.acos(r);
   let best = null;
   for (const cand of [base + dl, base - dl]) {
     let x = cand - P.psi;
@@ -112,6 +131,7 @@ function trimConcave(P, Q) {
     if (!best || Math.abs(x) < Math.abs(best)) best = x;
   }
   const psiP = P.psi + best;
+  if (psiP > P.psi) throw new Error(`offsetChain: concave trim point lies beyond the end of the arc before the corner (Δψ = ${best.toExponential(2)})`);
   const pt = arcPoint(P, psiP);
   const psiQ = arcClosest(Q, pt).psi;
   return { psiP, psiQ, pt };
@@ -139,7 +159,9 @@ export function offsetChain(arcs, al, side) {
         const N1 = mul(cross(v, T1), side);
         const a = unit(add(mul(v, Math.cos(al)), mul(N1, Math.sin(al))));
         const k = th > 0 ? v : mul(v, -1);
-        out.push({ k, rho: th > 0 ? al : Math.PI - al, a, psi: Math.abs(th), cls: 'corner' });
+        // Both joints of the corner arc are tangencies by construction (#40): the next row's offsetChain must not
+        // ask the numbers whether a round-off turn of ≈ 1e−16 there is convex or concave.
+        out.push({ k, rho: th > 0 ? al : Math.PI - al, a, psi: Math.abs(th), cls: 'corner', join: 'tangent' });
         Bo.join = 'tangent';
       } else if (th * side > 0) {
         // concave corner: the tube boundary is the intersection of the offset arcs; an offset arc shorter
@@ -205,13 +227,31 @@ export class Chain {
     const clamped = (best.j === 0 && best.psi === 0) ? 'start' : (best.j === last && best.psi === A.psi) ? 'end' : null;
     return { q: best.q, s, T: arcTangent(A, best.q), distMm: this.R * best.d, j: best.j, clamped };
   }
-  /** Closest point with signed lateral distance (+ on the outward side) and outward normal N. */
+  /** Closest point with signed lateral distance (+ on the outward side) and outward normal N. When the foot is
+   *  clamped at an end of the chain (u lies beyond it along the track), distMm is the distance to that end and
+   *  the lateral side is NOT read from dot(toward, N): that dot is the offset from the end's tangent circle,
+   *  ≈ 0 when u lies on the continuation, so its sign is the sign of a near-zero number (#40). signedMm is then
+   *  null and the caller takes the side from the construction (v3.1 §3.2(8), (12)). */
   lateral(u) {
     const c = this.closest(u);
     const N = mul(unit(cross(c.q, c.T)), this.side);
+    if (c.clamped) return { ...c, N, signedMm: null };
     const U = unit(u);
     const toward = sub(U, mul(c.q, dot(U, c.q)));
     return { ...c, N, signedMm: c.distMm * (dot(toward, N) >= 0 ? 1 : -1) };
+  }
+  /** Signed lateral distance (+ outward) to the chain continued without end along the great circles at its
+   *  ends (spec v3.1 §3.2(12): the tail is continued to the first root with the E-line; no length limit). Inside
+   *  the chain it is lateral(); beyond an end whose arc is a great circle it is the exact, continuous offset
+   *  R·asin(u·N) from that great circle — a value, not a sign read off an along-track distance (#40). Beyond an
+   *  end that is not a great circle there is no continuation: throws (loud). */
+  continuedLateral(u) {
+    const h = this.lateral(u);
+    if (!h.clamped) return h;
+    const A = h.clamped === 'start' ? this.arcs[0] : this.arcs[this.arcs.length - 1];
+    if (Math.abs(A.rho - Math.PI / 2) > 1e-12) throw new Error(`Chain.continuedLateral: the ${h.clamped} arc is not a great circle`);
+    const d = dot(unit(u), h.N);
+    return { ...h, signedMm: this.R * Math.asin(Math.max(-1, Math.min(1, d))) };
   }
   /** Arcs between arc lengths s0 and s1 (reversed when s1 < s0), classes kept. */
   sub(s0, s1) {
