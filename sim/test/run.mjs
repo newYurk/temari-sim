@@ -3,7 +3,8 @@ import { loadRecipe, loadJSON } from '../src/recipe.js';
 import { computeAll as computeAllDefault, G, finish, validatorStatuses } from './harness.mjs'; // memoized computeAll + group gates / parallel runner (#34)
 // #54: braid is the engine default top rule; the pinned S8 regression numbers of this suite are the fan mode, so every build
 // here runs topRule 'fan' explicitly unless the call names its own topRule (computeAllDefault = the engine default).
-const computeAll = (r, raw = {}) => computeAllDefault(r, { topRule: 'fan', ...raw });
+// #5: and liftMode 'display' (the former tent) unless the call names its own liftMode — the lift tests (group 5m) name 'ideal'.
+const computeAll = (r, raw = {}) => computeAllDefault(r, { topRule: 'fan', liftMode: 'display', ...raw });
 import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan, geodesicAlphaAt, tipLevelMm } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples, tangencyOk, TANGENCY_SIN_MAX, TANGENCY_RES_W, halfLineGraph, holeClearances, k12Cap } from '../src/path.js';
@@ -338,6 +339,13 @@ if (G('5m'))
 {
   const { mechanicsTests } = await import('./mechanics.test.mjs');
   mechanicsTests(check, fmt);
+}
+
+// 5i. #5 lift mechanics: the layer and V25–V27, K18, K19 on whole patterns, liftMode 'ideal' (sim/test/mechanics.test.mjs)
+if (G('5i'))
+{
+  const { mechanicsIdealTests } = await import('./mechanics.test.mjs');
+  mechanicsIdealTests(check, fmt, { computeAll: computeAllDefault, recipe, runValidators });
 }
 
 // 6. Нить не парит (V14) и «крючки» у полюса на скриншоте 03 — проекция, а не отрыв от шара

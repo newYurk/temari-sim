@@ -410,7 +410,15 @@ function renderLengths() {
   }
   const hw = A.params.hw, w = A.params.w_mm, R = A.base.R;
   const legs = segs.filter((s) => s.type === 'leg').reduce((a, s) => a + s.length, 0);
-  html += `<tr><td>${t('len.diag', { hw: f(hw, 2) })}</td><td class="n">+${f(legs * hw * w / 2 / R, 2)} ${getLocale() === 'ru' ? 'мм' : 'mm'}</td></tr>`;
+  // #5: three lengths of the legs in the stage — on the sphere (V3), along the axis R + h/2, with the lift (mechanics)
+  const MX = A.mechanics, mm = getLocale() === 'ru' ? 'мм' : 'mm';
+  if (MX && !MX.displayOnly) {
+    const L3 = segs.filter((s) => s.type === 'leg').reduce((a, s) => { const q = MX.lengths.perSeg[s.id]; if (q) { a.sphere += q.sphere; a.axis += q.axis; a.lifted += q.lifted; } return a; }, { sphere: 0, axis: 0, lifted: 0 });
+    html += `<tr><td>${t('len.lift3', { hw: f(hw, 2), sphere: f(L3.sphere, 1), axis: f(L3.axis, 1), pct: f(100 * (L3.lifted - L3.axis) / Math.max(1e-9, L3.axis), 2), mode: MX.mode })}</td><td class="n"><b>${f(L3.lifted, 1)}</b> ${mm}</td></tr>`;
+  } else {
+    const axis = legs * (1 + hw * w / 2 / R);
+    html += `<tr><td>${t('len.lift3.display', { hw: f(hw, 2), sphere: f(legs, 1), axis: f(axis, 1) })}</td><td class="n">${f(axis, 1)} ${mm}</td></tr>`;
+  }
   if (A.path.tipDrop) {
     const td = A.path.tipDrop;
     const unit = getLocale() === 'ru' ? 'мм' : 'mm';
@@ -560,7 +568,9 @@ function renderDiagnostics() {
 
 function renderLegend() {
   const grad = (fn) => `linear-gradient(90deg,${Array.from({ length: 11 }, (_, i) => `#${fn(i / 10).getHexString()}`).join(',')})`;
-  const liftNote = `<div class="note">${t('legend.lift')}</div>`;
+  const MXl = A.mechanics, liftTxt = !MXl || MXl.displayOnly ? t('legend.lift.display')
+    : t(`legend.lift.${MXl.mode}`, { d1: f(MXl.consts.delta1 / MXl.consts.w, 2), mmax: MXl.mMax, dmax: f(MXl.liftMax, 2) });
+  const liftNote = `<div class="note">${liftTxt} ${t('legend.hidden')}</div>`;
   if (R3.opts.color === 'round') {
     const shown = new Set(A.path.ops.slice(0, state.k + 1).map((o) => o.round));
     $('legend').innerHTML = A.path.rounds.map((r, i) => {

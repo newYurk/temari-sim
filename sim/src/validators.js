@@ -10,6 +10,7 @@ import { resolveBowLambda } from './params.js';
 import { widthDecomposition, u14Onset } from './diag-width.js';
 import { EPS_C, DEG_MAX_W, graphDistances, halfLineGraph, holeClearances, getLegSamples } from './path.js';
 import { arcEnd, arcTangent, arcPoint, Chain } from './arcs.js';
+import { liftFnFor, dentFnFor, capRise, stackRise, bridgeMin, extraLengthApex, extraLength1, extraLength } from './mechanics.js';
 import { rotAbout } from './program.js';
 
 /** #53 case 1: the kiku frame of the build under validation (polar coordinates about the kiku centre, geom.js frameAt).
@@ -1342,9 +1343,10 @@ function runValidatorsIn(A, stage, ref) {
     const okChain = A.marking.parents[0] === A.base.stamp && A.layout.parents[1] === A.marking.stamp &&
       A.rowPlan.parents[2] === A.layout.stamp && A.path.parents[3] === A.rowPlan.stamp && A.path.parents[0] === A.base.stamp;
     const Rchk = segs.every((s) => s.type !== 'leg' || Math.abs(norm(s.from) - R) < 1e-9);
-    add({ id: 'V11', name: 'Layer chain is fresh', crit: 'parametric requirement: base → marking → layout → rowPlan → path',
-      status: okChain && Rchk ? 'pass' : 'fail',
-      value: `stamps: base ${A.base.stamp} → marking ${A.marking.stamp} → layout ${A.layout.stamp} → rowPlan ${A.rowPlan.stamp} → path ${A.path.stamp}; vse legs na tekushchem R: ${Rchk ? 'da' : 'net'}` });
+    const mOk = !A.mechanics || A.mechanics.parents?.[0] === A.path.stamp;   // #5: base → … → path → mechanics
+    add({ id: 'V11', name: 'Layer chain is fresh', crit: 'parametric requirement: base → marking → layout → rowPlan → path → mechanics',
+      status: okChain && Rchk && mOk ? 'pass' : 'fail',
+      value: `stamps: base ${A.base.stamp} → marking ${A.marking.stamp} → layout ${A.layout.stamp} → rowPlan ${A.rowPlan.stamp} → path ${A.path.stamp}${A.mechanics ? ` → mechanics ${A.mechanics.stamp} (${A.mechanics.mode}${mOk ? '' : ', STALE'})` : ''}; vse legs na tekushchem R: ${Rchk ? 'da' : 'net'}` });
   }
   // V12 — row plan (design formula) vs derived levels of all rows; equator; set stop
   {
@@ -1471,14 +1473,18 @@ function runValidatorsIn(A, stage, ref) {
         meshMax = Math.max(meshMax, r);
       }
     }
-    const ok = !nonFinite && legDev < TOL_RAD && hidOut < TOL_RAD && meshMax <= w + liftMax + TOL_MESH && axisMax <= w / 2 + liftMax + TOL_MESH && hidDispAxisMax <= TOL_MESH;
+    // #5: ideal / measured — the lift bound is Δ(m_max) of the mechanics (lift-spec §3.5), not DISPLAY_STACK_LIFT_W
+    const MX14 = A.mechanics && !A.mechanics.displayOnly ? A.mechanics : null;
+    const liftBound = MX14 ? Math.max(0, ...MX14.crossings.map((c) => c.delta || 0)) : liftMax;
+    const ok = !nonFinite && legDev < TOL_RAD && hidOut < TOL_RAD && meshMax <= w + liftBound + TOL_MESH && axisMax <= w / 2 + liftBound + TOL_MESH && hidDispAxisMax <= TOL_MESH;
     add({ id: 'V14', name: 'Thread does not float above the ball (model and mesh)', crit: 'K1–K3; D22 (tube Ø w on the surface); schematic lift at crossings — display only',
       status: ok ? 'pass' : 'fail',
       value: `model: legs |r − R| ≤ ${legDev.toExponential(1)} mm; hidden not above surface (max ${hidOut.toExponential(1)}), khorda starta to ${f(hidDepth, 2)} mm vglub. `
-        + `Mesh: axis ≤ R + ${f(axisMax, 3)} mm, outer surface ≤ R + ${f(meshMax, 3)} mm (norm w = ${f(w, 3)} + allvnyy podem stopki ≤ ${f(liftMax, 3)} mm = ${DISPLAY_STACK_LIFT_W}·w·uroven). `
+        + (MX14 ? `Mesh: axis ≤ R + ${f(axisMax, 3)} mm, outer surface ≤ R + ${f(meshMax, 3)} mm (w = ${f(w, 3)} + lift ≤ ${f(liftMax, 3)} mm; bound max Δ_c = ${f(liftBound, 3)} mm — lift is mechanics, mode ${MX14.mode}). `
+          : `Mesh: axis ≤ R + ${f(axisMax, 3)} mm, outer surface ≤ R + ${f(meshMax, 3)} mm (norm w = ${f(w, 3)} + allvnyy podem stopki ≤ ${f(liftMax, 3)} mm = ${DISPLAY_STACK_LIFT_W}·w·uroven). `)
         + `Hidden-start scheme: depth ${f(hidDispDepth, 3)} mm`
         + (nonFinite ? `. Non-finite tube mesh (zero tangent, 180° reversal) at ${nonFinite}` : ''),
-      numbers: { nonFinite, legDev, legMax, hidOut, hidDepth, axisMax, meshMax, liftMax, hidDispAxisMax, hidDispDepth } });
+      numbers: { nonFinite, legDev, legMax, hidOut, hidDepth, axisMax, meshMax, liftMax, liftBound, liftMode: MX14 ? MX14.mode : 'display', hidDispAxisMax, hidDispDepth } });
   }
   // V15 — row n of set B = row n of set A rotated by 2π/N (B petals on neighboring lines) — for all rows
   {
@@ -2443,6 +2449,115 @@ function runValidatorsIn(A, stage, ref) {
           + (fan && overs.length ? '; configuration fail — fan runs onto a neighbouring marking line, use topRule braid' : ''),
       numbers: { kTop, need, sets: Object.fromEntries(sets.map((k) => [k, { betaDeg: beta[k].beta * 180 / Math.PI, rho: rhoOf(k), leg: beta[k].leg, overrun: over[k] || null, worst: worst[k] || null, last: last[k] || null }])) } });
   }
+  // #5 V25–V27, K18, K19 (model/lift-spec.md §3.5) — the lift mechanics over the path; liftMode display → n/a.
+  {
+    const MX = A.mechanics;
+    const naTxt = 'liftMode display: the former tent, display only; lengths are the lower bound';
+    const ids5 = new Set(segs.filter((s) => s.type === 'leg').map((s) => s.id));
+    if (!MX || MX.displayOnly) {
+      for (const [id, name] of [['V25', 'Tent is physical (lift mechanics)'], ['V26', 'Lengths with lift'], ['V27', 'Axis distance at a crossing = t_c'], ['K18', 'Stack rise ≤ physical ceiling'], ['K19', 'Low-angle crossings and tall stacks (diagnostic)']])
+        add({ id, name, crit: '#5 lift-spec v1 §3.5', status: 'n/a', value: naTxt });
+    } else {
+      const C5 = MX.consts, R5 = C5.R, s05 = C5.s0, lam5 = C5.lamT;
+      const reach5 = (ap) => ap.lp + ap.x0s + 12 * lam5;
+      const isolated5 = (leg, s) => { const inE = new Set(leg.edges.flat()); return leg.apices.filter((ap, i) => !inE.has(i) && ap.x - reach5(ap) > 0 && ap.x + reach5(ap) < s.length
+        && leg.apices.every((b, j) => j === i || Math.abs(b.x - ap.x) > reach5(ap) + reach5(b))); };
+      const cx5 = MX.crossings.filter((c) => c.delta > 0 && ids5.has(c.over) && ids5.has(c.under));
+      // V25
+      const bad25 = [];
+      let nSym = 0, symMax = 0, nHalf = 0, halfLo = Infinity, halfHi = -Infinity, nCovered = 0, nBr = 0, brMin = Infinity;
+      for (const id of ids5) {
+        const leg = MX.legs[id]; if (!leg || !leg.apices.length) continue;
+        const s = segById.get(id), fn = liftFnFor(MX, id), capMax = Math.max(...leg.apices.map((ap) => ap.D));   // the loaded profile never exceeds its highest apex
+        for (let x = 0; x <= s.length; x += 0.1) { const u = fn(x); if (!(u >= -1e-12) || u > capMax + 1e-9) { bad25.push(`${id} lift ${f(u, 3)} at x ${f(x, 1)} outside [0, max Δ_c ${f(capMax, 3)}]`); break; } }
+        for (const ap of leg.apices) { const u = fn(ap.x); if (u < ap.D - 1e-9) bad25.push(`${id}/${ap.cid} apex lift ${f(u, 4)} < Δ(m) ${f(ap.D, 4)}`); else if (u > ap.D + 1e-9) nCovered++; }
+        for (const [i, j] of leg.edges) { nBr++; const a = leg.apices[i], b = leg.apices[j], mn = bridgeMin(a.x, a.D, b.x, b.D, R5); brMin = Math.min(brMin, mn); if (mn < -1e-12) bad25.push(`${id} bridge ${a.cid}–${b.cid} dips to ${f(mn, 4)}`); }
+        // an isolated tent (no bridge, no other apex within 2·reach, fully inside the leg): symmetry and the half-length to 0.05·Δ₁
+        for (const ap of isolated5(leg, s)) {
+          const reach = ap.lp + ap.x0s + 6 * lam5;
+          {
+            nSym++;
+            for (let d = 0; d <= reach; d += 0.05) symMax = Math.max(symMax, Math.abs(fn(ap.x + d) - fn(ap.x - d)));
+            let d = 0; while (d < reach && fn(ap.x + d) > 0.05 * C5.delta1) d += 0.01;
+            const ratio = d / Math.sqrt(2 * R5 * ap.D); nHalf++; halfLo = Math.min(halfLo, ratio); halfHi = Math.max(halfHi, ratio);
+            if (ratio < 0.8 || ratio > 1.2) bad25.push(`${id} half-length ${f(d, 2)} mm = ${f(ratio, 3)}·√(2RΔ)`);
+          }
+        }
+      }
+      if (symMax > 1e-9) bad25.push(`isolated tent asymmetry ${symMax.toExponential(1)} mm`);
+      const nLow = cx5.filter((c) => c.lowPsi).length, mMax5 = Math.max(0, ...cx5.map((c) => c.m)), mOrd5 = Math.max(0, ...cx5.map((c) => c.mOrd));
+      const psiMin5 = cx5.length ? Math.min(...cx5.map((c) => c.psiDeg)) : null;
+      add({ id: 'V25', name: 'Tent is physical (lift mechanics)', crit: '#5 lift-spec v1.1 §1.6, §1.8, §3.5 (Fable Q5): 0 ≤ loaded lift ≤ the leg\'s highest apex; lift at an apex ≥ Δ_c = z_sup + Δ₁(F_c)·(m > 1 ? κ : 1) (equal unless a bridge passes over it); bridges on or above the sphere; isolated tent symmetric (1e-9) with the half-length to 0.05·Δ₁ in [0.8, 1.2]·√(2RΔ) (class (ii))',
+        status: bad25.length ? 'fail' : 'pass',
+        value: `mode ${MX.mode}: Δ₁ ${f(C5.delta1, 3)} mm = ${f(C5.delta1 / w, 2)} w (${C5.status.delta1}), a₁ = √(2RΔ₁) ${f(C5.a1, 2)} mm; apices ${cx5.length} (under a bridge ${nCovered}), bridges ${nBr} (lowest ${Number.isFinite(brMin) ? f(brMin, 3) : '—'} mm); `
+          + `m_max ${mMax5} (${C5.stackM}; c.stack max ${mOrd5}); ψ_min ${psiMin5 == null ? '—' : f(psiMin5, 1)}°, below ψ* ${f(C5.psiStarDeg, 1)}°: ${nLow} (${cx5.length ? f(100 * nLow / cx5.length, 1) : '0'} %); `
+          + `isolated tents ${nSym}: asymmetry ${symMax.toExponential(1)} mm, half-length ${nHalf ? `${f(halfLo, 3)}…${f(halfHi, 3)}` : '—'}·√(2RΔ)`
+          + (bad25.length ? `; fail ${bad25.length}: ${bad25.slice(0, 5).join('; ')}` : ''),
+        numbers: { apices: cx5.length, bridges: nBr, covered: nCovered, mMax: mMax5, mOrdMax: mOrd5, psiMinDeg: psiMin5, lowPsi: nLow, symMax, halfLo, halfHi, bad: bad25.length } });
+      // V26 — lengths: sphere ≤ axis ≤ lifted; an isolated interior tent: numeric ΔL vs the analytic (crest + flights + tails), 3 %
+      const bad26 = []; let tot = { sphere: 0, axis: 0, lifted: 0 }, nIso = 0, isoDev = 0;
+      for (const id of ids5) {
+        const L = MX.lengths.perSeg[id]; if (!L) continue;
+        if (!(L.sphere <= L.axis + 1e-12 && L.axis <= L.lifted + 1e-12)) bad26.push(`${id} sphere ${f(L.sphere, 3)} / axis ${f(L.axis, 3)} / lifted ${f(L.lifted, 3)}`);
+        for (const k of ['sphere', 'axis', 'lifted']) tot[k] += L[k];
+        const leg = MX.legs[id], s = segById.get(id);
+        if (leg) for (const ap of isolated5(leg, s)) {
+          const fn = liftFnFor(MX, id), num = extraLength(fn, ap.x - reach5(ap), ap.x + reach5(ap), R5, 0.01);
+          const an = extraLengthApex(ap, R5, s05, lam5), dev = Math.abs(num / an - 1); nIso++; isoDev = Math.max(isoDev, dev);
+          if (dev > 0.005) bad26.push(`${id}/${ap.cid} ΔL ${f(num, 5)} vs analytic ${f(an, 5)} (${f(100 * dev, 2)} %)`);
+        }
+      }
+      const nCx = cx5.length;
+      add({ id: 'V26', name: 'Lengths with lift', crit: '#5 lift-spec v1.1 §3.3, §3.5: sphere ≤ axis ≤ lifted per segment; an isolated tent ΔL numeric (step 0.01) vs the full analytic (crest + flights + landing tails) within 0.5 % (class (i)); bridges numeric; the lengths table integrates at 0.1 mm (class (ii), 3 %)',
+        status: bad26.length ? 'fail' : 'pass',
+        value: `legs in stage: sphere ${f(tot.sphere, 1)} mm (lower bound, V3), axis (R + h/2) ${f(tot.axis, 1)}, lifted ${f(tot.lifted, 1)} mm (+${f(tot.lifted - tot.axis, 2)} mm = ${f(100 * (tot.lifted - tot.axis) / tot.axis, 3)} % over the axis; ${nCx} apices × ΔL₁ ${f(extraLength1(C5.delta1, C5.sigma), 4)} = ${f(nCx * extraLength1(C5.delta1, C5.sigma), 1)} mm without bridges); isolated interior tents ${nIso}, max deviation from analytic ${f(100 * isoDev, 2)} %`
+          + (bad26.length ? `; fail ${bad26.length}: ${bad26.slice(0, 5).join('; ')}` : ''),
+        numbers: { ...tot, nIso, isoDev, nApex: nCx } });
+      // V27 — axis distance at a crossing on the LOADED profiles (Fable Q5 §3 (c)): z_U(apex) − (z_L,loaded + dent_L) = gap₂₇ ± 0.1·w,
+      // gap₂₇ = t_c(F_c) on the sphere (lower drops by d_low) and t_c(F_c) − δ(F_c) off it (bridge / flight / own crest: the lower
+      // drops by its compression, the sag is in its loaded profile). An upper leg bridged over its own apex floats above the lower
+      // (no contact): a positive gap is printed, not a fail. Self-check: Δ_c − z_sup − Δ₁(F_c)·(m > 1 ? κ : 1) = 0 (class (i)).
+      const dd27 = []; let selfMax = 0, nCov = 0, covMax = 0, nPressed = 0, pressedMax = 0;
+      for (const c of cx5) {
+        const up = liftFnFor(MX, c.over)(c.xApex), low = liftFnFor(MX, c.under)(c.xUnder) + dentFnFor(MX, c.under)(c.xUnder);
+        const tgt = c.gap27 ?? C5.tc, d = up - low - tgt, covered = up > c.delta + 1e-9;
+        // the lower leg pressed down at y by a LATER load (lay order: the upper is not re-seated) — a gap, printed
+        const pressed = c.zSup != null && c.support !== 'ground' && liftFnFor(MX, c.under)(c.xUnder) < c.zSup - 1e-6;
+        if (pressed && d > 0.1 * w) { nPressed++; pressedMax = Math.max(pressedMax, d); }
+        if (c.zSup != null && c.d1F != null) selfMax = Math.max(selfMax, Math.abs(c.delta - c.zSup - c.d1F * (c.m > 1 && c.support !== 'ground' ? C5.kappa : 1)));
+        if (covered && d > 0.1 * w) { nCov++; covMax = Math.max(covMax, d); }
+        dd27.push({ c, d, up, low, covered: covered || pressed });
+      }
+      const nExc27 = dd27.filter((x) => x.c.orderExc).length;   // the lower leg laid later (hidden / top-hole order): its final profile is not the support read
+      const out27 = dd27.filter((x) => !x.c.orderExc && (x.d < -0.1 * w - 1e-12 || (x.d > 0.1 * w + 1e-12 && !x.covered)));
+      const mx27 = out27.reduce((q, x) => (Math.abs(x.d) > Math.abs(q?.d ?? 0) ? x : q), null);
+      const byKind27 = {}; for (const x of out27) byKind27[x.c.support ?? '—'] = (byKind27[x.c.support ?? '—'] || 0) + 1;
+      add({ id: 'V27', name: 'Axis distance at a crossing = t_c', crit: '#5 lift-spec v1.1 §3.5 (Fable Q5): on the loaded profiles |z_U − z_L,loaded| = t_c(F_c) ± 0.1·w (class (iii), twist scatter §1.9); z_L,loaded − d_low on the sphere, − compression off it (target t_c − δ(F_c), printed); upper bridged over its own apex — a gap, no contact, printed; self-check of the height rule 1e-9',
+        status: out27.length || selfMax > 1e-9 ? 'fail' : 'pass',
+        value: `apices ${dd27.length}, outside ±0.1 w: ${out27.length}${out27.length ? ` (${Object.entries(byKind27).map(([k, v]) => `${k} ${v}`).join(', ')})` : ''}${mx27 ? `; largest |Δ| ${f(Math.abs(mx27.d) / w, 3)} w at ${mx27.c.id} (${mx27.c.over} over ${mx27.c.under}, ${mx27.c.support}, m ${mx27.c.m}: upper ${f(mx27.up, 3)}, lower ${f(mx27.low, 3)} mm)` : ''}; `
+          + `lower laid later (not checked) ${nExc27}; bridged over (upper floats, no contact) ${nCov}${nCov ? `, gap up to ${f(covMax / w, 2)} w` : ''}; lower pressed down later (upper not re-seated) ${nPressed}${nPressed ? `, gap up to ${f(pressedMax / w, 2)} w` : ''}; self-check ${selfMax.toExponential(1)} mm`,
+        numbers: { n: dd27.length, out: out27.length, byKind: byKind27, covered: nCov, pressed: nPressed, orderExc: nExc27, covMaxW: covMax / w, selfMax, maxAbsW: mx27 ? Math.abs(mx27.d) / w : 0 } });
+      // K18 — one level over the actual support (Fable Q5 §3 (b)): Δ_c − z_sup ≤ 1.5·t_c(F_c) − h/2 (class (i) by construction)
+      const bad18 = cx5.filter((c) => c.zSup != null && c.delta - c.zSup > c.capRel + 1e-9);
+      const rel18 = cx5.reduce((q, c) => (c.zSup != null ? Math.max(q, (c.delta - c.zSup) / c.capRel) : q), 0);
+      add({ id: 'K18', name: 'Rise over the support ≤ one-level ceiling', crit: '#5 lift-spec v1.1 §3.5 (Fable Q5): Δ_c − z_sup ≤ 1.5·t_c(F_c) − h/2 (the crown of one level over the actual support: sphere, own crest, loaded bridge or flight); the absolute height is K19',
+        status: bad18.length ? 'fail' : 'pass',
+        value: `κ ${f(C5.kappa, 2)}; max (Δ_c − z_sup)/ceiling ${f(rel18, 3)}${bad18.length ? `; fail ${bad18.length}: ${bad18.slice(0, 4).map((c) => `${c.id} m ${c.m}`).join(', ')}` : ''}`,
+        numbers: { mMax: mMax5, bad: bad18.length, rel: rel18 } });
+      // K19 — the absolute height (Fable Q5 §3 (b), (d)): max Δ_c and m_eff = Δ_max/Δ₁ printed with its place; warn > 1.2 mm;
+      // ψ < ψ* and m ≥ 4 printed
+      const n4 = cx5.filter((c) => c.m >= 4).length;
+      const top19 = cx5.reduce((q, c) => (c.delta > (q?.delta ?? -1) ? c : q), null);
+      const D19 = cx5.map((c) => c.delta).sort((p, q) => p - q), p19 = (t) => (D19.length ? D19[Math.min(D19.length - 1, Math.floor(t * D19.length))] : 0);
+      const sup19 = C5.supportCounts ? Object.entries(C5.supportCounts).map(([k, v]) => `${k} ${v}`).join(', ') : '—';
+      add({ id: 'K19', name: 'Lift height, low-angle crossings, tall stacks (diagnostic)', crit: '#5 lift-spec v1.1 §1.5, §1.9, §3.5 (Fable Q5): max Δ_c and m_eff = Δ_max/Δ₁ with its place (S8 expectation ≤ 0.8 mm; warn > 1.2 mm — two staircase generations over it, an order, not a golden number); ψ < ψ* (apex position ±w/tan ψ) and m ≥ 4 printed',
+        status: top19 && top19.delta > 1.2 ? 'warn' : 'info',
+        value: `Δ_c median ${f(p19(0.5), 3)}, p95 ${f(p19(0.95), 3)}, max ${top19 ? f(top19.delta, 3) : '—'} mm (m_eff ${top19 ? f(top19.delta / C5.delta1, 2) : '—'}${top19 ? ` at ${top19.id}: ${top19.over} over ${top19.under}, support ${top19.support}` : ''}); supports: ${sup19}; `
+          + `ψ* ${f(C5.psiStarDeg, 1)}°: ${nLow} of ${nCx} apices below (${nCx ? f(100 * nLow / nCx, 1) : '0'} %); m ≥ 4: ${n4}; patch m max ${mMax5}, c.stack max ${mOrd5}`,
+        numbers: { lowPsi: nLow, n: nCx, m4: n4, dMax: top19 ? top19.delta : 0, median: p19(0.5), p95: p19(0.95), at: top19 ? top19.id : null } });
+    }
+  }
+
 
 return out;
 }
