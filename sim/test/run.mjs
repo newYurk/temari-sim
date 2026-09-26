@@ -1268,7 +1268,14 @@ if (G('8e'))
       if (!prior) continue;
       let minG = Infinity;
       for (let j = 0; j <= 200; j++) minG = Math.min(minG, pointPolyDist(R, interp(s.from, s.to, j / 200), prior.pts));
-      if (minG >= w) { freeAll++; if (s.joinMode !== 'free') viol++; }
+      // Spec v3.2 §3.2(9а–б) (#39): at λ = 0 the body is free (no rail arcs) and joinMode names the X_n end by the
+      // band of d_n (8′): climb (drain) / onRail (degenerate) / free — no longer 'free' for every arm with gap ≥ w.
+      if (minG >= w) {
+        freeAll++;
+        const tol = 0.02 * w, d = s.lateralMm;
+        const band = d < -tol ? 'climb' : d <= tol ? 'onRail' : 'free';
+        if (s.arcs.some((a) => a.cls === 'rail' || a.cls === 'ext' || a.cls === 'corner') || s.joinMode !== band || s.exitKind !== 'free') viol++;
+      }
       let peak = 0;
       for (let i = 1; i < s.pts.length - 1; i++) peak = Math.max(peak, Math.abs(turnDeg(s.pts, i)));
       if (peak > 20) peakOver++;
@@ -1278,7 +1285,7 @@ if (G('8e'))
     console.log(`  N=${N}: freeAll=${freeAll} viol=${viol} peakOver=${peakOver} maxPeak=${fmt(maxPeak, 2)}`);
     // The count depends on m (22 at m = 1.0, Codex 6a.15); the rule is: every arm with min gap ≥ w is free.
     freeAlls.push(freeAll);
-    check(freeAll > 0 && viol === 0, `N=${N}: all ${freeAll} freeAll arms are joinMode=free (Codex 6a.15)`);
+    check(freeAll > 0 && viol === 0, `N=${N}: all ${freeAll} freeAll arms have a free body, exitKind free and joinMode by the d_n band (v3.2 (9а–б))`);
     if (N <= 192) check(peakOver === 0 && maxPeak <= 20, `N=${N}: all peaks ≤20° (max ${fmt(maxPeak, 2)})`);
     else console.log(`  N=${N}: peak ${fmt(maxPeak, 2)}° printed, not gated (#22: the output grid resolves the climb kinks differently; rails are analytic since #36)`);
   }
@@ -1540,6 +1547,48 @@ if (G('8j'))
   const V = runValidators(A, A.path.ops.length - 1, null);
   const v15 = V.find((x) => x.id === 'V15');
   check(v15.status === 'pass', `V15 pass with set collisions explained (got ${v15.status})`);
+}
+
+// 8k. #39 item 3 / spec v3.2 §3.2(9а–д), (8′), (12) K12, §6.6: λ = 0 legs are free by construction, exitKind by (9г),
+// d_n to the parallel of the actual path, stop K12, V20 row-1 tolerance.
+if (G('8k'))
+{
+  console.log('\n## #39 (9а–д) λ = 0 free legs, (9г) V22, K12, V20 row 1');
+  for (const m of [0.5, 1.0]) {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: m, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, rowsMode: 'untilEquator' });
+    const w = A.params.w_mm;
+    const legs = A.path.segs.filter((x) => x.type === 'leg' && x.row >= 2);
+    const railArcs = legs.filter((x) => x.arcs.some((a) => a.cls === 'rail' || a.cls === 'ext' || a.cls === 'corner'));
+    check(legs.every((x) => x.lam0) && railArcs.length === 0, `geo m${m}: every row ≥ 2 leg is a λ = 0 free body, no rail arcs (got ${railArcs.length})`);
+    const lower = legs.filter((x) => x.level === 'bottom'), upper = legs.filter((x) => x.level === 'top');
+    check(lower.every((x) => x.exitKind === 'free') && upper.every((x) => x.exitKind === 'free' || x.exitKind === 'drain'),
+      `geo m${m}: exitKind lower free ${lower.length}/${lower.length}, upper free/drain`);
+    const minGapW = Math.min(...legs.map((x) => x.minGapMm)) / w;
+    check(legs.every((x) => !x.exitFail) && minGapW >= 1 - 0.01 - 0.02, `geo m${m}: (9д) free part gap from M ≥ w(1 − ε_c) (min ${minGapW.toFixed(3)} w, no contradiction)`);
+    const drains = lower.filter((x) => x.joinMode === 'climb');
+    check(drains.every((x) => x.lateralMm < -0.02 * w && Math.abs(x.mergeTurnDeg) <= 20), `geo m${m}: drained lower legs have d < −0.02 w and kink at M ≤ 20° (${drains.map((x) => `${x.id} ${(x.lateralMm / w).toFixed(3)} w ${Math.abs(x.mergeTurnDeg).toFixed(1)}°`).join(', ')})`);
+    const V = runValidators(A, A.path.ops.length - 1, null);
+    const v22 = V.find((x) => x.id === 'V22');
+    check(v22.status === 'pass', `geo m${m}: V22 (9г) pass (${v22.value.slice(0, 120)})`);
+    const lim = 60 + m / 2;
+    check(/limit 60\.[0-9]+ mm/.test(A.path.stopped.A?.reason || '') && Math.abs(parseFloat(A.path.stopped.A.reason.match(/limit ([0-9.]+)/)[1]) - lim) < 1e-9,
+      `geo m${m}: stop K12 limit s_eq + m/2 = ${lim} (${A.path.stopped.A?.reason})`);
+    const rows = Math.max(...A.path.rounds.filter((r) => r.set === 'A').map((r) => r.row));
+    check(rows === 5, `geo m${m}: five rows at λ = 0 (got ${rows})`);
+    // Negative: a λ = 0 lower leg that ends on a rail ('atE', the 85eeef6 s36/s52/s68/s84 pattern) — loud fail with role, λ, d.
+    const bad = lower[0];
+    bad.exitKind = 'atE';
+    const v22n = runValidators(A, A.path.ops.length - 1, null).find((x) => x.id === 'V22');
+    check(v22n.status === 'fail' && v22n.value.includes(`${bad.id}/`) && /lower λ=0/.test(v22n.value) && /d=-?[0-9]/.test(v22n.value),
+      `geo m${m}: V22 fails on a λ = 0 lower leg with exitKind atE (${v22n.value.slice(0, 100)})`);
+  }
+  for (const lam of [0.32, 0.6]) {
+    const A = computeAll(recipe, { shoulderForm: 'bow', bowLambda: lam, muWrap: lam, rowsMode: 'untilEquator' });
+    const V = runValidators(A, A.path.ops.length - 1, null);
+    const v22 = V.find((x) => x.id === 'V22'), v20 = V.find((x) => x.id === 'V20');
+    check(v22.status === 'pass', `λ=${lam}: V22 (9г) pass — lower root (code atE) only (${v22.value.slice(0, 120)})`);
+    check(v20.status === 'pass', `λ=${lam}: V20 pass — row 1 counted within λ ± 1e−4 (§6.6) (${v20.value.slice(0, 60)})`);
+  }
 }
 
 // 9. Material preset (D34) + recipe scaffold (D35): provenance data + same path.ops for step/full

@@ -308,6 +308,7 @@ const ru = {
   'validator.V19.name': 'Место для иглы между нитями (сжатие в тесных местах)',
   'validator.V20.name': 'Конус трения Φ3 (λ ≤ μWrap)',
   'validator.V21.name': 'Нет прилипания плеча к меридиану',
+  'validator.V22.name': 'Вид конца ноги по построению (9г)',
 };
 
 const en = {
@@ -583,6 +584,7 @@ const en = {
   'validator.V19.name': 'Room for needle between threads (compression in tight spots)',
   'validator.V20.name': 'Friction cone Φ3 (λ ≤ μWrap)',
   'validator.V21.name': 'No stick-to-axis on shoulder',
+  'validator.V22.name': 'Leg end kind by construction (9г)',
 };
 
 export const LOCALES = { ru, en };

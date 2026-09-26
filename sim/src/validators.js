@@ -1367,6 +1367,9 @@ export function runValidators(A, stage = '2b', ref = null) {
     const kinkRows = [];
     for (const s of legs) {
       if (s.layMode === 'rail') {
+        // Spec v3.2 §3.2(9в): a λ = 0 upper leg's drain at the hole is a kink ≤ 20° (mirror of (11б)); its free body is a
+        // great circle (κ_g = 0 by construction).
+        if (s.lam0 && Math.abs(s.exitTurnDeg ?? 0) > 20 + 1e-6) badKink++;
         const hole = Math.abs(s.holeTurnDeg ?? 0);
         const merge = Math.abs(s.mergeTurnDeg ?? s.turnAtTDeg ?? 0);
         kinkRows.push({ id: s.id, row: s.row, joinMode: s.joinMode, holeTurnDeg: hole, mergeTurnDeg: merge });
@@ -1394,6 +1397,7 @@ export function runValidators(A, stage = '2b', ref = null) {
           continue;
         }
         if (s.joinMode === 'free') {
+          if (s.lam0 && s.exitKind === 'drain') continue;
           // 6a.15 free leg: whole geodesic excl ≤w at holes.
           const lam = maxAbsGeodesicKg(s.pts, R, wMm, wMm) * R;
           if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
@@ -1401,8 +1405,10 @@ export function runValidators(A, stage = '2b', ref = null) {
         }
         continue;
       }
-      // Row-1 / geodesic: free class with ≤w windows at both holes
-      const lam = maxAbsGeodesicKg(s.pts, R, wMm, wMm) * R;
+      // Row-1 / geodesic: free class with ≤w windows at both holes. Spec v3.2 §6.6: row 1 is built at the commanded λ,
+      // so its measured λ counts against μ within ±1e−4 (class (ii) round-off of κ_g on the sampled arc).
+      const lamRaw = maxAbsGeodesicKg(s.pts, R, wMm, wMm) * R;
+      const lam = s.row === 1 && lamRaw <= muW + 1e-4 ? Math.min(lamRaw, muW) : lamRaw;
       if (lam > lambdaMax) { lambdaMax = lam; worst = s; }
     }
     const ratio = muW > 1e-15 ? lambdaMax / muW : (lambdaMax > 1e-15 ? Infinity : 0);
@@ -1447,6 +1453,41 @@ export function runValidators(A, stage = '2b', ref = null) {
         (legs.length ? `; shoulders ${legs.length}` : ''),
       numbers: { lambdaMax, muWrap: muW, ratio, warnRatio: WARN_RATIO, failRatio: FAIL_RATIO,
         bowLambda: A.params.bowLambda ?? null, cmdLambda, cmdSource, cmdMismatch, worstCmd, badKink, kinkRows } });
+  }
+
+  // V22 — exitKind by construction (spec v3.2 §3.2(9г)). Lower legs (end at the packing root): λ > 0 only root (code
+  // 'atE': the rail runs to E_n's foot), λ = 0 only free (E_n = E_n⁰). Upper legs (E_n given): λ > 0 tangent (code
+  // 'root'), drain or free; λ = 0 drain or free. Any other combination — fail with the leg's role, λ and d_n.
+  {
+    const SPEC = { atE: 'root', root: 'tangent', drain: 'drain', free: 'free' };
+    const wMm = A.params.w_mm ?? A.params.w ?? 0.714;
+    const legs = segs.filter((s) => s.type === 'leg' && s.row >= 2 && s.layMode === 'rail');
+    const bad = [];
+    const counts = {};
+    const joinDiag = [];
+    for (const s of legs) {
+      const role = s.level === 'bottom' ? 'lower' : 'upper';
+      const lam0 = !!s.lam0;
+      const ok = role === 'lower' ? (lam0 ? ['free'] : ['atE']) : (lam0 ? ['drain', 'free'] : ['root', 'drain', 'free']);
+      const key = `${role} λ${lam0 ? '=0' : '>0'} ${SPEC[s.exitKind] ?? s.exitKind}`;
+      counts[key] = (counts[key] || 0) + 1;
+      // (9б) diagnostic, not a fail: joinMode against the band of d_n (8′). At λ > 0 a station outside by d > 0.02 w with no
+      // tangency on the finite rail (L_j beyond the rail, or outside the entry parallel but inside the core's continuation)
+      // falls back to climb — printed for Fable (#39 item 3), rule (9б) does not cover it.
+      if (role === 'lower' || lam0) {
+        const d = s.lateralMm ?? 0, tolD = 0.02 * wMm;
+        const band = d < -tolD ? 'climb' : d <= tolD ? 'onRail' : (lam0 ? 'free' : 'tangent');
+        if (s.joinMode !== band) joinDiag.push(`${s.id}/${s.round} ${s.joinMode}≠${band} d=${f(d / wMm, 3)} w`);
+      }
+      if (!ok.includes(s.exitKind)) bad.push({ id: s.id, round: s.round, role, lam0, lambda: s.lambda ?? 0, exitKind: s.exitKind, joinMode: s.joinMode, dW: (s.lateralMm ?? 0) / wMm });
+    }
+    add({ id: 'V22', name: 'Leg end kind by construction (9г)',
+      crit: 'spec v3.2 §3.2(9г): lower λ>0 root (code atE), lower λ=0 free; upper tangent (code root, λ>0) / drain / free; anything else fail',
+      status: bad.length ? 'fail' : 'pass',
+      value: (bad.length ? `fail ${bad.length}: ` + bad.slice(0, 8).map((b) => `${b.id}/${b.round} ${b.role} λ${b.lam0 ? '=0' : '>0'} (${f(b.lambda, 3)}) exitKind ${b.exitKind} join ${b.joinMode} d=${f(b.dW, 3)} w`).join('; ') + '; ' : '')
+        + Object.entries(counts).map(([k, v]) => `${k} ${v}`).join(', ')
+        + (joinDiag.length ? `; (9б) join vs d_n band, diagnostic ${joinDiag.length}: ${joinDiag.slice(0, 4).join('; ')}` : ''),
+      numbers: { bad, counts, joinDiag } });
   }
 
   // V21 — transversality (Fable v2 / Errata §6a / 6a.9.2 / 6a.19 / 6a.20). Criteria:

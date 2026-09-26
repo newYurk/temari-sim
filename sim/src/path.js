@@ -507,6 +507,164 @@ function railOf(R, prevArm, w) {
   return val;
 }
 
+/**
+ * Spec v3.2 §3.2(8′): analytic parallel at w of the ACTUAL path of row n−1 (entry splice / drain included, concave
+ * corner trimmed, convex corners rounded), used for d_n at a station (decision (9б) and diagnostics). Before the core
+ * start it is the entry segment's parallel (a tangent entry's splice is the great circle tangent at T₁, so its parallel
+ * is the core's continuation; a drain gives the drain geodesic's parallel); past either end, the continuation along
+ * the great circle tangent at that end. Never the distance to the chain end.
+ */
+const stationCache = new WeakMap();
+function actualParallel(R, prevArm, w) {
+  const key = `${R}|${w}`;
+  const hit = stationCache.get(prevArm);
+  if (hit && hit.key === key) return hit.val;
+  const all = armArcs(prevArm);
+  const body = all.filter((A) => A.cls !== 'splice');
+  const side = outwardSide(body.length ? body : all);
+  const val = new Chain(R, offsetChain(all, (w || 0) / R, side), side);
+  stationCache.set(prevArm, { key, val });
+  return val;
+}
+/** Signed lateral (+ outward) of u to chain ch continued past its ends along the tangent great circles (§3.2(8′)). */
+function stationLateral(ch, u) {
+  const h = ch.lateral(u);
+  if (!h.clamped) return h;
+  const d = dot(unit(u), h.N);
+  return { ...h, signedMm: ch.R * Math.asin(Math.max(-1, Math.min(1, d))) };
+}
+
+/** Largest interior turn (deg) of a polyline and the arc length where it occurs; round-off duplicates dropped (#35). */
+function rawTurnMax(R, pts, w) {
+  const dupMm = 1e-5 * (w || W0_MM);
+  const q = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i], l = q[q.length - 1];
+    if (Math.hypot(p[0] - l[0], p[1] - l[1], p[2] - l[2]) >= dupMm) q.push(p);
+    else if (i === pts.length - 1 && q.length > 1) q[q.length - 1] = p;
+  }
+  let best = 0, at = 0, cum = 0;
+  for (let i = 1; i < q.length - 1; i++) {
+    cum += R * angle(q[i - 1], q[i]);
+    const t = Math.abs(turnDegAt(q[i - 1], q[i], q[i + 1]));
+    if (t > best) { best = t; at = cum; }
+  }
+  return { deg: best, atMm: at };
+}
+/** Signed turn (deg) at b of the path a → b → c on the sphere (tangent-plane projection). */
+function turnDegAt(a, b, c) {
+  const nrm = unit(b);
+  const pr = (v) => {
+    const p = sub(v, mul(nrm, dot(v, nrm)));
+    const len = Math.hypot(p[0], p[1], p[2]);
+    return len < 1e-15 ? null : mul(p, 1 / len);
+  };
+  const tIn = pr(unit(sub(b, a))), tOut = pr(unit(sub(c, b)));
+  if (!tIn || !tOut) return 0;
+  return Math.atan2(dot(cross(tIn, tOut), nrm), dot(tIn, tOut)) * 180 / Math.PI;
+}
+
+/**
+ * Spec v3.2 §3.2(9а–д): leg of row n ≥ 2 on a row n−1 whose curve has κ_g = 0 at its end (λ = 0, geodesic form).
+ * No rail: the body is a free great circle. Lower leg (endLevel 'bottom'): E_n = E_n⁰ (the packing root), no tangent
+ * tail, no contacts; the top end X_n by the sign of d_n (8′): d < −0.02 w → drain (11) X_n → M on the parallel ℓ_m =
+ * max(w, 3δ_e) forward from the foot, then free M → E_n⁰; |d| ≤ 0.02 w → start on the parallel at the foot; d > 0.02 w →
+ * free X_n → E_n⁰. Upper leg (E_n given, (9в)) mirrored: d(E_n) < −0.02 w → drain to the hole from the parallel point ℓ_m
+ * before E_n's foot; degenerate → arrival via the foot; outside → free arrival. exitKind (9г): 'free' or 'drain'.
+ * (9д) check, not decision: the free part (from M / the foot, not from X_n) keeps ≥ w(1 − ε_c) from the axis of the laid
+ * leg of row n−1, ε_c = 0.01; otherwise a contradiction — exitFail (loud, V8).
+ */
+function freeLegLambda0(R, from, to, prevArm, w, endLevel) {
+  const n = getLegSamples();
+  const wE = Math.max(w || W0_MM, 1e-9);
+  const tol = 0.02 * wE;
+  const X = unit(from), E = unit(to);
+  const par0 = actualParallel(R, prevArm, w);
+  // Stations beyond the parallel's ends see its great-circle continuation (8′): extend by more than the leg length.
+  const par = par0.extended(R * angle(X, E) + 20 * wE);
+  const latX = stationLateral(par, X), latE = stationLateral(par, E);
+  const dX = latX.signedMm, dE = latE.signedMm;
+  const sXf = latX.s, sEf = latE.s;
+  const dir = sEf >= sXf ? 1 : -1;
+  const nodes = [{ p: X, cls: null }];
+  let joinMode, splice = 0, delta = 0;
+  if (dX < -tol) {
+    delta = -dX;
+    const M = par.at(sXf + dir * Math.max(wE, 3 * delta)).q;
+    nodes.push({ p: M, cls: 'splice' });
+    splice = R * angle(X, M);
+    joinMode = 'climb';
+  } else if (dX <= tol) {
+    // Degenerate (9б): X_n is on the parallel within the band — the free body starts at X_n itself (a ≤ 0.02 w jog to the
+    // foot would be a false travel direction at the hole).
+    joinMode = 'onRail';
+  } else joinMode = 'free';
+  const iFree0 = nodes.length - 1;
+  let exitKind = 'free';
+  if (endLevel !== 'bottom' && dE < -tol) {
+    const Md = par.at(sEf - dir * Math.max(wE, 3 * -dE)).q;
+    nodes.push({ p: Md, cls: 'free' });
+    exitKind = 'drain';
+  }
+  const iFree1 = nodes.length - 1;
+  nodes.push({ p: E, cls: iFree1 > iFree0 ? 'tail' : 'free' });
+  const arcs = [];
+  for (let j = 1; j < nodes.length; j++) {
+    const A = arcGC(nodes[j - 1].p, nodes[j].p, nodes[j].cls);
+    if (A && A.psi > 0) arcs.push(A);
+  }
+  // (9д): gap of the free part to the axis of the laid leg of row n−1.
+  const laid = laidChain(R, prevArm);
+  let minGap = Infinity;
+  {
+    const a = nodes[iFree0].p, b = nodes[iFree1].p, om = angle(a, b);
+    const nChk = Math.max(8, Math.ceil(R * om / (0.25 * wE)));
+    for (let k = 0; k <= nChk; k++) {
+      const tt = k / nChk;
+      const g = om < 1e-15 ? a : unit(add(mul(a, Math.sin((1 - tt) * om) / Math.sin(om)), mul(b, Math.sin(tt * om) / Math.sin(om))));
+      minGap = Math.min(minGap, laid.closest(g).distMm);
+    }
+  }
+  // A degenerate end lies on the parallel by definition (|d| ≤ 0.02 w, (9б)); its offset is not a gap deficit.
+  const degIn = joinMode === 'onRail' ? Math.max(0, -dX) : 0;
+  const degOut = endLevel !== 'bottom' && exitKind === 'free' && Math.abs(dE) <= tol ? Math.max(0, -dE) : 0;
+  const gapFail = minGap < wE * (1 - 0.01) - Math.max(degIn, degOut) - 1e-9 * wE;
+  // Output polyline: exactly n segments distributed by arc length over the pieces (largest remainder), corners kept as
+  // vertices — no resampling across a corner (it would cut the corner). The analytic arcs are kept on the leg.
+  const lens = [];
+  for (let j = 1; j < nodes.length; j++) lens.push(R * angle(nodes[j - 1].p, nodes[j].p));
+  const total = lens.reduce((x, y) => x + y, 0) || 1e-15;
+  const live = lens.map((L) => L > 1e-12);
+  const nLive = live.filter(Boolean).length;
+  const quota = lens.map((L, j) => (live[j] ? 1 + (n - nLive) * L / total : 0));
+  const kSeg = quota.map((q) => Math.floor(q));
+  let left = n - kSeg.reduce((x, y) => x + y, 0);
+  const order = quota.map((q, j) => [q - Math.floor(q), j]).filter(([, j]) => live[j]).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  for (let t = 0; left > 0 && order.length; t = (t + 1) % order.length, left--) kSeg[order[t][1]]++;
+  const out = [mul(X, R)];
+  for (let j = 1; j < nodes.length; j++) {
+    if (!live[j - 1]) continue;
+    const seg = slerp(R, nodes[j - 1].p, nodes[j].p, kSeg[j - 1]);
+    for (let k = 1; k < seg.length; k++) out.push(seg[k]);
+  }
+  out[0] = from.slice ? from.slice() : [...from];
+  out[out.length - 1] = to.slice ? to.slice() : [...to];
+  const raw = rawTurnMax(R, out, w);
+  const turnAtM = nodes.length >= 3 && joinMode === 'climb' ? turnDegAt(nodes[0].p, nodes[1].p, nodes[2].p) : 0;
+  const turnAtDrain = exitKind === 'drain' ? turnDegAt(nodes[nodes.length - 3].p, nodes[nodes.length - 2].p, E) : 0;
+  const holeTurnDeg = out.length >= 3 ? turnDegAt(out[0], out[1], out[2]) : 0;
+  return {
+    pts: out, length: total,
+    shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
+    bowCenter: null, phi3Warn: false, layMode: 'rail', lam0: true,
+    spliceMm: splice, lateralMm: dX, turnAtTDeg: turnAtM, interiorXn: dX < -tol,
+    joinMode, climbMm: joinMode === 'climb' ? splice : 0, deltaMm: delta, deltaFail: delta > wE / 2,
+    railKind: 'free', holeTurnDeg, mergeTurnDeg: turnAtM, exitTurnDeg: turnAtDrain,
+    exitKind, exitFail: gapFail, exitSin: null, exitResMm: null, exitAlongMm: 0,
+    rawTurnMaxDeg: raw.deg, rawTurnAtMm: raw.atMm, exitDeMm: dE, minGapMm: minGap, arcs,
+  };
+}
+
 /** Spherical distance (mm) from point to a short geodesic segment (incl. endpoints). */
 function pointSegDistMm(R, p, a, b) {
   const A = unit(a), B = unit(b), P = unit(p);
@@ -584,120 +742,28 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     };
   }
 
-  // 6a.17(2) / 6a.15: free geodesic X→E is ONLY the contact boolean.
-  // Contact iff min gap to laid axis of row n−1 < w·(1−ε), ε=0.01; else free leg.
-  // Path when contact: geometric T₁ (tangent/climb from X) → rail → T₂ → E (one contiguous segment).
-  // No hysteresis / min-gap break; dual incursions ⇒ non-convex rail anomaly.
-  // Bow / small-circle prev: rail almost full length (6a.15) — skip free-exit; always geometric rail.
-  if (prevArm.shoulderForm === 'geodesic' && !prevArm.bowCenter) {
-    const X0 = unit(from), E0 = unit(to);
-    const omFree = angle(X0, E0) || 1e-15;
-    const nGap = Math.max(48, n);
-    const epsTube = 0.01;
-    const wContact = Math.max(w || 0, 1e-15) * (1 - epsTube);
-    let minGap = Infinity;
-    let inTube = null, transitions = 0, segments = 0, segStart = -1;
-    for (let i = 0; i <= nGap; i++) {
-      const t = i / nGap;
-      const g = unit(add(
-        mul(X0, Math.sin((1 - t) * omFree) / Math.sin(omFree)),
-        mul(E0, Math.sin(t * omFree) / Math.sin(omFree)),
-      ));
-      const d = pointPolyDistMm(R, g, prevPts);
-      if (d < minGap) minGap = d;
-      const inside = d < wContact;
-      if (inTube === null) { inTube = inside; if (inside) { segments = 1; segStart = i; } }
-      else if (inside !== inTube) {
-        transitions++;
-        inTube = inside;
-        if (inside) { segments++; segStart = i; }
-      }
-    }
-    const dualIncursion = segments > 1; // non-convex rail anomaly (6a.17); one geometric rail still built
-    if (minGap >= wContact) {
-      // Free leg — no rail.
-      const pts = slerp(R, from, to, n);
-      const latHit = laidChain(R, prevArm).lateral(X0);
-      // Foot clamped at an end of the laid leg: no side from the numbers (#40); a free leg's X is outside by construction.
-      const dLat = Math.max(0, latHit.distMm - (w || 0)) * (latHit.clamped || latHit.signedMm >= 0 ? 1 : -1);
-      let holeTurnDeg = 0;
-      if (pts.length >= 3) {
-        const nrm = unit(pts[1]);
-        const proj = (v) => {
-          const p = sub(v, mul(nrm, dot(v, nrm)));
-          const len = Math.hypot(p[0], p[1], p[2]);
-          return len < 1e-15 ? null : mul(p, 1 / len);
-        };
-        const tIn = proj(unit(sub(pts[1], pts[0])));
-        const tOut = proj(unit(sub(pts[2], pts[1])));
-        if (tIn && tOut) {
-          const c = Math.max(-1, Math.min(1, dot(tIn, tOut)));
-          const sn = Math.max(-1, Math.min(1, dot(cross(tIn, tOut), nrm)));
-          holeTurnDeg = Math.atan2(sn, c) * 180 / Math.PI;
-        }
-      }
-      const Pc = prevArm.bowCenter ? unit(prevArm.bowCenter) : null;
-      const rho = Pc ? angle(Pc, E0) : Math.PI / 2;
-      const lambda = (Pc && Math.sin(rho) > 1e-15) ? Math.abs(Math.cos(rho) / Math.sin(rho)) : 0;
-      return {
-        pts, length: geodLen(R, from, to),
-        shoulderForm: prevArm.shoulderForm === 'bow' ? 'bow' : 'geodesic',
-        bowLateralMm: 0, phi3CapMm: 0, lambda, rho,
-        bowCenter: Pc, phi3Warn: false, layMode: 'rail',
-        spliceMm: 0, lateralMm: dLat, turnAtTDeg: 0, interiorXn: false,
-        joinMode: 'free', climbMm: 0, deltaMm: 0, deltaFail: false,
-        railKind: 'free', holeTurnDeg, mergeTurnDeg: 0,
-        tubeTransitions: transitions, tubeSegments: segments, minGapMm: minGap, dualIncursion,
-        arcs: [arcGC(from, to, 'free')],
-      };
-    }
-  } // end geodesic-form free-exit (6a.17 ε=0.01)
+  // Spec v3.2 §3.2(9а–в): row n−1 with κ_g = 0 at its end (λ = 0, geodesic form) — no rail, the body is free and the
+  // ends follow d_n (8′); the decision comes from the construction, not from a numeric contact gap (§2).
+  if (prevArm.shoulderForm === 'geodesic' && !prevArm.bowCenter) return freeLegLambda0(R, from, to, prevArm, w, endLevel);
 
   // Contact: one contiguous geometric rail (tangent/climb entry → rail → tangent exit / 6a.7 splice).
   // Spec v3.1 §2, §3.2(8) (#36): the rail is the parallel of the ANALYTIC arcs of the laid leg of row n−1
   // (geodesic-form prev: of the great circle prev.from → prev.to, the GC packing plane of packThenPierce),
   // continued along the great circles tangent at its ends. Entry, exit and the packing root use one exact,
   // continuous tangent field (rail.at(s).T); the rail is sampled only for the output polyline.
-  const { core, rail, kind: railKind } = railOf(R, prevArm, w);
+  const { core, kind: railKind } = railOf(R, prevArm, w);
+  let { rail } = railOf(R, prevArm, w);
   const X = unit(from), E = unit(to);
-  // Lateral: prefer extended rail (bow tips need the GC extension). But if the extension
-  // creates a false near-zero foot while the CORE says X is far outside (λ=0 geodesic
-  // arms), use the core lateral — otherwise tiny splices + tip knees ∝ N (B.8).
-  const latExt = rail.lateral(X);
-  const latCore = core.lateral(X);
-  // X beyond even the continued rail (foot clamped at an end of the extension; bow bottom legs whose top X_n
-  // lies ≥ 14 w beyond the core start): the side comes from the construction — the new row is outside
-  // (v3.1 §3.2(8), (12); #40) — not from the sign of the along-track dot; the magnitude is the distance to that end.
-  const dExt = latExt.clamped ? latExt.distMm : latExt.signedMm;
-  let lat, dLat;
-  // onRail band: |d| < 0.02·w (dimensionless, so ×k similarity cannot flip it).
+  // Spec v3.2 §3.2(8′), (9б): d_n is the signed distance from X_n to the analytic parallel of the ACTUAL path of row n−1
+  // at this station — the entry segment's parallel before the core start, the core inside, the tangent great-circle
+  // continuation past the end — never the distance to a chain end.
+  const dLat = stationLateral(actualParallel(R, prevArm, w), X).signedMm;
+  // onRail band: |d| ≤ 0.02·w (dimensionless, so ×k similarity cannot flip it).
   const onRailTol = 0.02 * Math.max(w || W0_MM, 1e-9);
-  // When the core foot is clamped at a core END (X lies beyond the core along-track), the core
-  // distance is along-track, not lateral, and the core gives no side (signedMm null, #40). There the
-  // lateral side is read from the extended rail, which is the true lateral measure (spec v3 §3.2(8):
-  // consumers see the rail's continuation). Clamped is exact on the analytic core (#36).
-  const coreFootAtEnd = latCore.clamped !== null;
-  // X beyond the core end, on the rail's continuation: the continuation is the great circle tangent
-  // to the rail at its end, so the geodesic from X to the core end is a tangency when it meets the
-  // rail tangent with sin ≤ 0.01, the same dimensionless tangency criterion as §3.2(13б) (junction
-  // free → rail is a tangency, §3.2(13д)). sin = |d_ext| / (distance beyond the end) (#35).
-  const endSin = coreFootAtEnd ? Math.abs(dExt) / Math.max(latCore.distMm, 1e-15) : Infinity;
-  const onExtension = coreFootAtEnd && endSin <= 0.01;
-  // Otherwise X counts as outside only if it is off the extension by more than the onRail band; with
-  // endSin > 0.01 and X ≥ 2 w beyond the end, |d_ext| > 0.02 w, so this is not a sign-of-zero test.
-  const coreOutside = coreFootAtEnd ? dExt > onRailTol : latCore.signedMm > (w || 0);
-  // Only when CORE says clearly OUTSIDE (not a bow tip/climb interior) yet extension
-  // claims nearly on-rail — the λ=0 geodesic false-foot pattern.
-  const falseExtFoot = !onExtension && coreOutside
-    && latCore.distMm > 2 * (w || 0)
-    && Math.abs(dExt) < 0.5 * (w || 0);
-  if (falseExtFoot) {
-    dLat = latCore.distMm; // outside ⇒ positive; magnitude only (sign may be round-off at an end)
-    lat = { ...rail.closest(latCore.q), signedMm: dLat };
-  } else {
-    lat = { ...latExt, signedMm: dExt };
-    dLat = dExt;
-  }
+  // Geometry (foot, splice target) lies on the laid rail (core + tangent great-circle continuation). A station beyond
+  // the sampled extension gets a longer continuation of the same great circle (no end clamp as a foot).
+  if (rail.closest(X).clamped) rail = core.extended(Math.max(5 * (w || 0), mmAtW(10, w || W0_MM)) + R * Math.max(angle(X, core.start), angle(X, core.end)));
+  const lat = rail.lateral(X);
   const delta = dLat < 0 ? -dLat : 0;
   const hitE = rail.closest(E);
 
@@ -705,7 +771,7 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   // Scale with w so xk similarity does not flip onRail/climb (absolute 1e-6 mm thresh).
   // v3.1 §3.2(9б), §6.4 (#39): |d_n| ≤ 0.02·w is the degenerate entry — X_n is on the rail, the leg starts at
   // the foot of the perpendicular from X_n without a tangency search, and the only turn is at the hole.
-  if (onExtension || Math.abs(dLat) <= onRailTol) {
+  if (Math.abs(dLat) <= onRailTol) {
     Tpt = lat.q; sT = lat.s; splice = 0; joinMode = 'onRail';
   } else if (dLat < 0) {
     // 6a.7(3) climb/merge: M at ℓ_m = max(w, 3δ) forward toward E
@@ -726,7 +792,13 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     // B.8 / same class as absolute 0.02 mm). Cap splice window; never use the foot as T.
     const Lj = Math.sqrt(Math.max(0, 2 * Math.abs(dLat) * Math.max(w || 0, 1e-6)));
     // Wide enough to find a true ≤1° tangent (narrow window forced climb with >20° kinks).
-    const span = Math.max(8 * Lj, 12 * (w || 0), mmAtW(12, w || W0_MM));
+    // Spec v3.2 §3.2(10), (8′): the tangency lies L_j ≈ √(2·d_n·R/λ_r) along the rail from the foot, and a station X_n
+    // before the core start first has to reach the core (the continuation is a great circle: no tangency on it). The
+    // window must contain that point; the double tangency criterion (13б) rejects false roots.
+    const lamR = Math.max(Math.abs(prevArm.lambda || 0), 1e-3);
+    const LjSpec = Math.sqrt(Math.max(0, 2 * Math.abs(dLat) * R / lamR));
+    const toCore = Number.isFinite(rail.coreS0) ? Math.max(0, rail.coreS0 - lat.s) : 0;
+    const span = Math.max(8 * Lj, 12 * (w || 0), mmAtW(12, w || W0_MM), toCore + 2 * LjSpec);
     const towardE = sE >= s0 ? 1 : -1;
     const sLo = Math.max(0, s0 - 0.5 * span);
     const sHi = Math.max(sLo + 1e-9, s0 + towardE * span);
@@ -1106,7 +1178,9 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     spliceMm: splice, lateralMm: dLat, turnAtTDeg,
     // X inside the rail beyond the onRail band (the climb branch, d ≤ −0.02·w). On-rail X (d ≈ 0 by
     // construction for top legs) is not interior: the old test d < −1e−6·w took the sign of ≈0 (#35).
-    interiorXn: !onExtension && dLat <= -onRailTol,
+    interiorXn: dLat < -onRailTol, lam0: false,
+    // Diagnostic: X_n's lateral to the laying rail (core + continuation) — differs from d_n (8′) before the core start of a drain entry.
+    railLateralMm: lat.signedMm ?? null, railFootClamped: lat.clamped || null,
     joinMode,
     climbMm: joinMode === 'climb' ? splice : 0,
     deltaMm: delta,
@@ -1121,7 +1195,14 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
 
 
 function armPackNormal(arm) {
-  const nRef = unit(cross(arm.from, arm.to));
+  // Spec v3.2 §3.2(9а), (12): E_n⁰ is the root with the parallel of the CONTINUED curve of row n−1 — at λ = 0 the great
+  // circle of its last (free) arc; for a leg without a drain that is the great circle from → to.
+  const last = !arm.bowCenter && arm.arcs?.length ? arm.arcs[arm.arcs.length - 1] : null;
+  let nRef = unit(cross(arm.from, arm.to));
+  if (last && Math.abs(last.rho - Math.PI / 2) < 1e-12) {
+    const k = unit(last.k);
+    nRef = dot(k, nRef) < 0 ? k.map((v) => -v) : k;
+  }
   if (arm.bowCenter) {
     const E = unit(arm.to);
     const T = cross(arm.bowCenter, E); // arc tangent at E
@@ -1252,7 +1333,9 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   const bowSide = P.bowSide === 'equator' ? 'equator' : 'pole';
   // Commanded λ resolved per-leg once γ known; keep a preview using pin chord for tipDrop report.
   const mu = muWrap; // tipDrop report field (compat); Φ3 uses muWrap
-  const limit = rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? Q - 7 : Q);
+  // Spec v3.2 §3.2(12) stop K12: at the equator the last row is allowed while its bottom ≤ s_eq + m/2 (the hole no farther
+  // than the equator thread's half-width past its axis; class (iii), from m).
+  const limit = (rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? Q - 7 : Q)) + (P.rowsMode === 'untilEquator' ? m / 2 : 0);
   const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [], setCollisions: [],
     shoulderForm, tipDrop: null };
   const lineIdx = (k) => ((k % N) + N) % N;
@@ -1421,7 +1504,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         railKind: legShape.railKind || null, holeTurnDeg: legShape.holeTurnDeg ?? 0, mergeTurnDeg: legShape.mergeTurnDeg ?? 0,
         exitKind: legShape.exitKind || null, exitFail: !!legShape.exitFail, exitSin: legShape.exitSin ?? null, exitResMm: legShape.exitResMm ?? null, exitAlongMm: legShape.exitAlongMm ?? null,
         rawTurnMaxDeg: legShape.rawTurnMaxDeg ?? null, rawTurnAtMm: legShape.rawTurnAtMm ?? null,
-        exitDeMm: legShape.exitDeMm ?? null, arcs: legShape.arcs });
+        exitDeMm: legShape.exitDeMm ?? null, arcs: legShape.arcs,
+        lam0: legShape.lam0 ?? null, railLateralMm: legShape.railLateralMm ?? null, exitTurnDeg: legShape.exitTurnDeg ?? null, minGapMm: legShape.minGapMm ?? null });
       if (i === 1) RD.firstLegId = leg.id;
       // перекресты и прилегания со ВСЕМИ ранее уложенными плечами (обе нити): правило над/под
       for (const other of legs()) {
