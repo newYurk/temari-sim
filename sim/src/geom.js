@@ -13,9 +13,10 @@ export const dist = (a, b) => norm(sub(a, b));
 export const clamp = (x, lo = -1, hi = 1) => Math.max(lo, Math.min(hi, x));
 export const Z = [0, 0, 1];
 
+/** Point of meridian φ at arc s from NP. #52 commit 2: thin wrapper over pointOnLine (meridian φ = half-line from P.N
+ *  at azimuth φ; bit-exact, see halfLineAt). */
 export function point(R, s, phi) {
-  const th = s / R;
-  return [R * Math.sin(th) * Math.cos(phi), R * Math.sin(th) * Math.sin(phi), R * Math.cos(th)];
+  return pointOnLine(R, meridian(phi), s);
 }
 
 export function toSPhi(R, p) {
@@ -80,9 +81,76 @@ export function ePole(p) {
 /** Касательная вдоль параллели в сторону +φ (ход обхода). */
 export function eEast(p) { return unit(cross(Z, unit(p))); }
 
-/** Угол (рад) между дугой at→towards и меридианом в точке at (0 = вдоль меридиана). */
+/** Угол (рад) между дугой at→towards и меридианом в точке at (0 = вдоль меридиана). #52 commit 2: wrapper over
+ *  angleWithLine (the meridian through at). */
 export function angleWithMeridian(at, towards) {
-  return Math.acos(clamp(Math.abs(dot(tangentTo(at, towards), ePole(at)))));
+  return angleWithLine(at, meridian(Math.atan2(at[1], at[0])), towards);
+}
+
+// ---- #52 commit 2 (spec stage3-arch §1.4): geometry by line, not by longitude ----
+// A half-line is { from, z0, az, dir, n }: anchor point `from` (unit vector), the anchor's zero direction z0 (unit,
+// ⟂ from), azimuth az (counterclockwise about the outward normal, the marking's azimuth rule), direction at the anchor
+// dir = cos az·z0 + sin az·(from × z0) and pole n = from × dir (the left normal; the great circle is oriented by
+// cross(n, ·), which is dir at the anchor). Meridian φ of S_N = the half-line from P.N (z0 toward φ₀) at az = φ:
+// dir = (cos φ, sin φ, 0), n = (−sin φ, cos φ, 0) exactly (every product with a zero component is ±0), so point,
+// perpPt, ePole, eEast and angleWithMeridian are reproduced bit for bit by the line functions below.
+
+/** Zero direction of P.N / P.S in S_N (toward φ₀). */
+export const X0 = [1, 0, 0];
+
+/** Half-line from the anchor `from` at azimuth az (zero direction z0). */
+export function halfLineAt(from, z0, az) {
+  const e = cross(from, z0);
+  const dir = add(mul(z0, Math.cos(az)), mul(e, Math.sin(az)));
+  return { from, z0, az, dir, n: cross(from, dir) };
+}
+
+/** The same anchor, azimuth rotated by δ (neighbouring half-lines, bisectors). */
+export function rotateHalfLine(hl, delta) {
+  return { ...halfLineAt(hl.from, hl.z0, hl.az + delta), v: hl.v };
+}
+
+/** Meridian φ as a half-line from P.N (wrapper support). */
+export function meridian(phi) { return halfLineAt(Z, X0, phi); }
+
+/** Anchor and direction of a line argument: a half-line (from = its anchor) or a full line {n} with a point `from` on it. */
+function lineStart(line, from) {
+  if (line.dir) {
+    if (from !== undefined && from !== line.from && dist(from, line.from) > 1e-12) throw new Error('pointOnLine: from must be the half-line anchor');
+    return { p0: line.from, dir: line.dir };
+  }
+  if (from === undefined) throw new Error('pointOnLine: a full line needs from');
+  if (Math.abs(dot(from, line.n)) > 1e-9) throw new Error('pointOnLine: from is not on the line');
+  return { p0: from, dir: cross(line.n, from) };
+}
+
+/** Point at arc s (mm) along the line from its anchor (R·(sin(s/R)·dir + cos(s/R)·from)). */
+export function pointOnLine(R, line, s, from) {
+  const { p0, dir } = lineStart(line, from);
+  const th = s / R;
+  return add(mul(dir, R * Math.sin(th)), mul(p0, R * Math.cos(th)));
+}
+
+/** Unit tangent at the point `at` of the line, toward its anchor (for a meridian: ePole). */
+export function alongLine(at, line, from = line.from) {
+  const u = unit(at);
+  return unit(sub(from, mul(u, dot(u, from))));
+}
+
+/** Unit tangent at `at` perpendicular to the line, to its left (from × at; for a meridian: eEast, +φ). */
+export function acrossLine(at, line, from = line.from) { return unit(cross(from, unit(at))); }
+
+/** Point at d mm (surface) from the line point at arc s, along the great circle perpendicular to the line (+ = left of
+ *  the line direction; for a meridian: +φ). The needle line ⟂ the line (OLY-BASIC «垂直に»). */
+export function offsetOnLine(R, line, s, d, from) {
+  const c = pointOnLine(R, line, s, from);
+  const u = unit(c), t = unit(cross(from ?? line.from, u));
+  return mul(add(mul(u, Math.cos(d / R)), mul(t, Math.sin(d / R))), R);
+}
+
+/** Angle (rad) between the arc at→towards and the line at its point at (0 = along the line). */
+export function angleWithLine(at, line, towards) {
+  return Math.acos(clamp(Math.abs(dot(tangentTo(at, towards), alongLine(at, line)))));
 }
 
 /** Длина полилинии. */
@@ -160,7 +228,5 @@ export function wrapPi(a) {
 /** Точка на расстоянии d (по поверхности) от точки линии p(s, φ) вдоль большого круга, перпендикулярного линии
  *  (+ = по ходу, +φ). Так лежат E и X прямой иглы ⟂ линии (OLY-BASIC «垂直に»). */
 export function perpPt(R, s, phi, d) {
-  const c = point(R, s, phi);
-  const u = unit(c), t = eEast(c);
-  return mul(add(mul(u, Math.cos(d / R)), mul(t, Math.sin(d / R))), R);
+  return offsetOnLine(R, meridian(phi), s, d);
 }

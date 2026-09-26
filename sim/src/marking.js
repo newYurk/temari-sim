@@ -11,6 +11,8 @@
 // toward P.N; at constructed points of later generators toward the first neighbouring vertex recorded in the graph.
 // At P.N azimuth k is the current phis[k]; at P.S the order is mirrored (k → φ_{−k}).
 
+import { halfLineAt, pointOnLine, offsetOnLine } from './geom.js';
+
 /** @typedef {[number, number, number]} V3 */
 /** @typedef {{ id: string, kind: 'pole'|'division'|'intersection'|'constructed'|'onCircle', p: V3, valence: number,
  *   halfLines: { az: number, line: string, sign: 1|-1, dir: V3 }[], zeroDir: V3, lines: string[], circles: string[] }} MPoint */
@@ -84,6 +86,15 @@ export function generateSN(N, R) {
     }
     P.halfLines.sort((a, b) => a.az - b.az);
     P.valence = P.halfLines.length;
+    // #52 commit 2: at a pole of S_N the half-lines are 2π/N apart by construction — the azimuth is set to the exact
+    // j·2π/N (the same expression as phis) after checking the measured one (class (i)); then every half-line direction
+    // comes from the anchor frame (halfLineAt), so the geometry by line reproduces point(R, s, φ) bit for bit.
+    if (P.kind === 'pole') for (const h of P.halfLines) {
+      const j = Math.round(h.az / (2 * Math.PI / N)) % N, exact = phi(j);
+      if (Math.abs(h.az - exact) > TOL) fail(gen, `${P.id} half-line azimuth ${h.az} is not a multiple of 2π/N`);
+      h.az = exact;
+    }
+    for (const h of P.halfLines) h.dir = /** @type {V3} */ (halfLineAt(P.p, P.zeroDir, h.az).dir);
   }
   // faces: triangles pole – P.eq[k] – P.eq[k+1], vertices counterclockwise seen from outside
   const edgeBetween = (a, b) => Object.values(g.edges).find((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a));
@@ -181,9 +192,10 @@ export function resolve(mk, address) {
     const k = Number(kw(args, 'azimuth') ?? pos[1]);
     const hl = g.points[P.id].halfLines;
     if (!Number.isInteger(k) || k < 0 || k >= hl.length) throw new Error(`marking: «${address}»: azimuth ${k} not in 0…${hl.length - 1}`);
-    const h = hl[k];
-    return { type: 'halfLine', id: `L(${P.id},azimuth=${k})`, from: P.id, p0: P.p, line: h.line, sign: h.sign, dir: h.dir, az: h.az,
-      left: scl(g.lines[h.line].n, h.sign) };
+    const h = hl[k], P0 = g.points[P.id], fr = halfLineAt(P0.p, P0.zeroDir, h.az);
+    // geometry fields in the geom.js half-line form { from, z0, az, dir, n } (+ valence v of the anchor)
+    return { type: 'halfLine', id: `L(${P.id},azimuth=${k})`, anchor: P.id, from: P0.p, z0: P0.zeroDir, az: h.az, v: P0.valence,
+      dir: fr.dir, n: fr.n, left: fr.n, p0: P0.p, line: h.line, sign: h.sign };
   }
   if (fn === 'on') {
     const base = resolve(mk, pos[0]);
@@ -193,7 +205,7 @@ export function resolve(mk, address) {
     let p0, dir;
     if (base.type === 'halfLine') {
       const fromA = kw(args, 'from');
-      if (fromA !== undefined && resolve(mk, fromA).id !== base.from) throw new Error(`marking: «${address}»: from= must be the half-line's anchor`);
+      if (fromA !== undefined && resolve(mk, fromA).id !== base.anchor) throw new Error(`marking: «${address}»: from= must be the half-line's anchor`);
       p0 = base.p0; dir = base.dir;
     } else if (base.type === 'line') {
       const fromA = kw(args, 'from');
@@ -202,9 +214,8 @@ export function resolve(mk, address) {
       if (Math.abs(dot(P.p, base.n)) > TOL) throw new Error(`marking: «${address}»: ${P.id} is not on ${base.id}`);
       p0 = P.p; dir = cross(base.n, P.p);
     } else throw new Error(`marking: «${address}»: on() needs a line or half-line`);
-    const th = s / R;
-    const u = addv(scl(p0, Math.cos(th)), scl(dir, Math.sin(th)));
-    return { type: 'point', id: a, kind: 'constructed', p: u, xyz: scl(u, R) };
+    const xyz = pointOnLine(R, { from: p0, dir }, s);
+    return { type: 'point', id: a, kind: 'constructed', p: scl(xyz, 1 / R), xyz, on: base.id, s };
   }
   if (fn === 'offset') {
     const base = resolve(mk, pos[0]), d = Number(pos[1]);
@@ -215,7 +226,8 @@ export function resolve(mk, address) {
     const P = resolve(mk, pos[0]), until = resolve(mk, kw(args, 'until') ?? pos[1]);
     if (P.type !== 'point' || until.type !== 'circle') throw new Error(`marking: «${address}»: region(P, until=<circle>)`);
     if (Math.abs(dot(P.p, until.c) - 1) > TOL) throw new Error(`marking: «${address}»: ${P.id} is not the centre of ${until.id}`);
-    return { type: 'region', id: a, center: P.id, until: until.id, sMax: R * until.rho };
+    // sMax = arc from the centre to the boundary = Q·ρ/(π/2) (Q = R·π/2; for C.eq exactly Q — the K12 stop, #52 commit 2)
+    return { type: 'region', id: a, center: P.id, until: until.id, sMax: mk.Q * (until.rho / (Math.PI / 2)) };
   }
   throw new Error(`marking: address function «${fn}» not supported (commit 1: P.*, L[k], L(P, azimuth), on, offset, C.eq, region)`);
 }
@@ -223,9 +235,7 @@ export function resolve(mk, address) {
 /** Point of an offset curve at arc s along its base half-line: foot on the half-line, then d along the left normal
  *  (the perpPt construction). @param {{ R: number }} mk @param {any} off @param {number} s @returns {V3} (mm) */
 export function offsetAt(mk, off, s) {
-  const R = mk.R, th = s / R, b = off.base;
-  const u = addv(scl(b.p0, Math.cos(th)), scl(b.dir, Math.sin(th)));
-  return scl(addv(scl(u, Math.cos(off.d / R)), scl(b.left, Math.sin(off.d / R))), R);
+  return /** @type {V3} */ (offsetOnLine(mk.R, off.base, s, off.d));
 }
 
 /** Summary numbers of a graph (for UI / diagnostics). @param {MGraph} g */

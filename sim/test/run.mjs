@@ -1842,6 +1842,7 @@ if (G('8l'))
 {
   console.log('\n## #37 needleSides needle-plane prune: identical to the unpruned scan');
   const { needleSides } = await import('../src/path.js');
+  const { resolve: resolveM } = await import('../src/marking.js');
   for (const raw of [{ shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6 }, { shoulderForm: 'geodesic' }]) {
     const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: 0.5, rowsMode: 'untilEquator', ...raw });
     const R = A.base.R, N = A.marking.N, w = A.params.w_mm, m = A.params.m_mm, Q = A.base.Q;
@@ -1852,8 +1853,9 @@ if (G('8l'))
     for (let k = 0; k < N; k++) for (let i = 0; i <= 40; i++) {
       const s0 = 2 + (Q - 2) * i / 40;
       for (const topSet of [null, 'A']) {
-        const a = needleSides({ R, s: s0, phi: A.marking.phis[k], m, w, N, laid, topSet });
-        const b = needleSides({ R, s: s0, phi: A.marking.phis[k], m, w, N, laid: full, topSet });
+        const line = resolveM(A.marking, `L(P.N,azimuth=${k})`);
+        const a = needleSides({ R, line, s: s0, m, w, laid, topSet });
+        const b = needleSides({ R, line, s: s0, m, w, laid: full, topSet });
         calls++;
         if (JSON.stringify(a) !== JSON.stringify(b)) { diff++; first = first || `L${k} s=${s0.toFixed(3)} topSet=${topSet}`; }
       }
@@ -2421,6 +2423,62 @@ if (G('8t'))
   check(Math.abs(reg.sMax - mk.Q) < 1e-12 * R && ceq.onLine === 'L.eq' && leq.id === 'L.eq' && Math.abs(resolve(mk, 'on(L[2], 0.25Q, from=P.N)').xyz[1] - point(R, mk.Q / 4, mk.phis[2])[1]) < 1e-12 * R
     && ['P.X', 'L(P.N, azimuth=8)', 'X(L[0], L[1])', 'on(L[0], 3)', 'region(P.S, until=C.eq)'].every((ad) => { try { resolve(mk, ad); return false; } catch { return true; } }),
     'addresses: C.eq on the equator line, L[N/2] = L.eq, region(P.N, until=C.eq) reaches Q, s as a fraction of Q; unknown / ambiguous addresses throw');
+}
+
+
+// 8u. #52 commit 2: addressed layout and geometry by line. The line functions reproduce the old (s, φ) formulas bit for
+// bit on S_N meridians (the old functions are thin wrappers); layout row-1 tops/bottoms are addresses + resolved points;
+// the K12 boundary is the region address; needleSides takes a half-line (works from any anchor, e.g. P.S).
+if (G('8u'))
+{
+  console.log('\n## #52 addressed layout, geometry by line');
+  const { generateSN, resolve } = await import('../src/marking.js');
+  const { pointOnLine, offsetOnLine, angleWithLine, unit: U, cross: X, dot: D, sub: S, mul: Mu, add: Ad, clamp: Cl, tangentTo } = await import('../src/geom.js');
+  const { needleSides } = await import('../src/path.js');
+  // literal pre-#52 formulas (geom.js at 9d439e6)
+  const oldPoint = (R, s, phi) => { const th = s / R; return [R * Math.sin(th) * Math.cos(phi), R * Math.sin(th) * Math.sin(phi), R * Math.cos(th)]; };
+  const oldEast = (p) => U(X([0, 0, 1], U(p)));
+  const oldPole = (p) => { const u = U(p); return U(S([0, 0, 1], Mu(u, D(u, [0, 0, 1])))); };
+  const oldPerp = (R, s, phi, d) => { const c = oldPoint(R, s, phi); const u = U(c), t = oldEast(c); return Mu(Ad(Mu(u, Math.cos(d / R)), Mu(t, Math.sin(d / R))), R); };
+  const oldAng = (at, to) => Math.acos(Cl(Math.abs(D(tangentTo(at, to), oldPole(at)))));
+  const R0 = 38.197186342054884;
+  let n = 0, bad = 0;
+  const neq = (a, b) => a.some((x, i) => x !== b[i]);
+  for (let N = 4; N <= 32; N += 2) {
+    const mk = { graph: generateSN(N, R0), R: R0, Q: R0 * Math.PI / 2 };
+    for (let k = 0; k < N; k++) {
+      const hl = resolve(mk, `L(P.N,azimuth=${k})`), phi = 2 * Math.PI * k / N;
+      for (let i = 1; i <= 24; i++) {
+        const s = 2 * mk.Q * i / 25, T = oldPoint(R0, s * 0.7, phi + 0.3);
+        n++;
+        if (neq(pointOnLine(R0, hl, s), oldPoint(R0, s, phi))) bad++;
+        for (const d of [-2, -0.357, 0.357, 2]) if (neq(offsetOnLine(R0, hl, s, d), oldPerp(R0, s, phi, d))) bad++;
+        if (angleWithLine(oldPoint(R0, s, phi), hl, T) !== oldAng(oldPoint(R0, s, phi), T)) bad++;
+      }
+    }
+  }
+  check(bad === 0, `line geometry on S_N meridians (N = 4…32, ${n} points × point/4 offsets/angle) === the old point / perpPt / angleWithMeridian bit for bit (mismatches ${bad})`);
+  const A = computeAll(recipe, {}), L = A.layout, mk = A.marking, N = mk.N;
+  const bitesOk = L.bites.length === 2 * N && L.center === 'P.N'
+    && L.bites.every((b) => { const q = resolve(mk, b.address); return b.anchor === 'P.N' && b.line === `L(P.N,azimuth=${b.k})` && b.side === null
+      && !neq(q.xyz, b.p) && !neq(b.p, oldPoint(A.base.R, b.s, mk.phis[b.k]))
+      && (b.role === 'top' ? b.s === L.sTop : b.s === L.sBot) && ((b.k - (b.set === 'A' ? 0 : 1) + (b.role === 'top' ? 0 : 1)) % 2 + 2) % 2 === 0; })
+    && L.pins.every((p, k) => !neq(p.p, oldPoint(A.base.R, L.sBot, mk.phis[k])));
+  check(bitesOk, `layout: ${L.bites.length} row-1 bites as addresses on(L(P.N,azimuth=k), s, from=P.N) + resolved points (A tops even / bottoms odd, B shifted by one), points === point(R, s, φ_k) bit for bit; pins unchanged`);
+  const B7 = computeAll(recipe, { rowsMode: 'untilOly7' });
+  check(L.region.address === 'region(P.N, until=C.eq)' && L.region.sMax === A.base.Q && A.rowPlan.limit === L.region.sMax && B7.rowPlan.limit === B7.layout.region.sMax - 7
+    && A.path.limit === L.region.sMax + A.params.m_mm / 2,
+    `K12 stop from the region address: sMax = ${L.region.sMax} = Q exactly; rowPlan limit = sMax (untilOly7: sMax − 7); path limit = sMax + m/2`);
+  // needleSides by half-line from another anchor: P.S mirrors P.N (empty ball: only the neighbouring marking lines)
+  const R = A.base.R, w = A.params.w_mm, m = A.params.m_mm;
+  let dm = 0;
+  for (let k = 0; k < N; k++) for (const s of [5, 20, 45]) {
+    const a = needleSides({ R, line: resolve(mk, `L(P.N,azimuth=${k})`), s, m, w, laid: [] });
+    const b = needleSides({ R, line: resolve(mk, `L(P.S,azimuth=${k})`), s, m, w, laid: [] });
+    dm = Math.max(dm, Math.abs(Math.abs(a.eOff) - Math.abs(b.eOff)), Math.abs(Math.abs(a.xOff) - Math.abs(b.xOff)), Math.abs(a.eOff - a.xOff) - Math.abs(b.eOff - b.xOff));
+  }
+  let threw = false; try { needleSides({ R, s: 5, phi: 0, m, w, N, laid: [] }); } catch { threw = true; }
+  check(dm < 1e-12 && threw, `needleSides({line}): half-lines from P.S give the mirrored holes of P.N (max diff ${dm.toExponential(1)} mm); the old ({s, phi}) call throws`);
 }
 
 

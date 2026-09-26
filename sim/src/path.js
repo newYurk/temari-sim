@@ -8,7 +8,9 @@ import { t, fmtNum } from './i18n.js';
 import {
   point, offsetPt, slerp, lineSeg, geodLen, dist, rotateToward, toSPhi, wrapPi, tangentTo, ePole, dot,
   closeZones, angle, unit, add, sub, mul, cross, eEast, perpPt, segSegDist, polyLen,
+  pointOnLine, offsetOnLine, alongLine, acrossLine, rotateHalfLine,
 } from './geom.js';
+import { resolve } from './marking.js';
 import { Chain, arcGC, arcSmall, offsetChain, ang, arcPoint, arcEnd, arcTangent, arcLen } from './arcs.js';
 
 /** Default polyline samples per visible leg. Tools may override via setLegSamples — default layout unchanged. */
@@ -42,17 +44,23 @@ function mmAtW(mm, w) { return mm * ((w || W0_MM) / W0_MM); }
  * игла между нитями, не сквозь). E = правый край кластера + w/2, X = левый край − w/2. Свободных чисел нет:
  * только ширины m и w и геометрия уже уложенного. Окно — до соседних линий разметки (дальше кластер расти
  * не может, не охватив соседнюю разметку — это ловит V5).
+ * #52 commit 2 (spec stage3-arch §1.4): by line, not by longitude. `line` is a half-line from the kiku centre in the
+ * geom.js form (resolve(marking, 'L(P, azimuth=k)'): from, z0, az, dir, n and the anchor valence v). The needle line is
+ * the great circle ⟂ the line at its point at arc s; the neighbouring marking lines are the half-lines at azimuth ±2π/v,
+ * the bisectors at ±π/v (for S_N: φ ± 2π/N and φ ± π/N, bit for bit as before).
  */
-export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwagakeRow = 0, topSet = null }) {
-  const C = point(R, s, phi);
-  const uC = unit(C), eL = eEast(C), n = ePole(C);        // n — нормаль плоскости линии иглы
+export function needleSides({ R, line, s, m, w, laid, uwagakeSet = null, uwagakeRow = 0, topSet = null }) {
+  const v = line?.v;
+  if (!Number.isInteger(v) || !line.dir) throw new Error('needleSides: line must be a resolved half-line with the anchor valence v');
+  const C = pointOnLine(R, line, s);
+  const uC = unit(C), eL = acrossLine(C, line), n = alongLine(C, line);   // n — нормаль плоскости линии иглы
   const r = R * Math.sin(s / R);
-  const spacing = r * 2 * Math.PI / N;                     // расстояние до соседней линии (по параллели)
+  const spacing = r * 2 * Math.PI / v;                     // расстояние до соседней линии (по окружности радиуса s вокруг центра)
   const occ = [];
   const coord = (p) => { const q = unit(p); return { f: R * Math.asin(Math.max(-1, Math.min(1, dot(q, n)))), y: R * Math.atan2(dot(q, eL), dot(q, uC)) }; };
   // пересечение меридиана φ' с линией иглы: координата y и синус угла между ними
-  const meet = (ph) => {
-    const nMer = [-Math.sin(ph), Math.cos(ph), 0];
+  const meet = (delta) => {
+    const nMer = rotateHalfLine(line, delta).n;
     let d = unit(cross(nMer, n));
     if (dot(d, uC) < 0) d = d.map((v) => -v);
     const y = R * Math.atan2(dot(d, eL), dot(d, uC));
@@ -62,7 +70,7 @@ export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwaga
   // соседние нити разметки L(k±1)
   let win = spacing;
   for (const sg of [1, -1]) {
-    const { y, sn } = meet(phi + sg * 2 * Math.PI / N);
+    const { y, sn } = meet(sg * 2 * Math.PI / v);
     const wid = m / sn;
     occ.push({ lo: y - wid / 2, hi: y + wid / 2, y, seg: 'marking', kind: 'marking-neighbour', line: sg });
     win = Math.max(win, Math.abs(y) + wid / 2);
@@ -70,7 +78,7 @@ export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwaga
   win += w;
   // «своя точка»: сектор линии k между биссектрисами (φ ± π/N). Обход uwagake — вокруг нитей ЭТОЙ точки
   // (TK-UWA «take a stitch around all of them»); занятость с центром за биссектрисой принадлежит соседней точке.
-  const yBis = { right: meet(phi + Math.PI / N).y, left: meet(phi - Math.PI / N).y };
+  const yBis = { right: meet(Math.PI / v).y, left: meet(-(Math.PI / v)).y };
   for (const seg of laid) {
     // отбор по габариту: точки линии иглы в окне лежат не дальше win + w от C (только ускорение, результат тот же)
     const b = bb(seg);
@@ -1551,11 +1559,27 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   const mu = muWrap; // tipDrop report field (compat); Φ3 uses muWrap
   // Spec v3.2 §3.2(12) stop K12: at the equator the last row is allowed while its bottom ≤ s_eq + m/2 (the hole no farther
   // than the equator thread's half-width past its axis; class (iii), from m).
-  const limit = (rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? Q - 7 : Q)) + (P.rowsMode === 'untilEquator' ? m / 2 : 0);
+  // #52 commit 2: the region boundary comes from the layout's region address (S8: region(P.N, until=C.eq) → sMax = Q).
+  const sMax = layout.region.sMax;
+  const limit = (rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? sMax - 7 : sMax)) + (P.rowsMode === 'untilEquator' ? m / 2 : 0);
   const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [], setCollisions: [], virtualArrive: {}, startTop: {},
     shoulderForm, tipDrop: null };
   const lineIdx = (k) => ((k % N) + N) % N;
-  const phiOf = (k) => marking.phis[lineIdx(k)];
+  // #52 commit 2: lines by address — half-line k of the kiku centre (layout.center), resolved once; φ only where the
+  // not-yet-migrated (s, φ) helpers still take it (phiOf = the half-line azimuth, = phis[k] on S_N exactly).
+  const hlCache = new Map();
+  const hlOf = (k) => {
+    const j = lineIdx(k);
+    if (!hlCache.has(j)) hlCache.set(j, resolve(marking, `L(${layout.center},azimuth=${j})`));
+    return hlCache.get(j);
+  };
+  const phiOf = (k) => hlOf(k).az;
+  /** Row-1 bite of the layout (address + resolved point); a missing bite is a construction error. */
+  const biteOf = (set, role, k) => {
+    const b = layout.bites.find((x) => x.set === set && x.role === role && x.k === lineIdx(k));
+    if (!b) throw new Error(`layout: no row-1 ${role} bite of set ${set} on half-line ${lineIdx(k)}`);
+    return b;
+  };
   const legList = [], laidList = [];          // уложенные плечи; всё уложенное (плечи, каналы, скрытый старт)
   const legs = () => legList;
   const laid = () => laidList;
@@ -1564,7 +1588,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   const bottomLevel = (k, prevRound) => {
     const prevSt = W.stitches.find((st) => st.round === prevRound.id && st.line === k && st.level === 'bottom');
     const prevArm = W.segs.find((x) => x.id === prevSt.legId);
-    const sidesAt = (t) => needleSides({ R, s: t, phi: phiOf(k), m, w, N, laid: laid() });
+    const sidesAt = (t) => needleSides({ R, line: hlOf(k), s: t, m, w, laid: laid() });
     const pp = packThenPierce(R, prevArm, phiOf(k), prevSt.s, w, 2 * Q - 1, sidesAt);
     // 6a.10/6a.11(1): no root → hard fail with message; NEVER silent max(…, sChan).
     if (!pp) return { fail: true, reason: `packing root missing: parallel of ${prevArm.id} + GC tangent does not meet E-line L${k} below s=${prevSt.s.toFixed(3)}` };
@@ -1592,7 +1616,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     const prevRound = row > 1 ? W.rounds.find((r) => r.set === spec.set && r.row === row - 1) : null;
     // кончик этого ряда до шитья: первый стежок обхода — нижний, его уровень зависит только от уже уложенного
     const firstK = lineIdx(spec.startLine + 1);
-    const tip = row === 1 ? { s: layout.sBot } : bottomLevel(firstK, prevRound);
+    const tip = row === 1 ? { s: biteOf(letter, 'bottom', firstK).s } : bottomLevel(firstK, prevRound);
     // §3.2(12), §6.2(г): no packing root is a construction failure (fail: true → V12 fail), never a silent stop.
     if (!tip || tip.fail) { W.stopped[letter] = { row, fail: true, reason: tip?.reason || 'laid parallel + GC tangent does not meet the E-line (packing root missing)' }; continue; }
     if (tip.s > limit + 1e-9) {
@@ -1619,18 +1643,19 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     // ---------- 1. Начало: скрытый старт новой нити или продолжение припаркованной ----------
     let cur;
     if (spec.begin === 'hiddenStart') {
-      const sT = layout.sTop;
-      const side0 = needleSides({ R, s: sT, phi: phiOf(L0), m, w, N, laid: laid(), topSet: spec.set });
-      const X0 = perpPt(R, sT, phiOf(L0), side0.xOff);
+      const sT = biteOf(spec.set, 'top', L0).s;
+      const side0 = needleSides({ R, line: hlOf(L0), s: sT, m, w, laid: laid(), topSet: spec.set });
+      const X0 = offsetOnLine(R, hlOf(L0), sT, side0.xOff);
       // Spec (12″) (#45): the hidden start of round 1 on its start line is an ordinary row-1 top stitch for placement and
       // occupancy — holes E₀, X₀ at ±(m+w)/2 on the needle line at s_T(1) (sides of the own cluster) and the channel E₀ → X₀
       // under the marking. Its only difference: no arriving leg — the start chord comes from inside, under the winding, and
       // surfaces at E₀. So the L0 cluster of later rows sees the same hole-entry / channel / hole-exit as on L2.
-      const E0 = perpPt(R, sT, phiOf(L0), side0.eOff);
+      const E0 = offsetOnLine(R, hlOf(L0), sT, side0.eOff);
       const rule = T.start.rules[P.startRule];
       const runs = rule.runs, Lrun = P.startRun_mm;
       const theta = 2 * Math.asin(Math.min(1, Lrun / (2 * R)));
-      const M = point(R, layout.sBot, phiOf(L0) - Math.PI / N);
+      // start direction: the bisector of the sector before L0 at the row-1 bottom level (azimuth −π/v from L0)
+      const M = pointOnLine(R, rotateHalfLine(hlOf(L0), -Math.PI / hlOf(L0).v), biteOf(spec.set, 'bottom', L0 + 1).s);
       const holes = [];
       for (let k = runs; k >= 0; k--) holes.push(k === 0 ? E0 : rotateToward(R, E0, M, k * theta));
       for (let k = 0; k < runs; k++) {
@@ -1679,17 +1704,17 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           // lower (and wider, by its own cluster) than the previous stitch on L0: the round-1 start hole X₀ at s_T(1), then
           // the closing stitches of earlier rounds. No separate round-start stitch on L0, no parking, no transition step.
           const prevCh = W.stitches.filter((st) => st.line === k && st.level === 'top').map((st) => st.s);
-          const sPrev = Math.max(layout.sTop, ...prevCh);
+          const sPrev = Math.max(biteOf(spec.set, 'top', k).s, ...prevCh);
           s = sPrev + w;
           levelInfo = { rule: 'closingIsNextRowTop', sPrev, dS: w, rowTop: spec.row + 1, basis: `${LV.top.next.basis}; spec (12′) #45` };
-        } else if (spec.row === 1) { s = layout.sTop; levelInfo = { rule: 'row1', basis: LV.top.row1.basis }; }
+        } else if (spec.row === 1) { s = biteOf(spec.set, 'top', k).s; levelInfo = { rule: 'row1', basis: LV.top.row1.basis }; }
         else {
           const prevCh = W.stitches.filter((st) => st.line === k && st.level === 'top');
           const sPrev = Math.max(...prevCh.map((st) => st.s));
           s = sPrev + w;
           levelInfo = { rule: 'belowPrevChannel', sPrev, dS: s - sPrev, basis: LV.top.next.basis };
         }
-      } else if (spec.row === 1) { s = layout.sBot; levelInfo = { rule: 'row1', basis: LV.bottom.row1.basis }; }
+      } else if (spec.row === 1) { s = biteOf(spec.set, 'bottom', k).s; levelInfo = { rule: 'row1', basis: LV.bottom.row1.basis }; }
       else {
         const bl = bottomLevel(k, prevRound);
         if (!bl || bl.fail) {
@@ -1704,7 +1729,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       // #50 (12‴) in braid mode: removed (the L0 ≡ L2 symmetry follows from T1); in fan mode it stays.
       const virt = !BRAID && lineIdx(k) === lineIdx(spec.startLine) ? W.virtualArrive[spec.set] : null;
       const sides = needleSides({
-        R, s, phi: phiOf(k), m, w, N, laid: virt ? laid().concat([virt]) : laid(),
+        R, line: hlOf(k), s, m, w, laid: virt ? laid().concat([virt]) : laid(),
         // (12′): the closing stitch is a row-(n+1) top — its cluster covers every earlier row of the set (all of round n)
         uwagakeSet: level === 'top' && (spec.row >= 2 || closing) ? spec.set : null,
         uwagakeRow: level === 'top' ? (closing ? spec.row + 1 : spec.row >= 2 ? spec.row : 0) : 0,
@@ -1734,8 +1759,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           sides.braid.h = Math.abs(sides.eOff - sides.xOff) / 2;
         }
       }
-      const E = perpPt(R, s, phiOf(k), sides.eOff);
-      const X = perpPt(R, s, phiOf(k), sides.xOff);
+      const E = offsetOnLine(R, hlOf(k), s, sides.eOff);
+      const X = offsetOnLine(R, hlOf(k), s, sides.xOff);
       for (const q of sides.squeeze) W.squeezes.push({ hole: q.side === 'E' ? E : X, set: spec.set, round: RD.id, line: k, i, ...q });
       // §5.3 (2) (#38): a top bite under a foreign surface thread (axis closer than w/2) is a legal crossing «under» —
       // U14 «set collision» (warn) with row, segment, distance and whether the bite lies inside the span
@@ -1786,7 +1811,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       if (!BRAID && i === 1 && spec.begin === 'hiddenStart' && !W.virtualArrive[spec.set]) {
         // (12‴): the virtual arriving leg of the start stitch = the mirror of this first leg about the start line's meridian,
         // traversed toward the start stitch (for the geodesic row 1 the same as leg i2 rotated back two lines).
-        const ph = phiOf(spec.startLine), nM = [-Math.sin(ph), Math.cos(ph), 0];
+        const nM = hlOf(spec.startLine).n;   // pole of the start half-line (S_N: (−sin φ, cos φ, 0))
         const refl = (q) => { const d = 2 * dot(q, nM); return [q[0] - d * nM[0], q[1] - d * nM[1], q[2] - d * nM[2]]; };
         const vpts = leg.pts.map(refl).reverse();
         W.virtualArrive[spec.set] = { id: `virt-${spec.set}`, type: 'leg', virtual: true, set: spec.set, row: 1, level: 'top', stitch: 0,

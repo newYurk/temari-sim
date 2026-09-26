@@ -2,10 +2,10 @@
 // Конвейер слоёв: чистая функция (рецепт + параметры) → слои в порядке зависимостей
 // base → marking → layout → rowPlan → path(обходы в порядке замысла: по ряду / блоками / явный) → validators. Каждый слой несёт штамп: хэш собственных входов
 // и штампы слоёв-родителей. Пересчёт всегда с нуля: никаких кэшей между наборами параметров.
-import { point, angleWithMeridian, rad } from './geom.js';
+import { pointOnLine, angleWithLine, rad } from './geom.js';
 import { normalizeParams } from './params.js';
 import { buildWork, stageLastOp } from './path.js';
-import { generateSN, graphStats } from './marking.js';
+import { generateSN, graphStats, resolve } from './marking.js';
 
 export function canonical(x) {
   if (Array.isArray(x)) return '[' + x.map(canonical).join(',') + ']';
@@ -43,8 +43,23 @@ export function layerLayout(recipe, P, base, marking) {
   const parents = [base.stamp, marking.stamp];
   const sTop = P.topMode === 'mm' ? P.sTop_mm : P.sTopFrac * base.Q;
   const sBot = base.Q * (1 - P.bottomFromEq);
-  const pins = marking.phis.map((phi, k) => ({ line: k, s: sBot, p: point(base.R, sBot, phi) }));
-  return { id: 'layout', inputs, parents, stamp: hash({ inputs, parents }), sTop, sBot, pins, topBasis: P.topMode === 'mm' ? 'мм от СП (GT14)' : 'доля Q' };
+  // #52 commit 2 (spec stage3-arch §1.4): row-1 tops and bottoms as marking addresses plus resolved points. Kiku centre
+  // P.N; set A — tops on even half-lines, bottoms on odd; set B — shifted by one half-line (startLine); levels are arcs
+  // from the centre along the own half-line. side: null — the bite is the stitch centre on the line; its hole sides ±1 are
+  // placed by G3 in path (needleSides depends on w, which is not a layout input). Stop region: region(P.N, until=C.eq).
+  const center = 'P.N';
+  const v = marking.graph.points[center].valence;
+  const at = (k, s) => resolve(marking, `on(L(${center},azimuth=${k}), ${s}, from=${center})`);
+  const bites = [];
+  for (const st of recipe.work.sets) for (let j = 0; j < v / 2; j++) for (const [role, off, s] of /** @type {const} */ ([['top', 0, sTop], ['bottom', 1, sBot]])) {
+    const k = (((st.startLine + 2 * j + off) % v) + v) % v, q = at(k, s);
+    bites.push({ set: st.set, role, row: 1, anchor: center, line: `L(${center},azimuth=${k})`, k, s, side: null, address: q.id, p: q.xyz });
+  }
+  const regionAddr = `region(${center}, until=C.eq)`;
+  const region = { address: regionAddr, sMax: resolve(marking, regionAddr).sMax };
+  const pins = Array.from({ length: v }, (_, k) => ({ line: k, s: sBot, p: at(k, sBot).xyz }));
+  return { id: 'layout', inputs, parents, stamp: hash({ inputs, parents }), sTop, sBot, pins, topBasis: P.topMode === 'mm' ? 'мм от СП (GT14)' : 'доля Q',
+    center, bites, region };
 }
 
 /** План уровней рядов по замыслу (только уровни s_top/s_bot; путь в 2a/2b — лишь ряд 1). Повторяет calc.py rows_geometry. */
@@ -52,13 +67,17 @@ export function layerRowPlan(recipe, P, base, marking, layout) {
   const inputs = pick(P, layerSpec(recipe, 'rowPlan').inputs);
   const parents = [base.stamp, marking.stamp, layout.stamp];
   const R = base.R, w = P.w_mm;
-  const limit = P.rowsMode === 'untilOly7' ? base.Q - 7 : base.Q;
+  const limit = P.rowsMode === 'untilOly7' ? layout.region.sMax - 7 : layout.region.sMax;   // K12 region boundary (#52 commit 2)
+  // set A's first top and bottom half-lines (S8: L(P.N,0), L(P.N,1))
+  const setA = recipe.work.sets[0].set;
+  const hlTop = resolve(marking, layout.bites.find((b) => b.set === setA && b.role === 'top').line);
+  const hlBot = resolve(marking, layout.bites.find((b) => b.set === setA && b.role === 'bottom').line);
   const rows = [];
   let sT = layout.sTop, sB = layout.sBot;
   const maxRows = P.rowsMode === 'count' ? P.rowsCount : 200;
   for (let n = 1; n <= maxRows; n++) {
-    const T = point(R, sT, marking.phis[0]), B = point(R, sB, marking.phis[1]);
-    const aB = angleWithMeridian(B, T);
+    const T = pointOnLine(R, hlTop, sT), B = pointOnLine(R, hlBot, sB);
+    const aB = angleWithLine(B, hlBot, T);
     const dB = P.spacingMode === 'laidClose' ? w / Math.sin(aB) : P.pitch_mm;
     rows.push({ n, sTop: sT, sBot: sB, alphaBdeg: aB * 180 / Math.PI, nextDBot: dB, beyondLimit: sB > limit + 1e-9 });
     if (P.rowsMode !== 'count' && sB + dB > limit + 1e-9) break;
