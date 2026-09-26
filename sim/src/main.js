@@ -15,7 +15,7 @@ window.addEventListener('error', (e) => window.__sim.errors.push(String(e.messag
 const q = new URLSearchParams(location.search);
 const state = {
   raw: { ...defaults(paramsFromQuery(location.search)), ...paramsFromQuery(location.search) },
-  stage: ['2a', '2b', 'B1', 'A2'].includes(q.get('stage')) ? q.get('stage') : 'A2',
+  stage: ['2a', '2b', 'B1', 'A2', 'all'].includes(q.get('stage')) ? q.get('stage') : 'A2',   // 'all' = whole pattern (recipe stage, throughOp *)
   k: q.has('k') ? Number(q.get('k')) : null,
   view: q.get('view') || 'top',
   zoom: q.has('zoom') ? Number(q.get('zoom')) : 1,
@@ -170,6 +170,8 @@ function recompute(first = false) {
   $('plan').innerHTML = t('plan.rows', { n: rp.nRows, rows });
 }
 
+/** Stage id for captions; 'all' is shown by its localized name (RU «весь узор»). */
+function stageName(stage) { return stage === 'all' ? t('stage.all') : stage; }
 function setStage(stage, k = null) {
   state.stage = stage;
   document.querySelectorAll('button.stage').forEach((b) => b.classList.toggle('active', b.dataset.stage === stage));
@@ -217,7 +219,7 @@ function renderCaption() {
       })
     : '';
   $('caption').innerHTML =
-    t('caption.line1', { C: f(P.C_mm, 0), R: f(A.base.R, 2), N: P.N, w: f(P.w_mm, 3), m: f(P.m_mm, 2), stage: state.stage, k: state.k }) + '<br>' +
+    t('caption.line1', { C: f(P.C_mm, 0), R: f(A.base.R, 2), N: P.N, w: f(P.w_mm, 3), m: f(P.m_mm, 2), stage: stageName(state.stage), k: state.k }) + '<br>' +
     t('caption.line2', { round: r.id, thread: r.thread, row: r.row, sTop: f(top.s, 3), eTop: f(top.eOff, 3), xCl: f(cl.xOff, 3), sBot: f(bot.s, 3), eBot: f(bot.eOff, 3) }) + '<br>' +
     t('caption.line3', { rLen: f(r.length, 2), uA: f(A.path.threads.A.uEnd, 1), uB }) + tipLine;
 }
@@ -261,7 +263,7 @@ function renderLengths() {
 
 function renderValidators() {
   const s = summary(V);
-  $('vsum').innerHTML = t('vsum', { stage: state.stage, pass: s.pass, fail: s.fail, warn: s.warn, info: s.info, na: s['n/a'] });
+  $('vsum').innerHTML = t('vsum', { stage: stageName(state.stage), pass: s.pass, fail: s.fail, warn: s.warn, info: s.info, na: s['n/a'] });
   $('validators').innerHTML = V.map((v) => `<li><span class="badge b-${v.status === 'n/a' ? 'na' : v.status}">${v.status}</span><b>${v.id}. ${validatorName(v)}</b><div class="val">${v.value}</div><div class="crit">${v.crit}</div></li>`).join('');
 }
 

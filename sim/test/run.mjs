@@ -1672,6 +1672,21 @@ if (G('9'))
   const B = computeAll(recipe, {});
   check(B.path.ops.length === ops.length && B.path.stageEnd.all === A.path.stageEnd.all,
     'recompute yields the same ops length / all index (single builder)');
+  // Stage "all" in the UI (refs #42, #33): URL whitelist, stage button, RU/EN labels, validators run at the last op.
+  {
+    const fs = await import('node:fs');
+    const mainSrc = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+    const { setLocale, getLocale, t: tr } = await import('../src/i18n.js');
+    const loc0 = getLocale();
+    setLocale('ru'); const ru = [tr('stage.all', {}, '∅'), tr('stage.all.title', {}, '∅')];
+    setLocale('en'); const en = [tr('stage.all', {}, '∅'), tr('stage.all.title', {}, '∅')];
+    setLocale(loc0);
+    check(/\['2a', '2b', 'B1', 'A2', 'all'\]\.includes\(q\.get\('stage'\)\)/.test(mainSrc) && /data-stage="all"/.test(html)
+      && ru[0] === 'весь узор' && en[0] === 'all' && !ru.concat(en).includes('∅'), 'stage "all": ?stage=all accepted, stage button present, RU/EN label + title');
+    const Va = runValidators(A, 'all', null);
+    check(Array.isArray(Va) && Va.length > 0 && Va.every((v) => v.id && v.status), `stage "all": runValidators runs at the last op (${Va.length} validators)`);
+  }
 }
 
 await finish(failures); // parallel worker: report to the orchestrator and exit; --quick: label as not the gate
