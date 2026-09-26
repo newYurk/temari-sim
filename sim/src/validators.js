@@ -6,9 +6,9 @@ import { dist, norm, dot, unit, sub, mul, haversineLen, cross, segSegDist, angle
 import { prefix } from './layers.js';
 import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
 import { tubeMesh } from './tube.js';
-import { resolveBowLambda } from './params.js';
+import { resolveBowLambda, numParam } from './params.js';
 import { widthDecomposition, u14Onset } from './diag-width.js';
-import { EPS_C, DEG_MAX_W, graphDistances, halfLineGraph, holeClearances, getLegSamples } from './path.js';
+import { EPS_C, DEG_MAX_W, halfLineGraph, holeClearances, getLegSamples } from './path.js';
 import { arcEnd, arcTangent, arcPoint, Chain } from './arcs.js';
 import { liftFnFor, dentFnFor, capRise, stackRise, bridgeMin, extraLengthApex, extraLength1, extraLength } from './mechanics.js';
 import { rotAbout } from './program.js';
@@ -20,6 +20,9 @@ let VF = FRAME_N;
 /** Test hook (#26 mutation): V16 fan onset over ALL threads (future ones included) instead of the causal prefix. */
 let V16_ACAUSAL = false;
 export function setV16AcausalForTest(on) { V16_ACAUSAL = !!on; }
+/** Test hook (review b080c58 §2 mutation): V24 without the row-1 trace end (yAt clamps to the leg's end instead of null). */
+let V24_TRACE_END = true;
+export function setV24TraceEndForTest(on) { V24_TRACE_END = !!on; }
 
 /**
  * #23 (6a.11 packing): a contact is `rail-parallel` only for line neighbours of one set — legs of rows n−1 and n of the
@@ -677,7 +680,7 @@ function runValidatorsIn(A, stage, ref) {
     // circle (φ = angle between the own line and that one); the line crossing the own half-line at 90° at its end (the
     // region boundary) may carry the last row's hole on its thread up to its far edge (overshoot ≤ m/2). A violation fails
     // with the line address. K12 is the same formula in advance.
-    const clearNeed = (m + w) / 2, reachList = [];
+    const reachList = [];
     const ellOf = (k) => (A.layout.region.sMaxK ? A.layout.region.sMaxK[k] : A.layout.region.sMax);
     const hlG = new Map();
     const skipOf = (k) => {
@@ -717,8 +720,8 @@ function runValidatorsIn(A, stage, ref) {
     const worst = spreads.reduce((acc, x) => (Math.max(x.b, x.t) > Math.max(acc.b, acc.t) ? x : acc), /** @type {any} */ ({ r: '—', b: 0, t: 0 }));
     add({ id: 'V5', name: 'Stitches on their lines and levels', crit: 'K1 (set A: top on even lines; B on odd); spec (12′) (#45): bottoms of a row and tops of a row (closing of round n = L0 top of row n+1) spread ≤ 0.1·w',
       status: stitchesDone.length ? (ok ? 'pass' : 'fail') : 'n/a',
-      value: `line/level errors ${wrongLine}; spread by rows (w): ${spreads.map((x) => `${x.r} bot ${f(x.b / w, 3)}, top ${f(x.t / w, 3)}`).join('; ')}; max ${f(Math.max(worst.b, worst.t) / w, 3)}w (${worst.r}); holes nearer than c(φ) = m/2 + (w/2)·cos φ to a foreign marking line (boundary thread at 90°: overshoot ≤ m/2): ${reach}${reachList.length ? ` (${reachList.join('; ')})` : ''}; least margin ${f(minMarg, 3)} mm: clearance ${f(minClear, 3)} mm (${minClearAt})` + invTxt,
-      numbers: { spreads, wrongLine, reach, reachList, minClear, minMarg, clearNeed0: clearNeed, tolW: 0.1 } });
+      value: `line/level errors ${wrongLine}; spread by rows (w): ${spreads.map((x) => `${x.r} bot ${f(x.b / w, 3)}, top ${f(x.t / w, 3)}`).join('; ')}; max ${f(Math.max(worst.b, worst.t) / w, 3)}w (${worst.r}); holes nearer than c(φ) = m/2 + (w/2)·cos φ to a foreign marking line (boundary thread at 90°: overshoot ≤ m/2): ${reach}${reachList.length ? ` (${reachList.join('; ')})` : ''}; least margin ${Number.isFinite(minMarg) ? `${f(minMarg, 3)} mm: clearance ${f(minClear, 3)} mm (${minClearAt})` : '—'}` + invTxt,
+      numbers: { spreads, wrongLine, reach, reachList, minClear, minMarg, tolW: 0.1 } });
   }
   // V6 — petal symmetry by the classes of spec v3.2 §6.11 (#25): clean classes exact, affected legs against expectations.
   {
@@ -857,7 +860,7 @@ function runValidatorsIn(A, stage, ref) {
     // new thread on top). Accepted only between rows n−1 and n of one set and only from the top down to s_T(n) + ℓ_braid,max
     // (s_T(n) = the later leg's top-hole level; ℓ_braid,max = 20·w TEMPORARY until the #51 coordinates). Fan mode: never.
     const braid8 = A.params?.topRule === 'braid';
-    const lBraidW = Number.isFinite(Number(A.params?.lBraidMaxW)) && A.params?.lBraidMaxW !== '' ? Number(A.params.lBraidMaxW) : 20;
+    const lBraidW = numParam(A.params, 'lBraidMaxW');
     const crossoverList = [];
     const crossoverOk = (P, Q, cp) => {
       if (!braid8 || !cp || P?.type !== 'leg' || Q?.type !== 'leg' || P.set !== Q.set || Math.abs(P.row - Q.row) !== 1) return false;
@@ -1379,6 +1382,8 @@ function runValidatorsIn(A, stage, ref) {
       value: `limit s ≤ ${path.limitK ? `per half-line ${[...new Set(path.limitK.map((x) => f(x, 3)))].join(' / ')}` : f(lim, 2)} mm (equator ${f(A.base.Q, 2)}); ${setTxt || 'no complete rounds'}` +
         (beyond.length ? `; BEYOND limit: ${beyond.map((x) => `${x.r} na ${f(x.sTip - limOf(x), 2)} mm`).join(', ')}` : '') +
         (stopTxt ? `; ${stopTxt}` : '') +
+        // review b080c58 (GLM summary): the K12 vertex cap (Fable 54b §1) is applied only with rowsMode untilEquator
+        (A.params.rowsMode !== 'untilEquator' ? `; K12 cap not applied: rowsMode ${A.params.rowsMode} (V5 checks the holes after laying)` : '') +
         `; plan by w/sin α: ${rp.nRows} rows, last tip ${f(last.sBot, 2)} mm` + (planTxt ? ` (${planTxt}; formula u konchich — priblizhenie)` : ''),
       numbers: { tips, limit: lim, stopped: path.stopped, beyond, rootFails: rootFails.map(([k2]) => k2) } });
   }
@@ -1435,7 +1440,7 @@ function runValidatorsIn(A, stage, ref) {
     const byLine = {};
     for (const st of tops) (byLine[`${st.set}:${st.line}`] ||= []).push(st);
     let dhMax = 0, dsDev = 0, pairs = 0, over = 0, t4Dev = 0;
-    const kTop = Number(A.params?.kTop ?? 0.5), mMm = A.params.m_mm;
+    const kTop = numParam(A.params, 'kTop'), mMm = A.params.m_mm;
     for (const arr of Object.values(byLine)) {
       arr.sort((a, b) => a.s - b.s);
       for (let i = 1; i < arr.length; i++) {
@@ -1676,7 +1681,10 @@ function runValidatorsIn(A, stage, ref) {
       // the level s_T(n) within the span |x| ≤ h_n + w/2 (between X − w/2 and E + w/2 on the needle line) must lie under the
       // channel; threads that left the span before that level are «out of span» — counted with β_T, diagnostic (expected when
       // w·tan β_T > k_top·w + w/2: none on S8, every row of the C8 face-centre set B).
-      let missing = 0, total = 0, diag = 0, outSpan = 0;
+      // Review b080c58 б3: the closing stitch of the last round is diagnostic only for the start legs (r1.firstLegId, r1Close);
+      // its other legs (the hold set of rows 1…N on the start line) count like at any other top stitch (until T2′ / K20).
+      // б2: a leg that never crosses the level s_T(n) is counted separately (expected 0).
+      let missing = 0, total = 0, diag = 0, outSpan = 0, noCross = 0;
       const lines = [], diagList = [], outList = [];
       const az17 = A.layout.program.az;
       const inSpan17 = (st, leg) => {
@@ -1720,18 +1728,18 @@ function runValidatorsIn(A, stage, ref) {
         const startLine = rd && st.line === rd.startLine;
         const r1 = path.rounds.find((q) => q.set === st.set && q.row === 1);
         const r1Close = r1 ? path.stitches[r1.stitchIdx[r1.stitchIdx.length - 1]]?.legId : null;
-        const isDiag = (id) => lastClosing || (startLine && r1 && (id === r1.firstLegId || id === r1Close));
-        const outs = incident.filter((id) => { const lg = segById.get(id); return lg && !inSpan17(st, lg).in; });
+        const isDiag = (id) => !!(startLine && r1 && (id === r1.firstLegId || id === r1Close));
+        const outs = incident.filter((id) => { const lg = segById.get(id); if (!lg) return false; const sp = inSpan17(st, lg); if (!sp.in && !Number.isFinite(sp.outBy)) noCross++; return !sp.in; });
         if (outs.length) { outSpan += outs.length; if (outList.length < 6) outList.push(`${st.round}/L${st.line} ${outs.join(',')}`); }
         const miss = incident.filter((id) => !under.has(id) && !outs.includes(id));
         const missFail = miss.filter((id) => !isDiag(id)), missDiag = miss.filter((id) => isDiag(id));
         total += incident.length - outs.length; missing += missFail.length; diag += missDiag.length;
-        if (missDiag.length) diagList.push(`${st.round}/L${st.line} ${missDiag.join(',')} (${[lastClosing ? 'closing of the last round' : '', startLine && missDiag.some((id) => r1 && (id === r1.firstLegId || id === r1Close)) ? 'start line, row 1 without an arriving leg' : ''].filter(Boolean).join('; ')})`);
+        if (missDiag.length) diagList.push(`${st.round}/L${st.line} ${missDiag.join(',')} (start line, row 1 without an arriving leg${lastClosing ? '; closing of the last round' : ''})`);
         lines.push(`${st.round}/L${st.line}: under ${incident.length - outs.length - miss.length}/${incident.length - outs.length}${outs.length ? ` (+${outs.length} out of span)` : ''}${missFail.length ? ` (not wrapped ${missFail.join(',')})` : ''}`);
       }
       add({ id: 'V17', name: 'Needle under all previous rows at top (uwagake)', crit: 'TK-UWA «take a stitch around all of them»; SUESS «under and around all previous stitches»; prior #105 (defect «third catch does not wrap»)',
-        status: missing ? 'fail' : 'pass', value: `covered ${total - missing - diag} of ${total} prior-row shoulders crossing the stitch level within its span |x| ≤ h_n + w/2${outSpan ? `; out of span (left it before s_T(n), not expected, Fable 54b §2) ${outSpan}, β_T ${[...new Set(tops.map((q) => q.set))].sort().map((s) => `${s} ${betaOf17(s) == null ? '—' : f(betaOf17(s), 1) + '°'}`).join(', ')}: ${outList.join('; ')}${outSpan > outList.length ? '…' : ''}` : ''}${diag ? `; diagnostic (§6.11 legitimate asymmetries, not a fail) ${diag}: ${diagList.join('; ')}` : ''}; ${lines.join('; ')}`,
-        numbers: { missing, diag, diagList, outSpan } });
+        status: missing ? 'fail' : 'pass', value: `covered ${total - missing - diag} of ${total} prior-row shoulders crossing the stitch level within its span |x| ≤ h_n + w/2${outSpan ? `; out of span (left it before s_T(n); legs not held: stage A (T2′ not implemented), Fable 54b §2) ${outSpan}, β_T ${[...new Set(tops.map((q) => q.set))].sort().map((s) => `${s} ${betaOf17(s) == null ? '—' : f(betaOf17(s), 1) + '°'}`).join(', ')}: ${outList.join('; ')}${outSpan > outList.length ? '…' : ''}` : ''}${diag ? `; diagnostic (§6.11 start legs without an arriving leg, not a fail) ${diag}: ${diagList.join('; ')}` : ''}; legs with no level crossing ${noCross} (expected 0); ${lines.join('; ')}`,
+        numbers: { missing, diag, diagList, outSpan, noCross } });
     }
   }
   // V18 — over/under order derived from chronology and rules; set interweave (kousa) is a consequence
@@ -1931,13 +1939,13 @@ function runValidatorsIn(A, stage, ref) {
         ` [warn>${WARN_RATIO}, fail≥${FAIL_RATIO}; free-class κ_g]` +
         (badKink ? `; badKink ${badKink} (hole/climb > 20° or tangency > 3·h_T·λ_r/R${badTan.length ? ': ' + badTan.slice(0, 4).join(', ') : ''})` : '') +
         `; tangency turns (T₁, T₂ ${nT2}) ≤ 3·h_T·λ_r/R: worst ${Number.isFinite(tolWorst) ? f(tolWorst, 3) : '∞'} of the bound, tolerance branch ${Object.entries(tolBranch).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}` +
-        (graze.length ? `; (10″) free-graze ${graze.length}: ${graze.slice(0, 3).map((s) => `${s.id} Δs ${f(s.grazeDsMm, 3)} mm, rail gap ${f(s.grazeGapMm, 4)} mm, d to row n−1 ${f(s.grazeMinGapW, 3)} w`).join('; ')}` : '') +
+        (graze.length ? `; (10″) free-graze ${graze.length}: ${graze.slice(0, 3).map((s) => `${s.id} Δs ${s.grazeDsMm == null ? `not found within 20 w${s.grazeResMin?.resMm != null ? ` (least residual ${f(s.grazeResMin.resMm, 4)} mm at ${f(s.grazeResMin.atMm, 3)} mm)` : ''}` : `${f(s.grazeDsMm, 3)} mm`}, rail gap ${f(s.grazeGapMm, 4)} mm, d to row n−1 ${f(s.grazeMinGapW, 3)} w`).join('; ')}` : '') +
         (cmdMismatch ? `; CMD MISMATCH ${worstCmd.id} λ=${f(worstCmd.disc, 6)} vs cmd ${f(worstCmd.expect, 6)} (${cmdSource})` : '') +
         (worst ? ` (worst ${worst.id}/${worst.round})` : '') +
         (legs.length ? `; shoulders ${legs.length}` : ''),
       numbers: { lambdaMax, muWrap: muW, ratio, warnRatio: WARN_RATIO, failRatio: FAIL_RATIO,
         bowLambda: A.params.bowLambda ?? null, cmdLambda, cmdSource, cmdMismatch, worstCmd, badKink, kinkRows, tolBranch, tolWorst, badTan,
-        graze: graze.map((s) => ({ id: s.id, dsMm: s.grazeDsMm, gapMm: s.grazeGapMm, gapW: s.grazeMinGapW })) } });
+        graze: graze.map((s) => ({ id: s.id, dsMm: s.grazeDsMm, gapMm: s.grazeGapMm, gapW: s.grazeMinGapW })), grazeDsNotFound: graze.filter((s) => s.grazeDsMm == null).length } });
   }
 
   // V22 — exitKind by construction (spec v3.2 §3.2(9г)). Lower legs (end at the packing root): λ > 0 only root (code
@@ -2314,13 +2322,16 @@ function runValidatorsIn(A, stage, ref) {
   // V23 — shoulder coverage (#54, Fable §6, coordinator 4a): every leg of row n+1 against the leg of the same stitch (petal,
   // side) of row n of the SAME set (the one its rail was built on): on the packed part (arc classes rail and tail) the
   // perpendicular axis distance ≤ w(1 + εc). Excluded: the braid / crossover zone at the top (s < s_T(n+1) + ℓ_braid,max;
-  // in fan mode the same top zone; fan (regression / stress mode) checks the rail class only — its tail leaves the rail for
-  // the G3 fan hole by construction, printed as a diagnostic), feet beyond the end of the row-n leg, the last row (nothing above it). Sets are compared only within
-  // themselves (different half-line lengths). The start-line side without an arriving row-1 leg (closing legs, the row-1
-  // first leg) and the last round's closing leg are legitimate asymmetries (§6.11): diagnostic, not a fail.
+  // in fan mode the same top zone; fan (regression / stress mode): the tails of UPPER legs leave the rail for the G3 fan
+  // hole by construction — printed as a diagnostic; lower fan tails are checked d ≥ w(1 − εc) like uwagake, review b080c58
+  // в3), feet beyond the end of the row-n leg, the last row (nothing above it). Sets are compared only within themselves
+  // (different half-line lengths). Legitimate asymmetries (§6.11) by address, as in V17 (review в4): pairs on the row-1
+  // first leg or the row-1 closing leg (the start-line legs without an arriving leg) and the last round's closing leg —
+  // diagnostic, not a fail, counted by reason. Arcs of other classes (splice, climb, contradiction, corner, ext) are counted by
+  // class (в2); no packed point at all → n/a (в7).
   {
     const braid23 = A.params?.topRule === 'braid';
-    const lBraid23 = (Number.isFinite(Number(A.params?.lBraidMaxW)) && A.params?.lBraidMaxW !== '' ? Number(A.params.lBraidMaxW) : 20) * w;
+    const lBraid23 = numParam(A.params, 'lBraidMaxW') * w;
     // #54 (Fable 54b §3, spec 3.3.2 §6.10): rail — |d − w| ≤ εc·w; free parts (tail, free) — only d ≥ w(1 − εc), the drift
     // d − w printed (a free tail cannot follow a row that bends away from it: U «thread pressed by the crafter», §7 No. 17).
     const lim = w * (1 + EPS_C), limLo = w * (1 - EPS_C);
@@ -2329,7 +2340,9 @@ function runValidatorsIn(A, stage, ref) {
     const lastRow = {};
     for (const r of done) lastRow[r.set] = Math.max(lastRow[r.set] || 0, r.row);
     let pairs = 0, pts = 0, dMax = 0, dMaxAt = '—', tailFanMax = 0;
-    const bad = [], diag = [];
+    const bad = [], diag = [], diagBy = {}, skipped = {};
+    const legAt = new Map();
+    for (const s of segsOk) if (s.type === 'leg') legAt.set(`${s.round}|${s.stitch}`, s);
     for (const rb of done) {
       if (rb.row < 2) continue;
       const ra = done.find((q) => q.set === rb.set && q.row === rb.row - 1);
@@ -2337,15 +2350,19 @@ function runValidatorsIn(A, stage, ref) {
       const tops = stOk.filter((st) => st.round === rb.id && st.level === 'top').map((st) => st.s);
       const sTop = tops.length ? Math.min(...tops) : 0;
       const lastClosingLeg = rb.row === lastRow[rb.set] ? path.stitches[rb.stitchIdx[rb.stitchIdx.length - 1]]?.legId : null;
+      const r1 = path.rounds.find((q) => q.set === rb.set && q.row === 1);
+      const r1Close = r1 ? path.stitches[r1.stitchIdx[r1.stitchIdx.length - 1]]?.legId : null;
+      const diagWhy = (a, b) => (r1 && a.id === r1.firstLegId ? 'on the row-1 first leg' : a.id === r1Close ? 'on the row-1 closing leg' : b.id === lastClosingLeg ? 'last closing leg' : null);
       for (const b of segsOk.filter((s) => s.type === 'leg' && s.round === rb.id)) {
-        const a = segsOk.find((s) => s.type === 'leg' && s.round === ra.id && s.stitch === b.stitch);
+        const a = legAt.get(`${ra.id}|${b.stitch}`);
         if (!a || !a.arcs?.length || !b.arcs?.length) continue;
         const ch = new Chain(R, a.arcs, 1);
         let worst = 0, lowest = Infinity, free = null;
         for (const Ab of b.arcs) {
           const isFree = Ab.cls === 'tail' || Ab.cls === 'free';
-          if (!(Ab.psi > 0) || (Ab.cls !== 'rail' && !isFree)) continue;
-          const fanTail = !braid23 && Ab.cls === 'tail';
+          if (!(Ab.psi > 0)) continue;
+          if (Ab.cls !== 'rail' && !isFree) { const k = Ab.cls || 'none'; skipped[k] = (skipped[k] || 0) + 1; continue; }
+          const fanTail = !braid23 && Ab.cls === 'tail' && b.level === 'top';
           if (isFree && !fanTail && !free) free = { M: Ab.a, len: 0, prof: /** @type {number[]} */ ([]), exitKind: b.exitKind || null, kind: Ab.cls };
           if (isFree && free) free.len += R * Math.sin(Ab.rho) * Ab.psi;
           for (let j = 0; j <= 8; j++) {
@@ -2369,45 +2386,45 @@ function runValidatorsIn(A, stage, ref) {
             exitKind: free.exitKind, mHoleMm: R * angle(unit(free.M), unit(hole)), holeDeltaMm: dE.clamped ? null : dE.distMm - w, monotonic: mono });
         }
         if (worst > dMax) { dMax = worst; dMaxAt = `${b.id}/${rb.id}.i${b.stitch} vs ${a.id}`; }
-        if (lowest < limLo - 1e-12) {
-          const isDiag = b.stitch === N || (ra.row === 1 && b.stitch === 1) || b.id === lastClosingLeg;
-          (isDiag ? diag : bad).push(`${b.id}/${rb.id}.i${b.stitch} vs ${a.id} min ${f(lowest / w, 3)} w`);
-        }
-        if (worst > lim + 1e-12) {
-          const isDiag = b.stitch === N || (ra.row === 1 && b.stitch === 1) || b.id === lastClosingLeg;
-          (isDiag ? diag : bad).push(`${b.id}/${rb.id}.i${b.stitch} vs ${a.id} ${f(worst / w, 3)} w`);
-        }
+        const why = diagWhy(a, b);
+        if (lowest < limLo - 1e-12) { (why ? diag : bad).push(`${b.id}/${rb.id}.i${b.stitch} vs ${a.id} min ${f(lowest / w, 3)} w${why ? ` (${why})` : ''}`); if (why) diagBy[why] = (diagBy[why] || 0) + 1; }
+        if (worst > lim + 1e-12) { (why ? diag : bad).push(`${b.id}/${rb.id}.i${b.stitch} vs ${a.id} ${f(worst / w, 3)} w${why ? ` (${why})` : ''}`); if (why) diagBy[why] = (diagBy[why] || 0) + 1; }
       }
     }
     // drift printed for both free classes; the construction check (exit, M → hole, δ, monotonic profile) for top-leg tails
     const dr = drifts.filter((x) => x.driftMaxMm > EPS_C * w).sort((p, q) => q.driftMaxMm - p.driftMaxMm);
     const drT = dr.filter((x) => x.kind === 'tail'), drF = dr.filter((x) => x.kind !== 'tail');
     const nonMono = drifts.filter((x) => x.kind === 'tail' && !x.monotonic);
-    add({ id: 'V23', name: 'Shoulder coverage within the set', crit: '#54 Fable §6, 54b §3: rail part of leg n+1 at |d − w| ≤ εc·w from the leg n it lies on, free parts (tail, free) only d ≥ w(1 − εc) with the drift printed; same set; braid zone, last row excluded; start-line / last-closing asymmetries diagnostic (§6.11)',
-      status: pairs ? (bad.length ? 'fail' : 'pass') : 'n/a',
-      value: pairs ? `pairs ${pairs}, packed points ${pts}; max axis distance ${f(dMax / w, 3)} w (${dMaxAt}), limit ${f(1 + EPS_C, 2)} w${!braid23 && tailFanMax > 0 ? `; fan: tails not checked (diagnostic, max ${f(tailFanMax / w, 3)} w)` : ''}; ${braid23 ? 'braid' : 'top'} zone s < s_T(n+1) + ${f(lBraid23 / w, 0)}·w excluded`
+    add({ id: 'V23', name: 'Shoulder coverage within the set', crit: '#54 Fable §6, 54b §3: rail part of leg n+1 at |d − w| ≤ εc·w from the leg n it lies on, free parts (tail, free) only d ≥ w(1 − εc) with the drift printed; same set; braid zone, last row excluded; fan: upper-leg tails excluded (lower tails checked); start-line / last-closing asymmetries diagnostic by address (§6.11, as V17); no packed point → n/a',
+      status: pairs ? (bad.length ? 'fail' : pts ? 'pass' : 'n/a') : 'n/a',
+      value: pairs ? `pairs ${pairs}, packed points ${pts}${pts ? '' : ' (nothing checked)'}; max axis distance ${f(dMax / w, 3)} w (${dMaxAt}), limit ${f(1 + EPS_C, 2)} w${!braid23 && tailFanMax > 0 ? `; fan: upper-leg tails not checked (diagnostic, max ${f(tailFanMax / w, 3)} w)` : ''}; ${braid23 ? 'braid' : 'top'} zone s < s_T(n+1) + ${f(lBraid23 / w, 0)}·w excluded`
+        + `; arcs skipped by class: ${Object.entries(skipped).sort().map(([k, v]) => `${k} ${v}`).join(', ') || '—'}`
         + (drT.length ? `; tails drifting d − w > εc·w ${drT.length} (max ${f(drT[0].driftMaxMm / w, 3)} w, ${drT[0].leg}/${drT[0].round}.i${drT[0].i} row ${drT[0].row}, tail ${f(drT[0].tailMm, 1)} mm; U «thread pressed by the crafter», §7 No. 17); construction: ${drT.slice(0, 4).map((x) => `${x.leg}/${x.round} ${x.exitKind || '—'}, M→hole ${f(x.mHoleMm, 2)} mm, hole δ ${x.holeDeltaMm == null ? '—' : f(x.holeDeltaMm / w, 3) + ' w'}, profile min ${f(x.minMm / w, 3)} w ${x.monotonic ? 'monotonic' : 'NOT monotonic'}`).join('; ')}; non-monotonic tail profiles ${nonMono.length}` : '')
         + (drF.length ? `; free legs drifting d − w > εc·w ${drF.length} (max ${f(drF[0].driftMaxMm / w, 3)} w, ${drF[0].leg}/${drF[0].round}.i${drF[0].i} row ${drF[0].row}, free ${f(drF[0].tailMm, 1)} mm)` : '')
-        + (bad.length ? `; fail ${bad.length}: ${bad.slice(0, 6).join('; ')}` : '') + (diag.length ? `; diagnostic (§6.11) ${diag.length}: ${diag.slice(0, 6).join('; ')}` : '')
+        + (bad.length ? `; fail ${bad.length}: ${bad.slice(0, 6).join('; ')}` : '') + (diag.length ? `; diagnostic (§6.11) ${diag.length} (${Object.entries(diagBy).map(([k, v]) => `${k} ${v}`).join(', ')}): ${diag.slice(0, 6).join('; ')}` : '')
         : 'needs rows n and n+1 of one set',
-      numbers: { pairs, pts, dMaxW: dMax / w, bad, diag, drifts, nonMono: nonMono.length } });
+      numbers: { pairs, pts, dMaxW: dMax / w, bad, diag, diagBy, skipped, drifts, nonMono: nonMono.length } });
   }
   // V24 — fan a priori overrun onto the neighbouring marking (#54; spec v3.3 §5.3, 3.3.1). β_T = the angle of the analytic
   // row-1 leg to the meridian at its top hole X₁ (arc (1) / great circle, grid-free); ρ_top = tan β_T / k_top — printed, no
   // status. Configuration fail of fan (checked from row 1 only, before the rows it predicts): the fan edge of row n lies on
   // the row-1 leg's trace, H_n = h₁ + Σ lateral drifts of the analytic row-1 leg over w along the half-line = its exact
-  // lateral offset y at s_T(n) = s_T(1) + (n−1)·w; the hole at ±H_n must keep (m+w)/2 from every foreign marking line (V5 in
-  // advance) for every planned row n. Braid: printed only.
+  // lateral offset y at s_T(n) = s_T(1) + (n−1)·w; the hole at ±H_n must keep c(φ) = m/2 + (w/2)·cos φ from every foreign
+  // marking line (V5 in advance, Fable 54b §1) for every planned row n (max of built and planned rows). Rows whose level lies
+  // beyond the row-1 trace (s_T(n) > s′_end − w/2, s′_end = the projection of the row-1 leg's far end onto its half-line) are
+  // not checked a priori and set no status (review b080c58 §2). Checked from row 1 only; the build is not interrupted.
+  // Braid (uwagake): printed only.
   {
-    const kTop = Number.isFinite(Number(A.params?.kTop)) && A.params?.kTop !== '' ? Number(A.params.kTop) : 0.5;
+    const kTop = numParam(A.params, 'kTop');
     const fan = A.params?.topRule !== 'braid';
-    const need = (m + w) / 2;
     const az = A.layout.program.az;
     const ellOf = (k) => (A.layout.region.sMaxK ? A.layout.region.sMaxK[k] : A.layout.region.sMax);
     const Cc = unit(fPoint(R, VF, 0, 0));
     const rowsOf = {};
     for (const r of path.rounds) rowsOf[r.set] = Math.max(rowsOf[r.set] || 0, r.row);
-    const beta = {}, over = {}, worst = {}, last = {};
+    const planRows = A.rowPlan?.nRows || 0;
+    for (const k of Object.keys(rowsOf)) rowsOf[k] = Math.max(rowsOf[k], planRows);
+    const beta = {}, over = {}, worst = {}, last = {}, beyond = {}, hRows = {};
     const r1Tops = stOk.filter((st) => st.row === 1 && st.level === 'top' && !st.closing);
     for (const st of r1Tops) {
       const k = st.line, t0 = unit(sub(unit(fPoint(R, VF, 1e-3 * R, az[k])), Cc)), nL = unit(cross(Cc, t0));
@@ -2427,16 +2444,20 @@ function runValidatorsIn(A, stage, ref) {
         const smp = [];
         for (const Ar of arcs) for (let j = 0; j <= 400; j++) { const u = arcPoint(Ar, (Ar.psi * j) / 400); smp.push([R * Math.atan2(dot(u, t0), dot(u, Cc)), R * Math.asin(clamp(dot(u, nL)))]); }
         smp.sort((p, q) => p[0] - q[0]);
-        const yAt = (sq) => { for (let j = 1; j < smp.length; j++) if (smp[j][0] >= sq) { const [s0, y0] = smp[j - 1], [s1, y1] = smp[j]; return s1 > s0 ? y0 + (y1 - y0) * (sq - s0) / (s1 - s0) : y1; } return smp.at(-1)[1]; };
-        const nRows = rowsOf[st.set] || 1;
+        // beyond s′_end − w/2 (the far hole's window, class (iii)) there is no row-1 thread to extrapolate: null = not checked
+        const sEnd = smp.at(-1)[0];
+        const yAt = (sq) => { if (V24_TRACE_END && sq > sEnd - w / 2) return null; for (let j = 1; j < smp.length; j++) if (smp[j][0] >= sq) { const [s0, y0] = smp[j - 1], [s1, y1] = smp[j]; return s1 > s0 ? y0 + (y1 - y0) * (sq - s0) / (s1 - s0) : y1; } return smp.at(-1)[1]; };
+        const nRows = rowsOf[st.set] || Math.max(1, planRows);
         for (let n = 1; n <= nRows; n++) {
           const sT = st.s + (n - 1) * w, y = yAt(sT);
+          if (y === null) { if (!beyond[st.set] || n < beyond[st.set].nEnd) beyond[st.set] = { nEnd: n, sEndMm: sEnd, nRows, st: `${st.round}.i${st.i}/L${k}`, role }; break; }
           const P = offsetOnLine(R, halfLineAt(VF.c, VF.z0, az[k]), sT, y);
           // the same clearance as V5 / K12 (Fable 54b §1): c(φ) from every foreign line, the least margin binds
           const dd = holeClearances(A.marking.graph, R, P, g, m, w).reduce((acc, x) => (x.d - x.need < acc.d - acc.need ? x : acc), { d: Infinity, need: 0, id: '—' });
           const rec = { set: st.set, st: `${st.round}.i${st.i}/L${k}`, role, n, nRows, H: Math.abs(y), clear: dd.d, need: dd.need, line: dd.id };
+          const hr = hRows[st.set] || (hRows[st.set] = []); hr[n - 1] = Math.max(hr[n - 1] ?? 0, rec.H);   // H_n by row (max over stitches)
           if (!worst[st.set] || rec.clear - rec.need < worst[st.set].clear - worst[st.set].need) worst[st.set] = rec;
-          if (n === nRows && (!last[st.set] || rec.H > last[st.set].H)) last[st.set] = rec;
+          if (!last[st.set] || n > last[st.set].n || n === last[st.set].n && rec.H > last[st.set].H) last[st.set] = rec;   // the last checked row
           if (dd.d < dd.need - 1e-9) { if (!over[st.set] || n < over[st.set].n) over[st.set] = rec; break; }
         }
       }
@@ -2445,14 +2466,15 @@ function runValidatorsIn(A, stage, ref) {
     const overs = Object.values(over);
     const status = !sets.length ? 'n/a' : fan && overs.length ? 'fail' : 'pass';
     const rhoOf = (k) => (beta[k].beta >= Math.PI / 2 ? Infinity : Math.tan(beta[k].beta) / kTop);   // β_T ≥ 90°: the leg leaves backwards
-    add({ id: 'V24', name: 'Fan a priori overrun onto the neighbouring marking; β_T, ρ_top', crit: '#54, spec v3.3 §5.3 (3.3.1): fan fails before laying if the row-1 leg trace H_n = h₁ + Σ drifts puts a hole of a planned row within c(φ) = m/2 + (w/2)·cos φ of a foreign marking line (V5 in advance, Fable 54b §1); β_T at the hole, ρ_top = tan β_T / k_top printed without status; braid: printed',
+    const beyondTxt = (k) => (beyond[k] ? `; rows n ≥ ${beyond[k].nEnd} beyond the row-1 trace (s′_end = ${f(beyond[k].sEndMm, 3)} mm): not checked a priori` : '');
+    add({ id: 'V24', name: 'Fan a priori overrun onto the neighbouring marking; β_T, ρ_top', crit: '#54, spec v3.3 §5.3 (3.3.1): fan fails before laying if the row-1 leg trace H_n = h₁ + Σ drifts puts a hole of a planned row within c(φ) = m/2 + (w/2)·cos φ of a foreign marking line (V5 in advance, Fable 54b §1); rows beyond the row-1 trace (s_T(n) > s′_end − w/2) are printed as not checked and set no status (review b080c58 §2); checked from row 1 only, the build is not interrupted; β_T at the hole, ρ_top = tan β_T / k_top printed without status; braid: printed',
       status,
       value: !sets.length ? 'needs a row-1 top stitch'
         : `${fan ? 'fan' : 'braid (printed only)'}; ${sets.map((k) => { const o = over[k], q = worst[k]; return `set ${k}: β_T ${f(beta[k].beta * 180 / Math.PI, 1)}° (${beta[k].leg} at ${beta[k].role === 'out' ? 'X₁' : 'E₁'}), ρ_top ${Number.isFinite(rhoOf(k)) ? f(rhoOf(k), 2) : '∞ (β_T ≥ 90°)'} (k_top ${f(kTop, 2)}); `
           + (o ? `overrun at row ${o.n} of ${o.nRows}: ${o.st} ${o.role}-leg H ${f(o.H, 3)} mm, clearance ${f(o.clear, 3)} < c(φ) ${f(o.need, 3)} mm to ${o.line}`
-            : `no overrun in ${q?.nRows ?? '—'} rows (H_N ${f(last[k]?.H ?? NaN, 3)} mm, clearance ${f(last[k]?.clear ?? NaN, 3)} mm at row N; least margin: clearance ${f(q?.clear ?? NaN, 3)} mm vs c(φ) ${f(q?.need ?? NaN, 3)} mm at row ${q?.n ?? '—'}, ${q?.st ?? ''} → ${q?.line ?? '—'})`); }).join('; ')}`
+            : `no overrun in ${beyond[k] ? `${beyond[k].nEnd - 1} checked of ${q?.nRows ?? '—'}` : q?.nRows ?? '—'} rows (H_${last[k]?.n ?? 'N'} ${f(last[k]?.H ?? NaN, 3)} mm, clearance ${f(last[k]?.clear ?? NaN, 3)} mm at row ${last[k]?.n ?? 'N'}; least margin: clearance ${f(q?.clear ?? NaN, 3)} mm vs c(φ) ${f(q?.need ?? NaN, 3)} mm at row ${q?.n ?? '—'}, ${q?.st ?? ''} → ${q?.line ?? '—'})`) + beyondTxt(k); }).join('; ')}`
           + (fan && overs.length ? '; configuration fail — fan runs onto a neighbouring marking line, use topRule braid' : ''),
-      numbers: { kTop, need, sets: Object.fromEntries(sets.map((k) => [k, { betaDeg: beta[k].beta * 180 / Math.PI, rho: rhoOf(k), leg: beta[k].leg, overrun: over[k] || null, worst: worst[k] || null, last: last[k] || null }])) } });
+      numbers: { kTop, planRows, sets: Object.fromEntries(sets.map((k) => [k, { betaDeg: beta[k].beta * 180 / Math.PI, rho: rhoOf(k), leg: beta[k].leg, overrun: over[k] || null, worst: worst[k] || null, last: last[k] || null, nEnd: beyond[k]?.nEnd ?? null, sEndMm: beyond[k]?.sEndMm ?? null, hRows: hRows[k] || [] }])) } });
   }
   // #5 V25–V27, K18, K19 (model/lift-spec.md §3.5) — the lift mechanics over the path; liftMode display → n/a.
   {

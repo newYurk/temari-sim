@@ -3,7 +3,7 @@
 // A1, B1, A2 … — GT14; блоками A1…A5, B1…B5 — Suess 2014; явная последовательность).
 // Шитьё последовательное: всё — E/X, уровни рядов n ≥ 2, над/под в перекрестах — выводится из того, что уже
 // лежит на шаре после предыдущих операций (причинный префикс). Никаких сохранённых координат и сдвигов.
-import { resolveBowLambda,  parseSequence } from './params.js';
+import { resolveBowLambda, parseSequence, numParam } from './params.js';
 import { t, fmtNum } from './i18n.js';
 import {
   slerp, lineSeg, geodLen, dist, rotateToward, wrapPi, tangentTo, dot,
@@ -1353,9 +1353,12 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
   // itself. There is no rail between T₁ and T₂: the taut thread is one great circle X_n → E (class free, free-graze, it
   // passes the convex rail within ≈ (Δs)²·λ_r/(8R)). The splice + tail with a vertex at T₁ was a kink |Δs|·λ_r/R at a
   // point with no contact. Δs is located for the print: the first sign change of the tangency residual from E walking the
-  // rail back from T₁ (step 0.02·w, then bisection); none within 20·w → the smallest residual there.
-  let grazeDsMm = null, grazeGapMm = null, grazeMinGapW = null;
-  if (GRAZE_10PP && (entryKind === 'tangent' || entryKind === 'braidTangent') && exitKind === 'free' && !exitFail && Math.abs(best.s - sT0) <= 1e-9 * R) {
+  // rail back from T₁ (step 0.02·w, then bisection); none within 20·w → Δs = null, printed «Δs not found within 20 w».
+  // Class (i) guard (review b080c58 §5): a found Δs (signed along the rail's forward direction) must be ≤ 1e-9·R, else the
+  // leg is a construction fail (exit contradiction), not a free-graze chord.
+  let grazeDsMm = null, grazeGapMm = null, grazeMinGapW = null, grazeResMin = null;
+  let graze = GRAZE_10PP && (entryKind === 'tangent' || entryKind === 'braidTangent') && exitKind === 'free' && !exitFail && Math.abs(best.s - sT0) <= 1e-9 * R;
+  if (graze) {
     const Lb = Math.min(forward ? sT0 : railLen - sT0, 20 * wEff), nb = Math.max(40, Math.ceil(Lb / (0.02 * wEff)));
     let b2 = null, prev = exitRes(sT0);
     for (let k = 1; k <= nb && !b2; k++) {
@@ -1366,8 +1369,14 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
       }
       prev = t;
     }
-    if (!b2) for (let k = 0; k <= nb; k++) { const t = exitRes(sT0 - dirS * Lb * k / nb); if (t.score > cosAccept && (!b2 || t.resMm < b2.resMm)) b2 = t; }
-    grazeDsMm = b2 ? -Math.abs(b2.s - sT0) : null;
+    grazeDsMm = b2 ? (b2.s - sT0) * dirS : null;
+    if (!b2) {   // no sign change within 20·w: print the smallest residual there (diagnostic only, not a Δs)
+      let bm = null; for (let k = 0; k <= nb; k++) { const t = exitRes(sT0 - dirS * Lb * k / nb); if (t.score > cosAccept && (!bm || t.resMm < bm.resMm)) bm = t; }
+      grazeResMin = bm ? { resMm: bm.resMm, atMm: (bm.s - sT0) * dirS, windowMm: Lb } : { resMm: null, atMm: null, windowMm: Lb };
+    }
+    if (grazeDsMm !== null && grazeDsMm > 1e-9 * R) { exitFail = true; exitKind = 'contradiction'; grazeDsMm = null; graze = false; }
+  }
+  if (graze) {
     const Eg = unit(to), om = angle(X, Eg), Lc = R * om, laid = laidChain(R, prevArm), nc = Math.max(16, Math.ceil(Lc / (0.1 * wEff)));
     let gMin = Infinity, rMin = Infinity;
     for (let k = 0; k <= nc; k++) {
@@ -1517,7 +1526,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
     railKind,
     holeTurnDeg,
     mergeTurnDeg,
-    exitKind, exitFail, exitSin, exitResMm, exitAlongMm, exitSkipped, rawTurnMaxDeg, rawTurnAtMm, grazeDsMm, grazeGapMm, grazeMinGapW,
+    exitKind, exitFail, exitSin, exitResMm, exitAlongMm, exitSkipped, rawTurnMaxDeg, rawTurnAtMm, grazeDsMm, grazeGapMm, grazeMinGapW, grazeResMin,
     exitDeMm: dE, arcs: legArcs,
     // #22 diagnostics: foot of X_n and M on the rail (arc length), the rail's own turn between them (deg) and the
     // constructed turn at M (chord → rail tangent).
@@ -1677,7 +1686,7 @@ function buildWorkIn(recipe, P, base, marking, layout, rowPlan) {
   const bowSide = P.bowSide === 'equator' ? 'equator' : 'pole';
   // #50 stage A: top rule flag (#54: default braid; fan = G3, the S8 regression / stress mode). k_top, ℓ_braid,max TEMPORARY until the §7a coordinates (#51).
   const BRAID = P.topRule === 'braid';
-  const K_TOP = Number.isFinite(Number(P.kTop)) && P.kTop !== '' ? Number(P.kTop) : 0.5;
+  const K_TOP = numParam(P, 'kTop');
   // Commanded λ resolved per-leg once γ known; keep a preview using pin chord for tipDrop report.
   const mu = muWrap; // tipDrop report field (compat); Φ3 uses muWrap
   // Spec v3.2 §3.2(12) stop K12: at the equator the last row is allowed while its bottom ≤ s_eq + m/2 (the hole no farther
@@ -1949,7 +1958,7 @@ function buildWorkIn(recipe, P, base, marking, layout, rowPlan) {
         braidJoinTurnDeg: legShape.braidJoinTurnDeg ?? null, braidExitTurnDeg: legShape.braidExitTurnDeg ?? null,
         braidJoinShiftMm: legShape.braidJoinShiftMm ?? null, braidExitShiftMm: legShape.braidExitShiftMm ?? null,
         lam0: legShape.lam0 ?? null, railLateralMm: legShape.railLateralMm ?? null, exitTurnDeg: legShape.exitTurnDeg ?? null, minGapMm: legShape.minGapMm ?? null,
-        grazeDsMm: legShape.grazeDsMm ?? null, grazeGapMm: legShape.grazeGapMm ?? null, grazeMinGapW: legShape.grazeMinGapW ?? null });
+        grazeDsMm: legShape.grazeDsMm ?? null, grazeGapMm: legShape.grazeGapMm ?? null, grazeMinGapW: legShape.grazeMinGapW ?? null, grazeResMin: legShape.grazeResMin ?? null });
       if (i === 1) RD.firstLegId = leg.id;
       if (!BRAID && i === 1 && spec.begin === 'hiddenStart' && !W.virtualArrive[spec.set]) {
         // (12‴): the virtual arriving leg of the start stitch = the mirror of this first leg about the start line's meridian,

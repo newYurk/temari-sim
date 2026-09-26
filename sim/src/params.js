@@ -213,6 +213,17 @@ export const STATUS_LABEL = {
 };
 
 /** Localized group title. */
+/** One resolver for a numeric parameter (review b080c58 в6): the normalized value, else the PARAM_SCHEMA default
+ *  (A.params always comes from normalizeParams, so the fallback only serves hand-built params).
+ *  @param {any} P @param {string} key @returns {number} */
+export function numParam(P, key) {
+  const v = P?.[key];
+  if (v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v))) return Number(v);
+  const p = PARAM_SCHEMA.find((q) => q.key === key);
+  if (!p) throw new Error(`numParam: unknown parameter ${key}`);
+  return Number(p.def);
+}
+
 export function groupLabel(key) {
   return t(`group.${key}`, {}, GROUPS[key] || key);
 }

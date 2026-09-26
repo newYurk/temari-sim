@@ -321,9 +321,12 @@ if (G('20g'))
       const A = computeRaw(recipe, cfg(mode, m, lam)), V = Object.fromEntries(runValidators(A, 'all', null).map((v) => [v.id, v]));
       const L = ids.map((id) => A.path.segs.find((q) => q.id === id));
       const n = V.V20.numbers;
-      check(L.every((s) => s.entryKind === 'free-graze' && s.exitKind === 'free-graze' && s.joinMode === 'free' && s.arcs.length === 1 && s.grazeDsMm < 0 && s.grazeMinGapW >= 1 - 0.01)
+      // review b080c58 §5: Δs is a root of the tangency residual (signed, ≤ 1e-9·R) or null = «not found within 20 w» with
+      // the least residual printed (fan m0.5 λ0.32: no sign change, least residual 0.034 mm at −1.728 mm)
+      const dsOk = (s) => (lam === 0.32 ? s.grazeDsMm === null && s.grazeResMin?.resMm > 0 : s.grazeDsMm < 0 && s.grazeResMin === null);
+      check(L.every((s) => s.entryKind === 'free-graze' && s.exitKind === 'free-graze' && s.joinMode === 'free' && s.arcs.length === 1 && dsOk(s) && s.grazeMinGapW >= 1 - 0.01)
         && V.V20.status === 'pass' && n.badKink === 0 && !n.tolBranch.fallback && n.tolWorst <= 0.2 && V.V22.status === 'pass' && V.V23.status === 'pass' && V.V8.status !== 'fail' && /free-graze \(10″, no contact\) \d+: rail gap min/.test(V.V8.value),
-        `${mode} m${m} λ${lam}: ${ids.join('/')} free-graze chord X→E (Δs ${fmt(L[0].grazeDsMm, 3)} mm, rail gap ${fmt(L[0].grazeGapMm, 4)} mm, d ${fmt(L[0].grazeMinGapW, 3)} w); V20 pass, worst tangency turn ${fmt(n.tolWorst, 3)} of the bound, branch piece only; V22, V23 pass; V8 prints the free-graze class (§6.12, no contact)`);
+        `${mode} m${m} λ${lam}: ${ids.join('/')} free-graze chord X→E (Δs ${L[0].grazeDsMm === null ? `not found within 20 w, least residual ${fmt(L[0].grazeResMin?.resMm ?? NaN, 4)} mm at ${fmt(L[0].grazeResMin?.atMm ?? NaN, 3)} mm` : `${fmt(L[0].grazeDsMm, 3)} mm`}, rail gap ${fmt(L[0].grazeGapMm, 4)} mm, d ${fmt(L[0].grazeMinGapW, 3)} w); V20 pass, worst tangency turn ${fmt(n.tolWorst, 3)} of the bound, branch piece only; V22, V23 pass; V8 prints the free-graze class (§6.12, no contact)`);
       setGrazeRuleForTest(false);
       const B = computeRaw(recipe, cfg(mode, m, lam)), VB = runValidators(B, 'all', null).find((v) => v.id === 'V20'), LB = B.path.segs.find((q) => q.id === ids[0]);
       setGrazeRuleForTest(true);
@@ -2826,6 +2829,17 @@ if (G('8y'))
     check(V.V5.status === 'pass' && V.V5.numbers.reach === 0 && V.V5.numbers.minClear > (0.5 + 0.714) / 2 && V.V17.status === 'pass' && V.V17.numbers.diag === 0 && V.V23.status === 'pass' && V.V23.numbers.pts > 0 && V.V23.numbers.dMaxW <= 1.01,
       `S8 λ0.32 ${tr}: V5 graph clearance min ${fmt(V.V5.numbers.minClear, 3)} mm ≥ (m+w)/2, V17 pass (no diagnostics), V23 pass (${V.V23.numbers.pts} packed points, max ${fmt(V.V23.numbers.dMaxW, 3)} w)`);
   }
+  // review b080c58 б2, в2, в4, в7: V17 legs with no level crossing (expected 0); V23 arcs skipped by class, diagnostics by
+  // address with the reason, n/a when no packed point is left (the braid zone ℓ_braid,max = 200 w covers the whole leg)
+  for (const tr of ['fan', 'braid']) {
+    const V = byId(computeAll(recipe, cfg(0.32, { topRule: tr })));
+    const Vz = byId(computeAll(recipe, cfg(0.32, { topRule: tr, lBraidMaxW: 200 })));
+    check(V.V17.numbers.noCross === 0 && /legs with no level crossing 0 \(expected 0\)/.test(V.V17.value)
+      && V.V23.numbers.skipped && /arcs skipped by class: /.test(V.V23.value) && Object.keys(V.V23.numbers.skipped).every((k) => ['splice', 'climb', 'contradiction', 'corner', 'ext', 'none'].includes(k))
+      && V.V23.numbers.diag.every((x) => / \((on the row-1 first leg|on the row-1 closing leg|last closing leg)\)$/.test(x))
+      && Vz.V23.status === 'n/a' && Vz.V23.numbers.pairs > 0 && Vz.V23.numbers.pts === 0,
+      `S8 λ0.32 ${tr}: V17 no-crossing legs ${V.V17.numbers.noCross}; V23 skipped arcs ${Object.entries(V.V23.numbers.skipped).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}, diagnostics by reason ${JSON.stringify(V.V23.numbers.diagBy)}; ℓ_braid,max 200 w → V23 n/a (${Vz.V23.numbers.pairs} pairs, 0 points)`);
+  }
   // V23 catches a leg lying 2w off the leg it rails on (mutation: row-2 leg takes the row-3 leg's arcs)
   {
     const A = computeAll(recipe, cfg(0.32, { topRule: 'braid' }));
@@ -2868,6 +2882,26 @@ if (G('8y'))
     const ov = cf.numbers.sets.B.overrun;
     check(cf.status === 'fail' && ov && ov.n >= 3 && ov.n <= 4 && /configuration fail/.test(cf.value) && cb.status === 'pass' && /printed only/.test(cb.value),
       `C8 face fan λ0: a priori overrun at row ${ov?.n} of ${ov?.nRows} (${ov?.st}, H ${fmt(ov?.H ?? NaN, 2)} mm, clearance ${fmt(ov?.clear ?? NaN, 3)} mm → ${ov?.line}) → V24 fail; braid: printed only`);
+    // review b080c58 §2: rows whose level lies past the row-1 trace (s_T(n) > s′_end − w/2) are not checked a priori (printed,
+    // no status); nRows = max(built, planned). Default C8 face: set A's trace ends at 12.9 mm (row 12, beyond the rows), set B
+    // overruns at row 4 before its end (7.6 mm; the review's 8.2 mm leaves out the hole's lateral offset e and names the
+    // short-bottom set A). Row-1 bottoms at 16 mm from the centre: both traces end at s′_end ≈ 7.80 mm → n_end = 5.
+    const { setV24TraceEndForTest } = await import('../src/validators.js');
+    const c8b = (b) => { const r = JSON.parse(JSON.stringify(base)); r.kiku.bottom = b; const mk = r.layers.find((l) => l.id === 'marking'); mk.generator = 'C8'; mk.inputs = ['m_mm'];
+      const c = 'P.v6[0]', sub = (x) => x.replaceAll('P.N', c); Object.assign(r.kiku, { center: c, halfLines: sub(r.kiku.halfLines), stop: 'region(P.v6[0], until=graph)', program: sub(r.kiku.program) }); for (const s of r.work.sets) s.start = sub(s.start); return normalizeRecipe(r); };
+    const e16 = b24(fresh(c8b({ mode: 'mmFromCenter', mm: 16 }), cfg(0, { topRule: 'braid' })));
+    check(cb.numbers.sets.A.nEnd === null && cb.numbers.sets.B.nEnd === null && ['A', 'B'].every((k) => e16.numbers.sets[k].nEnd === 5 && Math.abs(e16.numbers.sets[k].sEndMm - 7.80) < 0.01 && e16.numbers.sets[k].last.n === 4 && !e16.numbers.sets[k].overrun)
+      && e16.status === 'pass' && /rows n ≥ 5 beyond the row-1 trace \(s′_end = 7[.,]798 mm\): not checked a priori/.test(e16.value) && e16.numbers.planRows >= 10,
+      `C8 face uwagake, row-1 bottoms 16 mm: rows n ≥ ${e16.numbers.sets.A.nEnd} beyond the row-1 trace (s′_end ${fmt(e16.numbers.sets.A.sEndMm, 3)} mm), not checked, H_4 ${fmt(e16.numbers.sets.A.last.H, 3)} mm the last checked; planned ${e16.numbers.planRows} rows; default C8: no n_end (A ends past its rows, B overruns at row 4 first)`);
+    setV24TraceEndForTest(false);
+    let m16;
+    try { m16 = b24(fresh(c8b({ mode: 'mmFromCenter', mm: 16 }), cfg(0, { topRule: 'braid' }))); } finally { setV24TraceEndForTest(true); }
+    const hm = m16.numbers.sets.A.hRows;
+    check(m16.numbers.sets.A.nEnd === null && hm[5] === hm[4] && m16.numbers.sets.A.overrun?.n === 6,
+      `V24 mutation «yAt without null» (clamped to the leg's end): H₆ = H₅ = ${fmt(hm[5], 3)} mm (frozen) and a false overrun at row ${m16.numbers.sets.A.overrun?.n}`);
+    const lamS8 = [0, 0.1, 0.2, 0.32, 0.4, 0.45, 0.52, 0.6], noEnd = [];
+    for (const tr of ['fan', 'braid']) for (const lam of lamS8) { const v = b24(computeAll(recipe, cfg(lam, { topRule: tr, muWrap: Math.max(0.32, lam) }))); if (Object.values(v.numbers.sets).some((s) => s.nEnd !== null)) noEnd.push(`${tr} λ${lam}`); }
+    check(!noEnd.length, `S8: no row beyond the row-1 trace at λ ${lamS8.join(' / ')}, fan and uwagake${noEnd.length ? ` (found: ${noEnd.join(', ')})` : ''}`);
   }
 }
 
