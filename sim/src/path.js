@@ -1042,11 +1042,31 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   const eOffRail = eOnRail && !(Math.abs(dE) < onRailTol);
   // Smallest tangency residual wins; residuals equal to 1e-9·w → first along travel.
   let best = null;
+  // (13а) with (9д)/(13г) (#45 regression at λ = 0.4): on a rail with inflection joints (pieces curving opposite ways)
+  // there can be more than the ≤ 2 tangency points of a convex curve. Only a SUPPORTING tangent is a taut thread: its
+  // tail keeps ≥ w(1 − εc) from the laid row n−1 (checked away from both ends, within w of which the tail meets the rail
+  // and the hole). Candidates in the (13а) order (smallest residual, ties first along travel); the first clear one wins;
+  // none clear → the (13а) choice (V8 / (13г) report it).
+  let laidX = null;
+  const tailClear = (c) => {
+    const om = angle(c.q, E), L = R * om;
+    if (L <= 2 * wEff) return true;
+    laidX = laidX || laidChain(R, prevArm);
+    const nChk = Math.max(8, Math.ceil(L / (0.25 * wEff)));
+    for (let k = 1; k < nChk; k++) {
+      const tt = k / nChk;
+      if (tt * L < wEff || (1 - tt) * L < wEff) continue;
+      const g = unit(add(mul(c.q, Math.sin((1 - tt) * om) / Math.sin(om)), mul(E, Math.sin(tt * om) / Math.sin(om))));
+      if (laidX.closest(g).distMm < wEff * (1 - 0.01)) return false;
+    }
+    return true;
+  };
+  let exitSkipped = 0;
   if (eOnRail) best = exitRes(sE0);
-  else for (const c of cands) {
-    if (!isTangent(c)) continue;
-    if (!best || c.resMm < best.resMm - 1e-9 * wEff
-      || (Math.abs(c.resMm - best.resMm) <= 1e-9 * wEff && dirS * (c.s - best.s) < 0)) best = c;
+  else {
+    const tang = cands.filter(isTangent).sort((a, b) => (Math.abs(a.resMm - b.resMm) <= 1e-9 * wEff ? dirS * (a.s - b.s) : a.resMm - b.resMm));
+    best = tang.find(tailClear) || tang[0] || null;
+    exitSkipped = best ? tang.indexOf(best) : 0;
   }
   let exitKind = eOffRail ? 'offRail' : eOnRail ? 'atE' : 'root', exitFail = eOffRail;
   if (!best) {
@@ -1219,7 +1239,7 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     railKind,
     holeTurnDeg,
     mergeTurnDeg,
-    exitKind, exitFail, exitSin, exitResMm, exitAlongMm, rawTurnMaxDeg, rawTurnAtMm,
+    exitKind, exitFail, exitSin, exitResMm, exitAlongMm, exitSkipped, rawTurnMaxDeg, rawTurnAtMm,
     exitDeMm: dE, arcs: legArcs,
     // #22 diagnostics: foot of X_n and M on the rail (arc length), the rail's own turn between them (deg) and the
     // constructed turn at M (chord → rail tangent).
@@ -1570,7 +1590,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         spliceMm: legShape.spliceMm ?? 0, lateralMm: legShape.lateralMm ?? 0, turnAtTDeg: legShape.turnAtTDeg ?? 0, interiorXn: !!legShape.interiorXn,
         joinMode: legShape.joinMode || null, climbMm: legShape.climbMm ?? 0, deltaMm: legShape.deltaMm ?? 0, deltaFail: !!legShape.deltaFail,
         railKind: legShape.railKind || null, holeTurnDeg: legShape.holeTurnDeg ?? 0, mergeTurnDeg: legShape.mergeTurnDeg ?? 0,
-        exitKind: legShape.exitKind || null, exitFail: !!legShape.exitFail, exitSin: legShape.exitSin ?? null, exitResMm: legShape.exitResMm ?? null, exitAlongMm: legShape.exitAlongMm ?? null,
+        exitKind: legShape.exitKind || null, exitFail: !!legShape.exitFail, exitSin: legShape.exitSin ?? null, exitResMm: legShape.exitResMm ?? null, exitAlongMm: legShape.exitAlongMm ?? null, exitSkipped: legShape.exitSkipped ?? 0,
         rawTurnMaxDeg: legShape.rawTurnMaxDeg ?? null, rawTurnAtMm: legShape.rawTurnAtMm ?? null,
         exitDeMm: legShape.exitDeMm ?? null, arcs: legShape.arcs,
         joinTurnConDeg: legShape.joinTurnConDeg ?? null, railTurnFootToMDeg: legShape.railTurnFootToMDeg ?? null,

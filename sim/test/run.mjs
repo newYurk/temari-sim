@@ -1847,6 +1847,23 @@ if (G('8n'))
       `#45 λ${lam} m${m}: step ${fmt(mx((q) => q.step.dev) / w, 3)}w, L0−L2 x ${fmt(mx((q) => Math.abs(q.L0.dx)) / w, 3)}w, s ${fmt(mx((q) => Math.abs(q.L0.ds)) / w, 3)}w, i1−rot(i3) ${fmt(mx((q) => q.shape) / w, 3)}w, i2−rot(i4) ${fmt(mx((q) => q.i2) / w, 3)}w (≤ 0.1w); e ${fmt(mx((q) => Math.abs(q.L0.de)) / w, 3)}w (≤ 0.2w)`);
     if (lam === 0 && m === 0.5) keep = { A, w, M: v6Metrics(A, A.path.rounds) };
   }
+  // #45 regression (10320e1, λ = 0.4, m 0.5, grid 96): the closing leg A10.i8 took a tangency root just after an inflection
+  // joint of its rail; that tangent is not supporting — its tail cut A9.i8 at 0.40·w (V8 unexpected ×4). (13а) with
+  // (9д)/(13г): the first tangency root whose tail keeps ≥ w(1 − εc) from row n−1 wins.
+  {
+    setLegSamples(96);
+    for (const [lam, m] of [[0.4, 0.5], [0.32, 1.0]]) {
+      const A4 = computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: m, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: lam, muWrap: Math.max(0.32, lam) });
+      const v8 = runValidators(A4, 'all', null).find((v) => v.id === 'V8');
+      const unexp = v8.details.badRest.length + v8.details.naRest.length;
+      const cl = A4.path.segs.filter((x) => x.type === 'leg' && x.stitch === A4.marking.N && x.row >= 2 && x.exitKind === 'root');
+      const skipped = cl.filter((x) => x.exitSkipped > 0).map((x) => `${x.round}.i${x.stitch} (${x.exitSkipped})`);
+      const along = cl.filter((x) => x.set === 'A').map((x) => x.exitAlongMm);
+      console.log(`  #45 exit λ${lam} m${m}: V8 ${v8.status}, unexpected ${unexp}; closing legs with a non-supporting root skipped: ${skipped.join(', ') || 'none'}; A exit along ${along.map((x) => fmt(x, 2)).join(' → ')} mm`);
+      check(v8.status !== 'fail' && unexp === 0 && along.every((x) => x > 20) && (lam !== 0.4 || skipped.some((x) => x.startsWith('A10.i8'))), `#45 λ${lam} m${m}: closing legs exit at a supporting tangent (V8 ${v8.status}, unexpected ${unexp}, exit along ≥ 20 mm${lam === 0.4 ? '; A10.i8 skips the non-supporting root' : ''})`);
+    }
+    setLegSamples(null);
+  }
   const { A, w, M } = keep;
   const J = (mut) => { const c = structuredClone(M); mut(c.rounds); return v6Judge(c, w); };
   const r = (id) => (q) => q.find((x) => x.id === id);
