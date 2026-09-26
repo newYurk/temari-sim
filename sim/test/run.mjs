@@ -306,6 +306,13 @@ if (G('5'))
   check(!PARAM_SCHEMA.some((p) => /bite|pickup/i.test(p.key)), 'параметры не содержат ширины захвата');
 }
 
+// 5m. #5 lift mechanics: pure functions (sim/test/mechanics.test.mjs)
+if (G('5m'))
+{
+  const { mechanicsTests } = await import('./mechanics.test.mjs');
+  mechanicsTests(check, fmt);
+}
+
 // 6. Нить не парит (V14) и «крючки» у полюса на скриншоте 03 — проекция, а не отрыв от шара
 if (G('6'))
 {
