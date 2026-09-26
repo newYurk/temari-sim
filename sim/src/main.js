@@ -3,7 +3,7 @@ import { loadRecipe, loadJSON } from './recipe.js';
 import { computeAll } from './layers.js';
 import { runValidators, summary, refKey } from './validators.js';
 import { runDiagnostics } from './diagnostics.js';
-import { PARAM_SCHEMA, defaults, paramsFromQuery, groupLabel, paramLabel, paramUsed, statusLabel, optionLabel } from './params.js';
+import { PARAM_SCHEMA, defaults, paramsFromQuery, groupLabel, paramLabel, paramUsed, statusLabel, optionLabel, WRAP_THREADS, wrapMuDefault } from './params.js';
 import { Renderer, viridis, warm, SET_COLORS, roundColor, applySetColors } from './render.js';
 import { t, fmtNum, applyDomI18n, getLocale, setLocale, onLocaleChange, validatorName } from './i18n.js';
 
@@ -14,7 +14,7 @@ window.addEventListener('error', (e) => window.__sim.errors.push(String(e.messag
 
 const q = new URLSearchParams(location.search);
 const state = {
-  raw: { ...defaults(), ...paramsFromQuery(location.search) },
+  raw: { ...defaults(paramsFromQuery(location.search)), ...paramsFromQuery(location.search) },
   stage: ['2a', '2b', 'B1', 'A2'].includes(q.get('stage')) ? q.get('stage') : 'A2',
   k: q.has('k') ? Number(q.get('k')) : null,
   view: q.get('view') || 'top',
@@ -105,13 +105,29 @@ function buildForm() {
     } else {
       inp = document.createElement('input');
       inp.type = p.type === 'number' ? 'number' : 'text';
-      if (p.type === 'number') { inp.step = p.step; inp.min = p.min; inp.max = p.max; }
+      inp.type = p.type === 'number' ? 'number' : p.type === 'color' ? 'color' : 'text';
+      if (p.type === 'number') { inp.step = p.step; inp.min = p.rec ? p.rec[0] : p.min; inp.max = p.rec ? p.rec[1] : p.max; }
+      if (p.readonly) inp.readOnly = true;
     }
     inp.id = 'p_' + p.key; inp.value = state.raw[p.key] ?? '';
     const meta = document.createElement('div'); meta.className = 'meta';
     meta.innerHTML = `<span class="st-${p.status}">[${statusLabel(p.status)}]</span> ${p.basis}. <i>${t('meta.used', { used: paramUsed(p) })}</i>`;
+    if (p.key === 'wrapThread') {
+      // #41: the panel shows the type's friction default and its source; choosing a type resets μWrap to that default.
+      const info = document.createElement('div'); info.id = 'wrapThreadInfo';
+      meta.appendChild(info);
+      const showInfo = () => { info.textContent = wrapThreadInfo(inp.value); };
+      inp.addEventListener('change', () => { const mu = $('p_muWrap'); if (mu) mu.value = wrapMuDefault(inp.value); showInfo(); });
+      showInfo();
+    }
     row.append(lab, inp, meta); form.appendChild(row);
   }
+}
+function wrapThreadInfo(type) {
+  const w = WRAP_THREADS[type];
+  if (!w) return '';
+  const band = w.muBand[0] === w.muBand[1] ? f(w.muBand[0], 2) : `${f(w.muBand[0], 2)}–${f(w.muBand[1], 2)}`;
+  return t('param.wrapThread.info', { mu: f(w.mu, 2), surface: w.surface, band, width: f(w.width_mm, 1), source: w.source });
 }
 function readForm() {
   const raw = {};
@@ -120,7 +136,7 @@ function readForm() {
 }
 
 function syncURL() {
-  const d = defaults(), u = new URLSearchParams();
+  const d = defaults(state.raw), u = new URLSearchParams();
   for (const p of PARAM_SCHEMA) if (String(state.raw[p.key]) !== String(d[p.key])) u.set(p.key, state.raw[p.key]);
   u.set('stage', state.stage); u.set('k', state.k); u.set('view', state.view);
   u.set('lang', getLocale());

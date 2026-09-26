@@ -54,6 +54,14 @@
       "rows": {},
       "note": "Editable color ribbon (GT14-style color plan). Per-row overrides optional; empty = inherit set color. Affects render when color mode is set (and legend); path geometry unchanged."
     },
+    "wrap": {
+      "paramKeys": [
+        "wrapColor",
+        "wrapThread",
+        "wrapCompliance"
+      ],
+      "note": "Mari outer wrap (jimaki, #41): colour, thread type (sets the muWrap default and nominal width), compliance estimate (display only)."
+    },
     "materialRef": {
       "id": "dmc-perle-5",
       "path": "../materials/dmc-perle-5.json",

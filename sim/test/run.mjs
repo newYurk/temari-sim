@@ -175,6 +175,23 @@ if (G('4'))
   check(JSON.stringify(lens(x1)) === JSON.stringify(lens(x2)) && x1.path.stamp === x2.path.stamp, 'A(240) → A(300) → A(240): результат идентичен');
   check(x1.path.segs[0].pts !== x2.path.segs[0].pts && y.path.segs.length !== x1.path.segs.length, 'нет общих объектов между пересчётами');
   check(x1.base.stamp !== y.base.stamp && x1.path.stamp !== y.path.stamp, 'штампы слоёв меняются при смене входов');
+  // #41: mari wrap parameters — exposed with basis, type sets only the μWrap default, geometry unchanged.
+  const { normalizeParams, WRAP_THREADS, WRAP_THREAD_DEFAULT, MU_WRAP_RANGE, wrapMuDefault } = await import('../src/params.js');
+  const wk = ['wrapColor', 'wrapThread', 'wrapCompliance'].map((k) => PARAM_SCHEMA.find((p) => p.key === k));
+  check(wk.every((p) => p && p.basis && p.status && p.used), '#41: wrapColor / wrapThread / wrapCompliance in PARAM_SCHEMA with basis, status, use');
+  check(defaults().wrapColor === '#fbf8f1' && defaults().wrapThread === WRAP_THREAD_DEFAULT && defaults().muWrap === 0.32,
+    '#41: defaults — current ball colour, default type, μWrap 0.32 unchanged');
+  check(Object.values(WRAP_THREADS).every((v) => v.source && v.width_mm === 0.3 && v.mu >= v.muBand[0] && v.mu <= v.muBand[1]
+    && v.muBand[0] >= MU_WRAP_RANGE[0] && v.muBand[1] <= MU_WRAP_RANGE[1]), '#41: every wrap type has a source, width 0.3 mm, μ default inside its band ⊂ [0.2, 0.6]');
+  check(Object.entries(WRAP_THREADS).every(([, v]) => (v.surface === 'smooth' ? v.mu === 0.32 : v.surface !== 'hairy spun' || (v.mu >= 0.35 && v.mu <= 0.40))),
+    '#41: μ default 0.32 for smooth types, 0.35–0.40 for hairy spun types');
+  check(normalizeParams({}).muWrap === 0.32 && normalizeParams({ wrapThread: 'spun-poly-60-90' }).muWrap === wrapMuDefault('spun-poly-60-90')
+    && normalizeParams({ wrapThread: 'spun-poly-60-90', muWrap: 0.5 }).muWrap === 0.5, '#41: type sets the μWrap default only; an explicit μWrap wins');
+  check(normalizeParams({ wrapColor: 'red' })._errors.length === 1 && normalizeParams({ wrapColor: '#AABBCC' }).wrapColor === '#aabbcc', '#41: wrapColor must be #rrggbb (loud input error)');
+  check(normalizeParams({ wrapCompliance: 'x' }).wrapCompliance === defaults().wrapCompliance, '#41: wrapCompliance is a display-only estimate');
+  const xw = computeAll(recipe, { C_mm: 240, wrapColor: '#336699', wrapThread: WRAP_THREAD_DEFAULT });
+  check(JSON.stringify(lens(x1)) === JSON.stringify(lens(xw)) && JSON.stringify(x1.path.stitches.map((st) => [st.eOff, st.xOff, st.s]))
+    === JSON.stringify(xw.path.stitches.map((st) => [st.eOff, st.xOff, st.s])), '#41: wrap colour / default type do not change the geometry');
 }
 
 // 5. В рецепте и параметрах нет «ширины захвата» (D16)

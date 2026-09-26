@@ -65,7 +65,10 @@
       "type": "ball",
       "inputs": [
         "C_mm",
-        "baseWrap"
+        "baseWrap",
+        "wrapColor",
+        "wrapThread",
+        "wrapCompliance"
       ]
     },
     {

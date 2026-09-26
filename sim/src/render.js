@@ -145,7 +145,7 @@ export class Renderer {
     const g = new THREE.Group();
     const R = A.base.R, Q = A.base.Q, m = A.params.m_mm;
     this.R = R;
-    const ballMat = new THREE.MeshStandardMaterial({ color: 0xfbf8f1, roughness: 0.9, metalness: 0,
+    const ballMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(A.params.wrapColor || '#fbf8f1'),  // #41 roughness: 0.9, metalness: 0,
       polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 });
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(R, 160, 120), ballMat);
     this.ball.rotation.x = Math.PI / 2;   // полюса сферы three.js — по оси Y; в мире симулятора — по z

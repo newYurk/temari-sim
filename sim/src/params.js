@@ -15,11 +15,44 @@ export const GROUPS = {
   intent: 'e) Intent (layer “kiku, set A”)',
 };
 
+/** Mari outer-wrap (地巻き / jimaki) thread types (#41). The type sets the DEFAULT of μWrap (Φ3 reference mark,
+ * not a law) and a nominal thread width; the user may override μWrap. Sources collected in #5 (2026-09-25):
+ * TemariKai, Suess, Fujix, Sanuki 地巻き用木綿糸. Top layer = thin sewing / overlock thread, not yarn; matte, slightly
+ * hairy thread is preferred for grip; polished polyester, rayon, quilting thread are discouraged (too slippery). */
+export const WRAP_THREADS = {
+  'cotton-sewing': { label: 'cotton sewing thread (smooth)', surface: 'smooth', mu: 0.32, muBand: [0.32, 0.32], width_mm: 0.3, look: 'matte',
+    source: 'TemariKai, Suess: top wrap of sewing thread; μ 0.32 = PHYS-COTTON-MU lower bound (cotton yarn vs wrap, order of magnitude)' },
+  'spun-poly-60-90': { label: 'spun polyester #60–90', surface: 'hairy spun', mu: 0.38, muBand: [0.35, 0.40], width_mm: 0.3, look: 'slight sheen, fine hair',
+    source: 'Fujix: Japanese norm for the mari wrap is spun polyester #60–90; hairy spun types μ 0.35–0.40 (#41, estimate, midpoint)' },
+  overlock: { label: 'overlock thread (King Spun Lock / Fujix)', surface: 'hairy spun', mu: 0.38, muBand: [0.35, 0.40], width_mm: 0.3, look: 'matte, fine hair',
+    source: 'Fujix / King Spun Lock overlock thread as the very top layer; hairy spun types μ 0.35–0.40 (#41, estimate, midpoint)' },
+  'jimaki-cotton': { label: 'jimaki cotton (地巻き用木綿糸)', surface: 'hairy spun', mu: 0.38, muBand: [0.35, 0.40], width_mm: 0.3, look: 'matte, hairy',
+    source: 'Sanuki 地巻き用木綿糸 / Fujix Cotton: matte cotton wrap thread; hairy spun types μ 0.35–0.40 (#41, estimate, midpoint)' },
+  custom: { label: 'custom', surface: 'user', mu: 0.32, muBand: [0.2, 0.6], width_mm: 0.3, look: 'matte',
+    source: 'user-defined: μWrap and colour set by hand; μ default = current 0.32' },
+};
+export const WRAP_THREAD_DEFAULT = 'cotton-sewing';
+/** μWrap user range recommended by #41 (UI bounds; the schema keeps 0…1.5 so V20 stress tests still run). */
+export const MU_WRAP_RANGE = [0.2, 0.6];
+/** Default μWrap for a wrap-thread type (#41); unknown type → the default type. */
+export function wrapMuDefault(type) {
+  return (WRAP_THREADS[type] || WRAP_THREADS[WRAP_THREAD_DEFAULT]).mu;
+}
+
 export const PARAM_SCHEMA = [
   { key: 'C_mm', group: 'base', label: 'Mari circumference C, mm', type: 'number', def: 240, min: 120, max: 450, step: 1,
     basis: 'TK-GT14 “23–25 cm circum mari” → mid 240 mm', status: 'source', used: 'geometry' },
   { key: 'baseWrap', group: 'base', label: 'Base wrap', type: 'text', def: 'white, stiffness not measured',
     basis: 'TK-GT14 “wrapped in white”; compliance — uncertainties P6', status: 'stored', used: 'unused' },
+  { key: 'wrapColor', group: 'base', label: 'Wrap colour', type: 'color', def: '#fbf8f1',
+    basis: 'current ball colour (#fbf8f1); TK-GT14 “wrapped in white”; sources in #5', status: 'intent', used: 'render: ball colour' },
+  { key: 'wrapThread', group: 'base', label: 'Wrap thread type', type: 'select', def: WRAP_THREAD_DEFAULT, options: Object.keys(WRAP_THREADS),
+    optionLabels: Object.fromEntries(Object.entries(WRAP_THREADS).map(([k, v]) => [k, v.label])),
+    basis: 'sources in #5 (TemariKai, Suess, Fujix, Sanuki 地巻き用木綿糸): thin sewing / overlock thread, not yarn; matte, slightly hairy preferred for grip', status: 'source',
+    used: 'sets the default of μWrap and the nominal wrap-thread width (0.3 mm); geometry reads μWrap only as the V20 mark' },
+  { key: 'wrapCompliance', group: 'base', label: 'Wrap compliance (estimate)', type: 'text', readonly: true,
+    def: 'package density 0.35–0.45 g/cm³, modulus 2–5 MPa, dent δ ≈ 0.05 mm',
+    basis: 'estimate, uncertainties P6; sources in #5', status: 'stored', used: 'display only; used by stage 2.4 (#5), not now' },
 
   { key: 'N', group: 'marking', label: 'Division count (Simple N)', type: 'select', def: 8, options: [4, 6, 8, 10, 12, 16],
     basis: 'TK-GT14 “Simple 8 division”; kiku of 2 sets needs even N', status: 'source', used: 'geometry' },
@@ -40,7 +73,8 @@ export const PARAM_SCHEMA = [
   { key: 'tex', group: 'thread', label: 'Linear density, tex', type: 'number', def: 200, min: 20, max: 1000, step: 1,
     basis: 'PRIOR-THREAD: 25 m / 5 g (DMC/Olympus/Cosmo #5)', status: 'default', used: 'thread mass (diagnostics)' },
   { key: 'muWrap', group: 'thread', label: 'μ thread–wrap (Φ3)', type: 'number', def: 0.32, min: 0, max: 1.5, step: 0.01,
-    basis: 'PHYS-COTTON-MU 0.32–0.52 — cotton yarn vs wrap, NOT #5 (order of magnitude only); Φ3 / P2', status: 'default',
+    rec: MU_WRAP_RANGE,
+    basis: 'PHYS-COTTON-MU 0.32–0.52 — cotton yarn vs wrap, NOT #5 (order of magnitude only); Φ3 / P2. Default from wrapThread: 0.32 smooth, 0.35–0.40 hairy spun (#41); user range 0.2–0.6', status: 'default',
     used: 'V20 reference mark (warn λ>μ, fail λ>1.2μ); NOT the default λ source' },
   { key: 'muThread', group: 'thread', label: 'μ thread–thread (P1)', type: 'number', def: 0.32, min: 0, max: 1.5, step: 0.01,
     basis: 'PHYS-COTTON-MU 0.32–0.52 — cotton yarn–yarn, NOT #5 (order of magnitude only); P1', status: 'default',
@@ -184,9 +218,11 @@ export function resolveBowLambda(P, { R, gamma } = {}) {
 }
 
 
-export function defaults() {
+/** Schema defaults. μWrap follows the wrap-thread type of `raw` (#41) unless `raw` sets μWrap itself. */
+export function defaults(raw = {}) {
   const o = {};
   for (const p of PARAM_SCHEMA) o[p.key] = p.def;
+  if (raw.wrapThread !== undefined) o.muWrap = wrapMuDefault(raw.wrapThread);
   return o;
 }
 
@@ -197,6 +233,8 @@ export function normalizeParams(raw = {}) {
   if (src.shoulderForm === 'bowToMarking') src.shoulderForm = 'bow';
   if (src.mu !== undefined && src.muWrap === undefined) src.muWrap = src.mu;
   if (src.mu !== undefined && src.muThread === undefined) src.muThread = src.mu;
+  // #41: μWrap not given → the default of the wrap-thread type (0.32 for the default type, unchanged).
+  if ((src.muWrap === undefined || src.muWrap === '') && src.wrapThread !== undefined) src.muWrap = wrapMuDefault(src.wrapThread);
   const out = {};
   const errors = [];
   for (const p of PARAM_SCHEMA) {
@@ -211,7 +249,11 @@ export function normalizeParams(raw = {}) {
     } else if (p.type === 'select') {
       const opt = p.options.find((o) => String(o) === String(v));
       if (opt === undefined) { errors.push(t('err.badSelect', { key: p.key, v })); v = p.def; } else v = opt;
-    } else v = String(v);
+    } else if (p.type === 'color') {
+      v = String(v);
+      if (!/^#[0-9a-f]{6}$/i.test(v)) { errors.push(t('err.badColor', { key: p.key, v })); v = p.def; }
+      v = v.toLowerCase();
+    } else v = p.readonly ? p.def : String(v);
     out[p.key] = v;
   }
   if (out.N % 2 !== 0) errors.push(t('err.NEven'));
