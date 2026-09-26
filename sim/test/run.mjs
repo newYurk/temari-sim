@@ -2725,6 +2725,45 @@ if (G('8y'))
     'UI: the view button follows the kiku centre — «На центр кику ({name})» / «Onto kiku centre ({name})» (RU/EN), no fixed «Сверху (СП)» button');
 }
 
+// 8z. #44: thread look by thread type — render only. Presets (sewing / pearl #8 / pearl #5 / metallic gold, silver) with
+// diameter, colour, sheen, twist; jiwari diameter / colour default from the jiwari type; no layer reads the look params
+// (stamps, path and validator outputs unchanged); the ply-shading formula (twistShade = TWIST_GLSL in render.js).
+if (G('8z'))
+{
+  console.log('\n## #44: thread look by thread type (render only)');
+  const Pm = await import('../src/params.js');
+  const { tubeMesh, twistShade } = await import('../src/tube.js');
+  const L = Pm.THREAD_LOOKS, keys = Object.keys(L);
+  check(keys.join() === 'sewing,perle-8,perle-5,metallic-gold,metallic-silver'
+    && keys.every((k) => L[k].diameter_mm > 0 && /^#[0-9a-f]{6}$/.test(L[k].color) && L[k].roughness >= 0 && L[k].roughness <= 1 && L[k].metalness >= 0 && L[k].metalness <= 1
+      && L[k].sheen >= 0 && L[k].twist >= 0 && L[k].twist <= 1 && L[k].pitch_mm > 0 && L[k].plies >= 2 && L[k].source && L[k].status)
+    && L['perle-5'].diameter_mm === defaults().w_mm && L['metallic-gold'].diameter_mm === defaults().m_mm && L.sewing.diameter_mm < L['perle-8'].diameter_mm,
+    'presets sewing / pearl #8 / pearl #5 / metallic gold / silver: diameter, colour, roughness, metalness, sheen, twist (pitch, plies), status and source; pearl #5 = w default, metallic = m default (Kreinik Fine #8)');
+  const look = PARAM_SCHEMA.filter((p) => p.group === 'look');
+  check(look.map((p) => p.key).join() === 'threadLook,jiwariLook,jiwariDiameter_mm,jiwariColor' && look.every((p) => p.basis && p.status && /render only/.test(p.used))
+    && defaults().jiwariLook === 'metallic-gold' && defaults().threadLook === 'perle-5',
+    'look params (group f, render only): threadLook (default pearl #5), jiwariLook (default metallic gold), jiwariDiameter_mm, jiwariColor');
+  const n1 = Pm.normalizeParams({ jiwariLook: 'sewing' }), n2 = Pm.normalizeParams({ jiwariLook: 'perle-8', jiwariDiameter_mm: 0.7, jiwariColor: '#FFFFFF' }), n0 = Pm.normalizeParams({});
+  check(n1.jiwariDiameter_mm === 0.25 && n1.jiwariColor === L.sewing.color && n2.jiwariDiameter_mm === 0.7 && n2.jiwariColor === '#ffffff'
+    && n0.jiwariDiameter_mm === 0.5 && n0.jiwariColor === L['metallic-gold'].color && Pm.defaults({ jiwariLook: 'perle-8' }).jiwariDiameter_mm === 0.5 && !n1._errors.length,
+    'jiwari diameter / colour follow the jiwari type unless set (sewing → 0.25 mm; explicit 0.7 mm / #ffffff kept)');
+  // render only: no layer input, identical pipeline and validators under every look
+  const specs = recipe.layers.flatMap((l) => l.inputs || []);
+  const lookRaw = { threadLook: 'metallic-silver', jiwariLook: 'sewing', jiwariDiameter_mm: 1.2, jiwariColor: '#123456' };
+  const A0 = computeAll(recipe, {}), A1 = computeAll(recipe, lookRaw);
+  const stamps = (A) => ['base', 'marking', 'layout', 'rowPlan', 'path'].map((k) => A[k]?.stamp).join();
+  const sig = (A) => JSON.stringify([A.path.segs.map((s) => [s.id, s.length, s.pts.length, s.pts[0], s.pts[s.pts.length - 1]]), A.path.stitches.map((s) => [s.E, s.X, s.s])]);
+  const vs = (A) => JSON.stringify(runValidators(A, 'all', null).map((v) => [v.id, v.status, v.value]));
+  check(!look.some((p) => specs.includes(p.key)) && stamps(A0) === stamps(A1) && sig(A0) === sig(A1) && vs(A0) === vs(A1),
+    `render only: no layer lists a look param; stamps (${stamps(A0).split(',').length}), path and V1–V22 outputs identical under ${JSON.stringify(lookRaw)}`);
+  const m = tubeMesh([[0, 0, 0], [1, 0, 0], [2, 0.1, 0]], 0.3, 8, true), lk = L['perle-5'];
+  let lo = 1, hi = 0;
+  for (let a = 0; a < 6.3; a += 0.01) for (const s of [0, 0.37, 1.1]) { const v = twistShade(a, s, lk); lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  check(m.ang.length === m.pos.length && m.arc.length === m.pos.length && twistShade(1, 2, { twist: 0 }) === 1 && Math.abs(lo - (1 - 0.55 * lk.twist)) < 1e-3 && hi === 1
+    && Math.abs(twistShade(0.3, 0.2, lk) - twistShade(0.3 + 2 * Math.PI / lk.plies, 0.2, lk)) < 1e-12 && Math.abs(twistShade(0.3, 0.2, lk) - twistShade(0.3, 0.2 + lk.pitch_mm / lk.plies, lk)) < 1e-12,
+    `ply shading: tube carries around / along coordinates; range [1 − 0.55·twist, 1] (pearl #5 ${lo.toFixed(3)}…${hi}); period 2π/plies around, pitch/plies along`);
+}
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');

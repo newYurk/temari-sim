@@ -8,6 +8,9 @@
 import * as THREE from 'three';
 import { sewCover, wrapLayerAxes, mulberry32, WRAP_GPU_MAX, WRAP_BAKE, WRAP_SEED, WRAP_LAYERS } from './wrap.js';
 
+/** #44: the layers under the top strand show at 60 % of their darkening (0.84 → 0.90, 0.72 → 0.83) — lower line contrast. */
+export const WRAP_SHADE_SOFT = 0.6;
+
 const bakeVert = /* glsl */ `
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
@@ -32,7 +35,8 @@ vec3 threadCol(vec3 p, vec4 axd, float t, float idx) {
   // hair: fine fibre noise along the strand (position along the circle), fixed by the strand index
   float along = atan(dot(p, normalize(cross(ax, vec3(0.31, 0.83, 0.47)))), dot(p, normalize(cross(ax, cross(ax, vec3(0.31, 0.83, 0.47))))));
   float fib = hash13(vec3(floor(along * 2400.0), floor(t * 6.0), idx));
-  return uColor * axd.w * mix(0.88, 1.06, rnd) * (1.0 + uHair * 0.22 * (fib - 0.5));
+  // #44: softer strand contrast (round-profile shading 0.93…1.03, fibre noise ×0.16) — the wrap reads as a dense layer
+  return uColor * axd.w * mix(0.93, 1.03, rnd) * (1.0 + uHair * 0.16 * (fib - 0.5));
 }
 void main() {
   // three.js SphereGeometry: u → azimuth, v → polar angle θ = (1 − v)·π; x = −cos(2πu) sin θ, y = cos θ, z = sin(2πu) sin θ
@@ -49,7 +53,7 @@ void main() {
     vec4 axd = axisAt(i, 0.0);
     float t = abs(dot(p, axd.xyz)) / w;
     if (t > 1.0 + uHair) continue;
-    float a = (1.0 - smoothstep(0.96 - 0.25 * uHair, 1.0 + 0.2 * uHair, t)) * 0.62;
+    float a = (1.0 - smoothstep(0.9 - 0.25 * uHair, 1.0 + 0.2 * uHair, t)) * 0.72;   // #44: denser top layer (0.62 → 0.72), softer edge
     acc = mix(acc, threadCol(p, axd, t, float(i)), a);
     K *= 1.0 - a;
   }
@@ -102,7 +106,7 @@ export class WrapBaker {
     this.rt = null; this.key = ''; this.info = null;
     this.mat = new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Color() }, uSewW: { value: 0 }, uWraps: { value: 0 }, uHair: { value: 0 }, uAxes: { value: null },
-        uShade: { value: new THREE.Vector3(...WRAP_LAYERS.map((L) => L.shade)) }, uDebug: { value: 0 } },
+        uShade: { value: new THREE.Vector3(...WRAP_LAYERS.map((L) => 1 - WRAP_SHADE_SOFT * (1 - L.shade))) }, uDebug: { value: 0 } },
       vertexShader: bakeVert, fragmentShader: bakeFrag, toneMapped: false, depthTest: false, depthWrite: false,
     });
     this.scene = new THREE.Scene();
@@ -138,7 +142,7 @@ export class WrapBaker {
     WRAP_LAYERS.forEach((L, row) => {
       const ax = wrapLayerAxes(wraps, row);
       const dyeRnd = mulberry32(row === 0 ? WRAP_SEED ^ 0x5bd1e995 : L.seed ^ 0x5bd1e995);
-      for (let i = 0; i < wraps; i++) data.set([ax[3 * i], ax[3 * i + 1], ax[3 * i + 2], 0.86 + 0.2 * dyeRnd()], 4 * (row * wraps + i));
+      for (let i = 0; i < wraps; i++) data.set([ax[3 * i], ax[3 * i + 1], ax[3 * i + 2], 0.9 + 0.12 * dyeRnd()], 4 * (row * wraps + i));   // #44: dye spread 0.2 → 0.12 (same mean 0.96)
     });
     const axTex = new THREE.DataTexture(data, wraps, WRAP_LAYERS.length, THREE.RGBAFormat, THREE.FloatType);
     axTex.minFilter = axTex.magFilter = THREE.NearestFilter; axTex.needsUpdate = true;

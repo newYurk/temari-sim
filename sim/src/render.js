@@ -10,7 +10,7 @@ import { tubeMesh } from './tube.js';
 import { displayGeometry } from './display.js';
 import { t } from './i18n.js';
 import { WrapBaker } from './wrap-bake.js';
-import { WRAP_THREADS, WRAP_THREAD_DEFAULT } from './params.js';
+import { WRAP_THREADS, WRAP_THREAD_DEFAULT, threadLookOf, THREAD_LOOK_DEFAULT, JIWARI_LOOK_DEFAULT } from './params.js';
 
 const COLORS = { leg: 0x2f6bd6, pickup: 0xd6336c, 'hidden-start': 0x7a7a7a, current: 0xff8c00 };
 export const SET_COLORS = { A: 0x1f5fbf, B: 0xc2185b };   // set A blue, set B magenta (display defaults; recipe ribbon may override)
@@ -53,7 +53,7 @@ export function viridis(t) {
 }
 
 /** Трубка вдоль полилинии (геометрия — чистая tubeMesh из tube.js, её же проверяет V14), цвет по доле длины. */
-function tubeGeometry(pts, radius, colorAt, radial = 14, caps = true) {
+function tubeGeometry(pts, radius, colorAt, radial = 14, caps = true, look = null) {
   const m = tubeMesh(pts, radius, radial, caps);
   const col = [];
   for (const t of m.frac) { const c = colorAt(t); col.push(c.r, c.g, c.b); }
@@ -61,8 +61,32 @@ function tubeGeometry(pts, radius, colorAt, radial = 14, caps = true) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(m.pos.flat(), 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(m.nor.flat(), 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  g.setIndex(m.idx);
+  // #44: tubeMesh winds its triangles clockwise seen from outside (its normals point out), so with DoubleSide three.js
+  // took the outer faces as back faces and flipped their normals inward — threads were lit from inside (dark). Wind the
+  // index counter-clockwise for rendering (tube.js unchanged: V14 reads positions only).
+  const idx = [];
+  for (let q = 0; q < m.idx.length; q += 3) idx.push(m.idx[q], m.idx[q + 2], m.idx[q + 1]);
+  g.setIndex(idx);
+  // #44: around / along coordinates for the per-fragment ply shading of a thread look (TWIST_GLSL = twistShade)
+  if (look) { const tw = []; m.ang.forEach((a, k) => tw.push(a, m.arc[k])); g.setAttribute('aTw', new THREE.Float32BufferAttribute(tw, 2)); }
   return g;
+}
+
+/** #44: GLSL of twistShade (tube.js) — the same formula per fragment. */
+export const TWIST_GLSL = '{ float g = 0.5 - 0.5 * cos(uPlies * (vTw.x - 6.28318530718 * vTw.y / uPitch)); diffuseColor.rgb *= 1.0 - 0.55 * uTwist * smoothstep(0.55, 1.0, g); }';
+/** #44 (render only): thread material of a look — sheen / roughness / metalness of the type, ply twist per fragment,
+ *  an environment map for metallic types (without it metal renders black). */
+function lookMaterial(look, env, extra = {}) {
+  const mat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: look.roughness, metalness: look.metalness, sheen: look.sheen, sheenRoughness: 0.5,
+    sheenColor: new THREE.Color(0xffffff), side: THREE.DoubleSide, envMap: look.metalness > 0 ? env : null, envMapIntensity: 1.8, ...extra });
+  const u = { uTwist: { value: look.twist || 0 }, uPitch: { value: look.pitch_mm || 1 }, uPlies: { value: look.plies || 2 } };
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, u);
+    sh.vertexShader = 'attribute vec2 aTw;\nvarying vec2 vTw;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vTw = aTw;');
+    sh.fragmentShader = 'uniform float uTwist;\nuniform float uPitch;\nuniform float uPlies;\nvarying vec2 vTw;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  ' + TWIST_GLSL);
+  };
+  mat.customProgramCacheKey = () => 'thread-twist';
+  return mat;
 }
 
 /** Разбить полилинию на штрихи [dash, gap] по длине. */
@@ -145,6 +169,25 @@ export class Renderer {
     return o;
   }
 
+  /** #44: a small procedural environment (sky / ground gradient with two soft highlights) for metallic thread looks. */
+  envMap() {
+    if (this._env) return this._env;
+    const w = 128, h = 64, data = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const v = y / (h - 1), az = (x / w) * 2 * Math.PI;
+      let c = 0.55 + 0.65 * Math.min(1, Math.max(0, (v - 0.35) / 0.4));
+      c += 1.6 * Math.exp(-(((v - 0.78) / 0.07) ** 2 + ((Math.cos(az - 0.6) - 1) / 0.08) ** 2)) + 0.8 * Math.exp(-(((v - 0.6) / 0.1) ** 2 + ((Math.cos(az + 2.2) - 1) / 0.15) ** 2));
+      const k = 4 * (y * w + x), b = Math.min(255, Math.round(255 * c / 1.4));
+      data.set([b, b, Math.min(255, b + 6), 255], k);
+    }
+    const tex = new THREE.DataTexture(data, w, h);
+    tex.mapping = THREE.EquirectangularReflectionMapping; tex.needsUpdate = true;
+    const pm = new THREE.PMREMGenerator(this.renderer);
+    this._env = pm.fromEquirectangular(tex).texture;
+    pm.dispose(); tex.dispose();
+    return this._env;
+  }
+
   /** Статическая сцена: шар, разметка, булавки — из слоёв base/marking/layout. Полная пересборка при пересчёте. */
   buildStatic(A) {
     this.dispose(this.static);
@@ -161,42 +204,36 @@ export class Renderer {
     this.wrapJob = { C_mm: A.base.C, color: A.params.wrapColor || '#fbf8f1', type };
     const wrapMap = this.wrapBaker.cached(this.renderer, this.wrapJob);
     if (wrapMap) this.wrapJob = null;
-    const ballMat = new THREE.MeshStandardMaterial({
+    // #44: the wrap reads as a soft, dense layer — a cloth sheen lobe on top of the rough albedo (render only)
+    const ballMat = new THREE.MeshPhysicalMaterial({
       color: wrapMap ? 0xffffff : new THREE.Color(A.params.wrapColor || '#fbf8f1'), map: wrapMap,
-      roughness: 0.9 - 0.35 * (type.sheen || 0), metalness: 0,
+      roughness: 0.9 - 0.35 * (type.sheen || 0), metalness: 0, sheen: 0.45, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xffffff),
       polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 });
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(R, 160, 120), ballMat);
     this.ball.rotation.x = Math.PI / 2;   // полюса сферы three.js — по оси Y; в мире симулятора — по z
     g.add(this.ball);
-    // разметка: лента ширины m на поверхности
-    const gold = new THREE.MeshStandardMaterial({ color: 0xe0b43a, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide,
-      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    // #44: the marking (jiwari) is a round thread of its type — visual diameter jiwariDiameter_mm and colour jiwariColor
+    // (defaults from jiwariLook), sunk 30 % into the wrap; sheen / metalness / ply twist of the type. Render only: the model
+    // marking width m (geometry) is not drawn and not changed.
+    const JL = threadLookOf(A.params.jiwariLook, JIWARI_LOOK_DEFAULT);
+    const dJ = Number(A.params.jiwariDiameter_mm) > 0 ? Number(A.params.jiwariDiameter_mm) : JL.diameter_mm;
+    const jCol = new THREE.Color(A.params.jiwariColor || JL.color);
+    const gold = lookMaterial(JL, this.envMap());
     this.goldMat = gold;
-    const ribbon = (pts, sideVec) => {
-      const pos = [], idx = [];
-      pts.forEach((p, i) => {
-        const e = sideVec(p, i);
-        const a = mul(unit(add(p, mul(e, m / 2))), R + 0.02), b = mul(unit(add(p, mul(e, -m / 2))), R + 0.02);
-        pos.push(...a, ...b);
-        if (i > 0) { const k = 2 * i; idx.push(k - 2, k - 1, k, k - 1, k + 1, k); }
-      });
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      geo.setIndex(idx); geo.computeVertexNormals();
-      return new THREE.Mesh(geo, gold);
-    };
+    this.jiwariLook = { id: JL.id, diameter_mm: dJ, color: '#' + jCol.getHexString() };
+    const ribbon = (pts) => new THREE.Mesh(tubeGeometry(pts.map((p) => mul(unit(p), R + 0.2 * dJ)), dJ / 2, () => jCol, 10, false, JL), gold);
     // #52 commit 3: the marking lines come from the graph (every line = a full great circle, ribbon across its pole)
     const G = A.marking.graph;
     for (const L of Object.values(G.lines)) {
       const e1 = G.points[L.points[0].id].p, e2 = cross(L.n, e1), pts = [];
       for (let i = 0; i <= 960; i++) { const a = (i / 960) * 2 * Math.PI; pts.push(mul(add(mul(e1, Math.cos(a)), mul(e2, Math.sin(a))), R)); }
-      g.add(ribbon(pts, () => L.n));
+      g.add(ribbon(pts));
     }
     // circles that are not on a line (latitude / obi circles added to the graph)
     for (const Cc of Object.values(G.circles)) if (!Cc.onLine) {
       const c = Cc.c, u = unit(Math.abs(c[2]) < 0.9 ? cross([0, 0, 1], c) : cross([1, 0, 0], c)), v = cross(c, u), pts = [];
       for (let i = 0; i <= 720; i++) { const a = (i / 720) * 2 * Math.PI; pts.push(mul(add(mul(c, Math.cos(Cc.rho)), mul(add(mul(u, Math.cos(a)), mul(v, Math.sin(a))), Math.sin(Cc.rho))), R)); }
-      g.add(ribbon(pts, (p) => unit(cross(unit(p), cross(c, unit(p))))));
+      g.add(ribbon(pts));
     }
     // полюса
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
@@ -277,7 +314,10 @@ export class Renderer {
     const ids = new Set(ops.flatMap((o) => o.segIds));
     const curIds = new Set(cur ? cur.segIds : []);
     const curRound = path.rounds.find((r) => r.id === cur.round);
-    const matSolid = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide });
+    // #44: laid thread look by type (sheen, metalness, ply twist) — the tube diameter stays w (render only)
+    const TL = threadLookOf(A.params.threadLook, THREAD_LOOK_DEFAULT);
+    this.threadLook = TL.id;
+    const matSolid = lookMaterial(TL, this.envMap());
     // скрытые участки: светлее цвета своего обхода и полупрозрачны; канал иглы — сплошная тонкая трубка, скрытый старт — штрихи с заглушками
     const matHidden = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
     const matXray = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false });
@@ -290,7 +330,7 @@ export class Renderer {
       const s = dg.seg, pts = dg.pts, radius = dg.radius;
       const colorAt = this.colorFn(s, thr[s.thread]);
       if (!dg.hidden) {
-        g.add(new THREE.Mesh(tubeGeometry(pts, radius, colorAt), matSolid));
+        g.add(new THREE.Mesh(tubeGeometry(pts, radius, colorAt, 14, true, TL), matSolid));
       } else {
         const light = (x) => colorAt(x).clone().lerp(new THREE.Color(0xffffff), 0.45);
         if (s.type === 'pickup') {

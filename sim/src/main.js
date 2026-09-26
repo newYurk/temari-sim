@@ -3,7 +3,7 @@ import { loadRecipe, loadJSON, recipeUrl, RECIPE_PRESETS, RECIPE_DEFAULT } from 
 import { computeAll } from './layers.js';
 import { runValidators, summary, refKey } from './validators.js';
 import { runDiagnostics } from './diagnostics.js';
-import { PARAM_SCHEMA, uiDefaults, paramsFromQuery, groupLabel, paramLabel, paramUsed, statusLabel, optionLabel, WRAP_THREADS, wrapMuDefault } from './params.js';
+import { PARAM_SCHEMA, uiDefaults, paramsFromQuery, groupLabel, paramLabel, paramUsed, statusLabel, optionLabel, WRAP_THREADS, wrapMuDefault, THREAD_LOOKS } from './params.js';
 import { Renderer, viridis, warm, SET_COLORS, roundColor, applySetColors } from './render.js';
 import { t, fmtNum, applyDomI18n, getLocale, setLocale, onLocaleChange, validatorName } from './i18n.js';
 
@@ -135,8 +135,26 @@ function buildForm() {
       inp.addEventListener('change', () => { const mu = $('p_muWrap'); if (mu) mu.value = wrapMuDefault(inp.value); showInfo(); });
       showInfo();
     }
+    if (p.key === 'jiwariLook' || p.key === 'threadLook') {
+      // #44: the type's nominal diameter, status and source; a jiwari type resets the jiwari diameter and colour to its own
+      const info = document.createElement('div'); info.id = p.key + 'Info';
+      meta.appendChild(info);
+      const showInfo = () => { info.textContent = threadLookInfo(p.key, inp.value); };
+      inp.addEventListener('change', () => {
+        const L = THREAD_LOOKS[inp.value];
+        if (p.key === 'jiwariLook' && L) { const d = $('p_jiwariDiameter_mm'), c = $('p_jiwariColor'); if (d) d.value = L.diameter_mm; if (c) c.value = L.color; }
+        showInfo();
+      });
+      showInfo();
+    }
     row.append(lab, inp, meta); form.appendChild(row);
   }
+}
+function threadLookInfo(key, type) {
+  const L = THREAD_LOOKS[type];
+  if (!L) return '';
+  const w = Number(state.raw.w_mm) || 0.714;
+  return t(key === 'threadLook' ? 'look.thread.info' : 'look.jiwari.info', { d: f(L.diameter_mm, 2), status: statusLabel(L.status), source: L.source, w: f(w, 3) });
 }
 function wrapThreadInfo(type) {
   const w = WRAP_THREADS[type];

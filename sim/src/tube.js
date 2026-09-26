@@ -16,7 +16,7 @@ export function tubeMesh(pts, radius, radial = 14, caps = false) {
   const cum = [0];
   for (let i = 1; i < n; i++) cum.push(cum[i - 1] + dist(pts[i], pts[i - 1]));
   const total = cum[n - 1] || 1;
-  const pos = [], nor = [], frac = [], idx = [];
+  const pos = [], nor = [], frac = [], idx = [], ang = [], arc = [];   // #44: ang / arc — around / along (twist shading)
   for (let i = 0; i < n; i++) {
     if (i > 0) {
       const ax = cross(T[i - 1], T[i]), sn = norm(ax), cs = dot(T[i - 1], T[i]);
@@ -29,7 +29,7 @@ export function tubeMesh(pts, radius, radial = 14, caps = false) {
       const d = add(mul(nrm, Math.cos(a)), mul(bin, Math.sin(a)));
       pos.push(add(pts[i], mul(d, radius)));
       nor.push(d);
-      frac.push(cum[i] / total);
+      frac.push(cum[i] / total); ang.push(a); arc.push(cum[i]);
     }
   }
   for (let i = 0; i < n - 1; i++) for (let j = 0; j < radial; j++) {
@@ -45,7 +45,7 @@ export function tubeMesh(pts, radius, radial = 14, caps = false) {
         for (let j = 0; j <= radial; j++) {
           const v0 = pos[base + j], d0 = sub(v0, pts[i]);
           const d = add(mul(d0, Math.cos(a)), mul(t, radius * Math.sin(a)));
-          cur.push(pos.length); pos.push(add(pts[i], d)); nor.push(unit(d)); frac.push(cum[i] / total);
+          cur.push(pos.length); pos.push(add(pts[i], d)); nor.push(unit(d)); frac.push(cum[i] / total); ang.push(ang[base + j]); arc.push(cum[i]);
         }
         for (let j = 0; j < radial; j++) {
           if (sgn > 0) idx.push(prev[j], cur[j], prev[j + 1], cur[j], cur[j + 1], prev[j + 1]);
@@ -55,5 +55,14 @@ export function tubeMesh(pts, radius, radial = 14, caps = false) {
       }
     }
   }
-  return { pos, nor, frac, idx };
+  return { pos, nor, frac, idx, ang, arc };
+}
+
+/** #44 (render only): brightness factor of the ply shading at angle a around the tube and arc length s along it —
+ *  plies helical grooves of lay length pitch; depth twist ∈ [0, 1] (0 → 1 everywhere). Range [1 − 0.55·twist, 1]. */
+export function twistShade(a, s, { twist = 0, pitch_mm = 1, plies = 2 } = {}) {
+  if (!(twist > 0) || !(pitch_mm > 0)) return 1;
+  const ph = plies * (a - 2 * Math.PI * s / pitch_mm);
+  const g = 0.5 - 0.5 * Math.cos(ph), x = Math.max(0, Math.min(1, (g - 0.55) / 0.45));
+  return 1 - 0.55 * twist * x * x * (3 - 2 * x);   // = GLSL smoothstep(0.55, 1, g)
 }

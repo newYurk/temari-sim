@@ -13,7 +13,32 @@ export const GROUPS = {
   thread: 'c) Thread / material',
   process: 'd) Process',
   intent: 'e) Intent (layer “kiku, set A”)',
+  look: 'f) Look (render only)',
 };
+
+/** #44: thread look by thread type — RENDER ONLY. Nominal diameter, colour, sheen, twist per type. Geometry never reads
+ *  these: the laid thread keeps its width w (tube diameter = w), the marking its model width m; the jiwari look has its own
+ *  visual diameter (jiwariDiameter_mm) and colour (jiwariColor), defaulting to the chosen type. Diameters are estimates.
+ *  roughness / metalness / sheen → three.js MeshPhysicalMaterial; twist = depth of the ply shading (0…1), pitch_mm = lay
+ *  length of one ply turn, plies = number of plies. */
+export const THREAD_LOOKS = {
+  sewing: { label: 'sewing thread (thin, matte)', diameter_mm: 0.25, color: '#f4f0e6', roughness: 0.8, metalness: 0, sheen: 0.1, twist: 0.15, pitch_mm: 0.6, plies: 3,
+    status: 'estimate', source: 'Suess (book photo): thin marking close to the wrap; sewing thread #50–60 ≈ 0.2–0.3 mm (estimate)' },
+  'perle-8': { label: 'pearl cotton #8', diameter_mm: 0.5, color: '#f1e6cc', roughness: 0.45, metalness: 0, sheen: 0.3, twist: 0.55, pitch_mm: 1.1, plies: 2,
+    status: 'estimate', source: 'DMC Pearl Cotton #8 ≈ 0.5 mm (estimate); Temari Bunko 二色重ね菊: cream jiwari 0.6–0.8 mm, 4–5× the wrap strand' },
+  'perle-5': { label: 'pearl cotton #5', diameter_mm: 0.714, color: '#f1e6cc', roughness: 0.4, metalness: 0, sheen: 0.3, twist: 0.6, pitch_mm: 1.6, plies: 2,
+    status: 'default', source: 'DMC Pearl Cotton #5: materials/dmc-perle-5.json (w 0.714 mm, TK-GAUGE); twist visible at close range (Suess photo)' },
+  'metallic-gold': { label: 'metallic gold', diameter_mm: 0.5, color: '#d2a53a', roughness: 0.3, metalness: 0.85, sheen: 0, twist: 0.3, pitch_mm: 0.8, plies: 3,
+    status: 'estimate', source: 'Kreinik Fine #8 braid “approximately .50 mm” (spec 6a.22 — the m default); metallic gold marking in TemariKai patterns' },
+  'metallic-silver': { label: 'metallic silver', diameter_mm: 0.5, color: '#c9cdd3', roughness: 0.3, metalness: 0.85, sheen: 0, twist: 0.3, pitch_mm: 0.8, plies: 3,
+    status: 'estimate', source: 'Kreinik Fine #8 braid ≈ 0.5 mm; silver marking in Barb Suess 42-centre posts' },
+};
+export const JIWARI_LOOK_DEFAULT = 'metallic-gold';
+export const THREAD_LOOK_DEFAULT = 'perle-5';
+/** The look of a thread type (unknown → fallback type). */
+export function threadLookOf(type, fallback = THREAD_LOOK_DEFAULT) {
+  return THREAD_LOOKS[type] ? { id: type, ...THREAD_LOOKS[type] } : { id: fallback, ...THREAD_LOOKS[fallback] };
+}
 
 /** Mari outer-wrap (地巻き / jimaki) thread types (#41). The type sets the DEFAULT of μWrap (Φ3 reference mark,
  * not a law) and a nominal thread width; the user may override μWrap. Sources collected in #5 (2026-09-25):
@@ -152,6 +177,21 @@ export const PARAM_SCHEMA = [
     basis: 'TK-STRETCH, OLY-TM7-V «自然に交わる所» / TK-UWA “about 2mm”', status: 'intent', used: 'row plan' },
   { key: 'pitch_mm', group: 'intent', label: 'Fixed bottom pitch, mm', type: 'number', def: 2, min: 0.5, max: 10, step: 0.1,
     basis: 'TK-UWA “about 2mm … not a constant”', status: 'source', used: 'if “fixed”' },
+
+  // #44: look — render only (no layer reads these; stamps and the path are unchanged)
+  { key: 'threadLook', group: 'look', label: 'Laid thread look (type)', type: 'select', def: THREAD_LOOK_DEFAULT, options: Object.keys(THREAD_LOOKS),
+    optionLabels: Object.fromEntries(Object.entries(THREAD_LOOKS).map(([k, v]) => [k, v.label])),
+    basis: '#44: sheen and twist of the embroidery thread by type; the tube diameter stays the geometric w (one source of truth)', status: 'intent',
+    used: 'render only: sheen, twist shading of the laid thread' },
+  { key: 'jiwariLook', group: 'look', label: 'Marking (jiwari) look (type)', type: 'select', def: JIWARI_LOOK_DEFAULT, options: Object.keys(THREAD_LOOKS),
+    optionLabels: Object.fromEntries(Object.entries(THREAD_LOOKS).map(([k, v]) => [k, v.label])),
+    basis: '#44: metallic gold / silver, pearl cotton or thin sewing thread; Temari Bunko: 4–5× thicker than the wrap; Suess: thin, close to the wrap', status: 'intent',
+    used: 'render only: sets the default jiwari diameter and colour, sheen and twist' },
+  { key: 'jiwariDiameter_mm', group: 'look', label: 'Marking (jiwari) visual diameter, mm', type: 'number', def: THREAD_LOOKS[JIWARI_LOOK_DEFAULT].diameter_mm, min: 0.1, max: 1.5, step: 0.05,
+    basis: '#44: default from the jiwari type (estimate); the model marking width m (geometry) is a separate input', status: 'estimate',
+    used: 'render only: jiwari thread diameter' },
+  { key: 'jiwariColor', group: 'look', label: 'Marking (jiwari) colour', type: 'color', def: THREAD_LOOKS[JIWARI_LOOK_DEFAULT].color,
+    basis: '#44: default from the jiwari type', status: 'intent', used: 'render only: jiwari colour' },
 ];
 
 /** English canonical status labels; UI resolves via i18n. */
@@ -237,6 +277,7 @@ export function defaults(raw = {}) {
   const o = {};
   for (const p of PARAM_SCHEMA) o[p.key] = p.def;
   if (raw.wrapThread !== undefined) o.muWrap = wrapMuDefault(raw.wrapThread);
+  if (raw.jiwariLook !== undefined) { const L = threadLookOf(raw.jiwariLook, JIWARI_LOOK_DEFAULT); o.jiwariDiameter_mm = L.diameter_mm; o.jiwariColor = L.color; }
   return o;
 }
 
@@ -249,6 +290,12 @@ export function normalizeParams(raw = {}) {
   if (src.mu !== undefined && src.muThread === undefined) src.muThread = src.mu;
   // #41: μWrap not given → the default of the wrap-thread type (0.32 for the default type, unchanged).
   if ((src.muWrap === undefined || src.muWrap === '') && src.wrapThread !== undefined) src.muWrap = wrapMuDefault(src.wrapThread);
+  // #44: jiwari diameter / colour not given → the jiwari type's (render only)
+  if (src.jiwariLook !== undefined) {
+    const L = threadLookOf(src.jiwariLook, JIWARI_LOOK_DEFAULT);
+    if (src.jiwariDiameter_mm === undefined || src.jiwariDiameter_mm === '') src.jiwariDiameter_mm = L.diameter_mm;
+    if (src.jiwariColor === undefined || src.jiwariColor === '') src.jiwariColor = L.color;
+  }
   const out = {};
   const errors = [];
   for (const p of PARAM_SCHEMA) {
