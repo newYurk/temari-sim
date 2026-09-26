@@ -69,12 +69,21 @@ export class WrapBaker {
     this.scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat));
   }
 
+  /** Cache key of a bake job for the current renderer size class. */
+  keyFor(gl, { C_mm, color, type }) {
+    return `${color}:${type.id}:${type.width_mm}:${type.hair}:${C_mm}:${bakeSizeFor(gl).w}`;
+  }
+  /** The already baked texture for this job, or null (#43: lets the first frame reuse it without a bake). */
+  cached(gl, job) {
+    return this.rt && this.key === this.keyFor(gl, job) ? this.rt.texture : null;
+  }
+
   /** Bake (only if colour / type / size changed). Returns the texture. */
   bake(gl, { C_mm, color, type }) {
     const size = bakeSizeFor(gl);
     const cover = sewCover(C_mm, type.width_mm);
     const wraps = Math.min(cover.wraps, WRAP_GPU_MAX);
-    const key = `${color}:${type.id}:${type.width_mm}:${type.hair}:${C_mm}:${size.w}`;
+    const key = this.keyFor(gl, { C_mm, color, type });
     if (key === this.key && this.rt) return this.rt.texture;
     this.key = key;
     if (!this.rt || this.rt.width !== size.w) {

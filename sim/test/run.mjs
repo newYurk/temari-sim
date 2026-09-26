@@ -1654,6 +1654,56 @@ if (G('8l'))
   }
 }
 
+if (G('8m'))
+{
+  console.log('\n## #43 deferred validator summary: worker job === synchronous runValidators');
+  const { computeAll: computeFresh } = await import('../src/layers.js');
+  const { validateJob } = await import('../src/validate-job.js');
+  const { getLocale, setLocale, t: tr } = await import('../src/i18n.js');
+  const loc0 = getLocale();
+  const cases = [['default', {}], ['λ0.32', { shoulderForm: 'bow', bowLambda: 0.32 }], ['λ0.6', { shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6 }]];
+  for (const [name, raw] of cases) {
+    const A = computeFresh(recipe, raw);   // what main.js builds before the first frame
+    for (const stage of ['all', 'A2']) {
+      const Vsync = runValidators(A, stage, ref);   // the pre-#43 synchronous call
+      const job = structuredClone({ recipe, ref, raw, stage, locale: getLocale() });   // what postMessage carries
+      const out = structuredClone(validateJob(job));   // and what comes back
+      const a = JSON.stringify(Vsync), b = JSON.stringify(out.V);
+      const s = summary(out.V);
+      check(a === b, `#43 ${name} stage ${stage}: job V === sync V (${Vsync.length} validators, pass ${s.pass} / fail ${s.fail} / warn ${s.warn} / info ${s.info}; ${a.length} B JSON)`);
+    }
+  }
+  // the exact minDist prune (V8 / K-checks): same validator output as the plain O(n·m) scan
+  {
+    const { setMinDistPlain } = await import('../src/validators.js');
+    for (const [name, raw] of [cases[0], cases[1]]) {
+      const A = computeFresh(recipe, raw);
+      const pr = JSON.stringify(runValidators(A, 'all', ref));
+      setMinDistPlain(true);
+      const pl = JSON.stringify(runValidators(A, 'all', ref));
+      setMinDistPlain(false);
+      check(pr === pl, `#43 ${name} stage all: pruned minDist === plain scan (every validator value)`);
+    }
+  }
+  // the worker module itself: the message round trip with a stub self
+  {
+    let got = null;
+    globalThis.self = { postMessage: (m) => { got = structuredClone(m); } };
+    await import('../src/validate-worker.js');
+    const raw = { shoulderForm: 'bow', bowLambda: 0.32 };
+    globalThis.self.onmessage({ data: structuredClone({ id: 7, recipe, ref, raw, stage: 'all', locale: 'en' }) });
+    delete globalThis.self;
+    setLocale('en');
+    const Vsync = runValidators(computeFresh(recipe, raw), 'all', ref);
+    check(got && got.id === 7 && !got.error && JSON.stringify(got.V) === JSON.stringify(Vsync) && got.computeMs >= 0 && got.validateMs >= 0,
+      `#43 validate-worker.js message round trip (id, EN texts) === sync V${got && got.error ? ': ' + got.error : ''}`);
+  }
+  setLocale('ru'); const ru = tr('vsum.running', { stage: 'A2' }, '∅');
+  setLocale('en'); const en = tr('vsum.running', { stage: 'A2' }, '∅');
+  setLocale(loc0);
+  check(ru === 'этап A2: проверки считаются…' && en === 'stage A2: checks are running…', `#43 running note RU «${ru}» / EN «${en}»`);
+}
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');

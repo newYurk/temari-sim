@@ -149,13 +149,14 @@ export class Renderer {
     this.R = R;
     // #42: the mari wrap is drawn as wound thread — a baked great-circle texture (colour #41 wrapColor, look by wrapThread)
     // used as the albedo map of the lit ball material; baked once per colour / type / size, not per frame.
+    // #43: the bake is NOT done here — the first frame shows the plain wrap colour and main.js calls bakeWrap() after
+    // it has been painted (a cached texture of the same colour / type / size is applied at once).
     const wt = A.params.wrapThread in WRAP_THREADS ? A.params.wrapThread : WRAP_THREAD_DEFAULT;
     const type = { id: wt, ...WRAP_THREADS[wt] };
-    let wrapMap = null;
-    try {
-      this.wrapBaker = this.wrapBaker || new WrapBaker();
-      wrapMap = this.wrapBaker.bake(this.renderer, { C_mm: A.base.C, color: A.params.wrapColor || '#fbf8f1', type });
-    } catch (e) { console.warn('[wrap] bake failed, plain ball', e); }
+    this.wrapBaker = this.wrapBaker || new WrapBaker();
+    this.wrapJob = { C_mm: A.base.C, color: A.params.wrapColor || '#fbf8f1', type };
+    const wrapMap = this.wrapBaker.cached(this.renderer, this.wrapJob);
+    if (wrapMap) this.wrapJob = null;
     const ballMat = new THREE.MeshStandardMaterial({
       color: wrapMap ? 0xffffff : new THREE.Color(A.params.wrapColor || '#fbf8f1'), map: wrapMap,
       roughness: 0.9 - 0.35 * (type.sheen || 0), metalness: 0,
@@ -340,6 +341,20 @@ export class Renderer {
     this.camera.zoom = z; this.camera.updateProjectionMatrix();
     if (focus) { const f = new THREE.Vector3(focus[0], focus[2], -focus[1]); this.controls.target.copy(f); this.camera.lookAt(f); }
     this.controls.update(); this.draw();
+  }
+
+  /** #43: bake the pending wrap texture (after the first frame) and put it on the current ball. Returns true when the
+   *  ball carries the baked texture (or there was nothing to bake); a failed bake keeps the plain colour. */
+  bakeWrap() {
+    const job = this.wrapJob;
+    if (!job || !this.ball) return true;
+    this.wrapJob = null;
+    let map = null;
+    try { map = this.wrapBaker.bake(this.renderer, job); } catch (e) { console.warn('[wrap] bake failed, plain ball', e); return false; }
+    const mat = this.ball.material;
+    mat.map = map; mat.color.set(0xffffff); mat.needsUpdate = true;
+    this.draw();
+    return true;
   }
 
   draw() {

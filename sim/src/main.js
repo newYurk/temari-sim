@@ -159,8 +159,7 @@ function recompute(first = false) {
   console.info(`[sim] computeAll ${window.__sim.buildMs.toFixed(0)} ms`);
   const errs = A.params._errors;
   $('perr').textContent = errs.length ? t('err.inputs', { errs: errs.join('; ') }) : '';
-  R3.buildStatic(A);
-  window.__sim.wrapBake = R3.wrapBaker?.info || null;   // #42: bake size / time for headless checks
+  R3.buildStatic(A);   // #43: plain wrap colour first (or a cached bake); the bake itself runs after the first frame
   if (first) {
     R3.view(state.view, A.base.R, q.has('dist') ? Number(q.get('dist')) : null, q.has('dir') ? q.get('dir').split(',').map(Number) : null);
     const fq = q.get('focus');
@@ -169,9 +168,104 @@ function recompute(first = false) {
     if (state.zoom !== 1 || focus) R3.zoomTo(state.zoom, focus);
   }
   setStage(state.stage, first && state.k !== null ? state.k : null);
+  scheduleWrapBake();
   const rp = A.rowPlan;
   const rows = rp.rows.map((r) => t('plan.rowItem', { n: r.n, sTop: f(r.sTop, 2), sBot: f(r.sBot, 2) })).join('; ');
   $('plan').innerHTML = t('plan.rows', { n: rp.nRows, rows });
+}
+
+// ---- #43: deferred work — the ball and threads are drawn first, then (after that frame is painted) the wrap bake and
+// the validator summary. Every run carries an id; a newer recompute / stage change makes older results stale (ignored,
+// a busy worker is terminated). Results are the same runValidators output as before, only later.
+const afterPaint = (fn) => requestAnimationFrame(() => setTimeout(fn, 0));
+let bakeRun = 0;
+// The bake blocks the main thread (GPU readback); a dedicated worker only receives its job once the main thread is
+// free, so the bake waits until the worker has acknowledged the validator job (or 2 s, or the main-thread fallback ran).
+let valStarted = Promise.resolve(), valStartedResolve = () => {};
+function scheduleWrapBake() {
+  const id = ++bakeRun;
+  window.__sim.wrapBaked = false;
+  const gate = Promise.race([valStarted, new Promise((r) => setTimeout(r, 2000))]);
+  afterPaint(() => gate.then(() => setTimeout(() => {
+    if (id !== bakeRun) return;
+    const ok = R3.bakeWrap();
+    window.__sim.wrapBake = R3.wrapBaker?.info || null;   // #42: bake size / time for headless checks
+    window.__sim.wrapBaked = ok;
+    window.__sim.tBaked = performance.now();
+  }, 0)));
+}
+
+let valRun = 0, valCtx = null, valWorker = null, valBusy = false, workerBroken = typeof Worker === 'undefined';
+function applyValidation(id, V1, ms, how) {
+  if (id !== valRun) return;
+  valStartedResolve();
+  V = V1;
+  renderValidators();
+  renderLengths();
+  window.__sim.summary = summary(V);
+  window.__sim.validateMs = ms;
+  window.__sim.validateVia = how;
+  window.__sim.validated = true;
+  window.__sim.tValidated = performance.now();
+  console.info(`[sim] validators (${how}) ${ms.toFixed(0)} ms`);
+}
+function validateOnMain(id, A0, stage) {
+  if (id !== valRun) return;
+  const t0 = performance.now();
+  const V1 = runValidators(A0, stage, ref);
+  applyValidation(id, V1, performance.now() - t0, 'main');
+}
+/** The validator worker (module); created once at start-up so its modules load while the main thread builds the
+ *  first frame (a worker started later waits for the main thread, i.e. behind the wrap bake). */
+function ensureWorker() {
+  if (workerBroken || valWorker) return valWorker;
+  try {
+    valWorker = new Worker(new URL('./validate-worker.js', import.meta.url), { type: 'module' });
+  } catch (e) {
+    console.warn('[sim] validator worker unavailable, running on the main thread:', e);
+    workerBroken = true; valWorker = null; return null;
+  }
+  valWorker.onmessage = (e) => {
+    const d = e.data;
+    if (d.id !== valRun) return;   // stale
+    if (d.ack) { valStartedResolve(); return; }
+    valBusy = false;
+    if (d.error) { console.warn('[sim] validator worker failed, running on the main thread:', d.error); validateOnMain(d.id, valCtx.A0, valCtx.stage); return; }
+    window.__sim.workerRecv = d.recvAt != null ? d.recvAt - performance.timeOrigin : null;   // page time the worker got the job
+    applyValidation(d.id, d.V, d.computeMs + d.validateMs, 'worker');
+  };
+  valWorker.onerror = (e) => {
+    console.warn('[sim] validator worker unavailable, running on the main thread:', e.message || e);
+    e.preventDefault?.();
+    workerBroken = true; valBusy = false; valWorker = null;
+    if (valCtx) validateOnMain(valCtx.id, valCtx.A0, valCtx.stage);
+  };
+  return valWorker;
+}
+function scheduleValidation() {
+  const id = ++valRun, A0 = A, stage = state.stage;
+  valCtx = { id, A0, stage };
+  valStarted = new Promise((r) => { valStartedResolve = r; });
+  V = null;
+  window.__sim.validated = false;
+  window.__sim.summary = null;
+  afterPaint(() => {
+    if (id !== valRun) return;
+    if (valBusy && valWorker) { valWorker.terminate(); valWorker = null; valBusy = false; }   // stale run still computing
+    const wk = ensureWorker();
+    if (wk) {
+      try {
+        valBusy = true;
+        window.__sim.validatePosted = performance.now();
+        wk.postMessage({ id, recipe, ref, raw: state.raw, stage, locale: getLocale() });
+        return;
+      } catch (e) {
+        console.warn('[sim] validator worker unavailable, running on the main thread:', e);
+        workerBroken = true; valBusy = false; valWorker = null;
+      }
+    }
+    validateOnMain(id, A0, stage);
+  });
 }
 
 /** Stage id for captions; 'all' is shown by its localized name (RU «весь узор»). */
@@ -182,7 +276,7 @@ function setStage(stage, k = null) {
   const kEnd = A.path.stageEnd[stage];
   $('step').max = kEnd;
   state.k = k === null ? kEnd : Math.max(0, Math.min(kEnd, k));
-  V = runValidators(A, stage, ref);
+  scheduleValidation();   // #43: after the first frame (worker); V = null until then
   D = runDiagnostics(A);
   renderValidators();
   renderDiagnostics();
@@ -198,9 +292,10 @@ function update() {
   renderLegend();
   renderCaption();
   syncURL();
+  if (!window.__sim.ready) window.__sim.tReady = performance.now();   // #43: page time of the first frame
   window.__sim.ready = true;
   window.__sim.k = state.k; window.__sim.stage = state.stage;
-  window.__sim.summary = summary(V);
+  window.__sim.summary = V ? summary(V) : null;
   window.__sim.diagnostics = D;
   window.__sim.locale = getLocale();
   window.__sim.recipePreset = recipePreset;
@@ -249,7 +344,7 @@ function renderLengths() {
     rows.push([t('len.threadTot', { t: thr, k: state.k, used: f(used, 1), mass: f(tot * A.params.tex / 1e6, 3) }), `<b>${f(tot)}</b>`]);
   }
   let html = rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b} ${getLocale() === 'ru' ? 'мм' : 'mm'}</td></tr>`).join('');
-  const v3 = V.find((v) => v.id === 'V3');
+  const v3 = V && V.find((v) => v.id === 'V3');
   if (v3 && v3.numbers) {
     const d = Math.abs(v3.numbers.rowLen - v3.numbers.refLen);
     html += `<tr class="${d < 1e-6 ? 'ok' : ''}"><td>${t('len.v3')}</td><td class="n">${f(v3.numbers.refLen)} ${getLocale() === 'ru' ? 'мм' : 'mm'} · Δ ${d.toExponential(1)}</td></tr>`;
@@ -266,6 +361,11 @@ function renderLengths() {
 }
 
 function renderValidators() {
+  if (!V) {   // #43: checks still running (worker) — visible note, empty list
+    $('vsum').innerHTML = `<span class="vsum-running">${t('vsum.running', { stage: stageName(state.stage) })}</span>`;
+    $('validators').innerHTML = '';
+    return;
+  }
   const s = summary(V);
   $('vsum').innerHTML = t('vsum', { stage: stageName(state.stage), pass: s.pass, fail: s.fail, warn: s.warn, info: s.info, na: s['n/a'] });
   $('validators').innerHTML = V.map((v) => `<li><span class="badge b-${v.status === 'n/a' ? 'na' : v.status}">${v.status}</span><b>${v.id}. ${validatorName(v)}</b><div class="val">${v.value}</div><div class="crit">${v.crit}</div></li>`).join('');
@@ -477,4 +577,5 @@ syncLangToggle();
 renderRecipeMeta();
 syncColorInputs();
 buildForm();
+ensureWorker();   // #43: warm the validator worker before the first build
 recompute(true);

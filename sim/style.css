@@ -129,3 +129,6 @@ form .st-default { color: #b35c00; } form .st-stored { color: #888; } form .st-s
   form .prm { grid-template-columns: minmax(0, 1fr) 110px; }
   .tbl { table-layout: auto; }
 }
+
+/* #43: validator summary still running (worker, after the first frame) */
+.vsum-running { color: #6b6b6b; font-style: italic; }

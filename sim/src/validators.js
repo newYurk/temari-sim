@@ -245,7 +245,32 @@ function bbox(pts) {
   return { lo, hi };
 }
 const boxGap = (a, b) => Math.max(0, a.lo[0] - b.hi[0], b.lo[0] - a.hi[0], a.lo[1] - b.hi[1], b.lo[1] - a.hi[1], a.lo[2] - b.hi[2], b.lo[2] - a.hi[2]);
-function minDist(A, B) {
+// #43: minDist with an exact branch-and-bound prune. Segments are grouped in chunks of MD_CHUNK with axis-aligned
+// bounding boxes; a (chunk of A) × (chunk of B) block is skipped only when the box gap exceeds the current best by
+// MD_EPS, where no segment pair inside can reach r.d < best.d (segment distance ≥ box gap; MD_EPS ≫ rounding).
+// Pairs are still visited in the same i-then-j order with the same strict '<', so the winner (d, cp, cq, i, j) is
+// identical to the plain O(n·m) scan (test 8m compares both on every validator output).
+const MD_CHUNK = 16, MD_EPS = 1e-9;
+const mdChunks = new WeakMap();
+function chunkBoxes(P) {
+  let c = mdChunks.get(P);
+  if (c) return c;
+  c = [];
+  for (let j0 = 1; j0 < P.length; j0 += MD_CHUNK) {
+    const j1 = Math.min(P.length - 1, j0 + MD_CHUNK - 1);
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let j = j0 - 1; j <= j1; j++) for (let a = 0; a < 3; a++) { const x = P[j][a]; if (x < lo[a]) lo[a] = x; if (x > hi[a]) hi[a] = x; }
+    c.push({ j0, j1, lo, hi });
+  }
+  mdChunks.set(P, c);
+  return c;
+}
+function chunkGap(a, b) {
+  let g2 = 0;
+  for (let k = 0; k < 3; k++) { const d = Math.max(a.lo[k] - b.hi[k], b.lo[k] - a.hi[k], 0); g2 += d * d; }
+  return Math.sqrt(g2);
+}
+function minDistPlain(A, B) {
   let best = { d: Infinity };
   for (let i = 1; i < A.length; i++) for (let j = 1; j < B.length; j++) {
     const r = segSegDist(A[i - 1], A[i], B[j - 1], B[j]);
@@ -253,6 +278,27 @@ function minDist(A, B) {
   }
   return best;
 }
+function minDist(A, B) {
+  if (MIN_DIST_PLAIN) return minDistPlain(A, B);
+  let best = { d: Infinity };
+  const ca = chunkBoxes(A), cb = chunkBoxes(B);
+  const gap = new Float64Array(cb.length);
+  for (const a of ca) {
+    for (let q = 0; q < cb.length; q++) gap[q] = chunkGap(a, cb[q]);
+    for (let i = a.j0; i <= a.j1; i++) for (let q = 0; q < cb.length; q++) {
+      if (gap[q] > best.d + MD_EPS) continue;
+      const b = cb[q];
+      for (let j = b.j0; j <= b.j1; j++) {
+        const r = segSegDist(A[i - 1], A[i], B[j - 1], B[j]);
+        if (r.d < best.d) best = { ...r, i, j };
+      }
+    }
+  }
+  return best;
+}
+/** Test hook (#43, group 8m): true → minDist uses the plain O(n·m) scan, for the equality check. */
+let MIN_DIST_PLAIN = false;
+export function setMinDistPlain(v) { MIN_DIST_PLAIN = !!v; }
 function ptPolyDist(p, B) {
   let d = Infinity;
   for (let j = 1; j < B.length; j++) d = Math.min(d, segSegDist(p, p, B[j - 1], B[j]).d);
