@@ -1872,6 +1872,30 @@ if (G('8n'))
     `#25 v6Metrics on mutated geometry: clean vertex 1e−5 mm → ${g1}; i1 bottom +0.6w → ${g2}; closing xOff −0.2w → dev ${fmt(g3.dev / w, 3)}w; restored → ${g4}`);
 }
 
+// 8o. #4 diagnostics (refs #4): the top-width growth decomposition sums to the actual increment W_n − W_(n−1) within
+// 1e−6 mm, for all 6 configs, both sets, both sides; the D4 entry is info-only.
+if (G('8o'))
+{
+  console.log('\n## #4 top-width growth decomposition (D4)');
+  const { widthDecomposition, u14Onset } = await import('../src/diag-width.js');
+  for (const m of [0.5, 1]) for (const lam of [0, 0.32, 0.6]) {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: m, rowsMode: 'untilEquator', shoulderForm: lam ? 'bow' : 'geodesic', bowLambda: lam, muWrap: Math.max(0.32, lam) });
+    const D = widthDecomposition(A), U = u14Onset(A);
+    const sets = [...new Set(D.map((x) => x.set))];
+    let worst = 0, n = 0;
+    for (const x of D) {
+      const sum = x.drift + x.halfTrace + x.clearance + x.merge;
+      worst = Math.max(worst, Math.abs(x.dW - sum), Math.abs(x.W - x.Wp - x.dW),
+        ...[x.E, x.X].map((t) => Math.abs(t.delta - (t.drift + t.halfTrace + t.clearance + t.merge))));
+      n++;
+    }
+    const V = runValidators(A, 'all', null), d4 = V.find((v) => v.id === 'D4');
+    console.log(`  m${m} λ${lam}: ${n} rows (${sets.join('/')}), max |ΔW − Σ terms| ${worst.toExponential(1)} mm; U14 n₀ ${U.map((u) => `${u.set} obs ${u.observed.any ?? '—'} causal ${u.causal?.n0 ?? '—'}`).join(', ')}`);
+    check(n > 0 && sets.length === 2 && worst <= 1e-6 && d4 && d4.status === 'info',
+      `#4 D4 m${m} λ${lam}: decomposition sums to W_n − W_(n−1) within 1e−6 mm (both sets, ${n} rows; worst ${worst.toExponential(1)} mm), info-only`);
+  }
+}
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');

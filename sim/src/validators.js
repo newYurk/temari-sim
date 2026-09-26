@@ -6,6 +6,7 @@ import { dist, norm, toSPhi, dot, unit, sub, mul, ePole, eEast, haversineLen, po
 import { prefix } from './layers.js';
 import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
 import { tubeMesh } from './tube.js';
+import { widthDecomposition, u14Onset } from './diag-width.js';
 
 const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : String(x));
 
@@ -1244,6 +1245,19 @@ export function runValidators(A, stage = '2b', ref = null) {
           `. Source readings: +w in total = ${f(w, 3)}, +w on each side = ${f(2 * w, 3)} mm. ${inside ? 'All rows within reading band.' : 'Rows marked ⚠ outside band: row 2 — row-1 legs cross the new top perpendicular near the line axis (small); rows ≥ 3 — legs diverge from the tip, needle must go around them outside (large); see A8, U3, U13.'}`,
         numbers: { rows, per } });
     }
+  }
+  // D4 — diagnostic for #4 (not a pass/fail): top-width growth W_n − W_(n−1) decomposed exactly by the cluster construction
+  // (drift of the edge thread ≈ w·tan βT, half trace ≈ (w/2)/cos βT, clearance w/2 | gap/2, merge with the previous edge),
+  // and the U14 onset row n₀ observed vs causal (the other set's legs crossing the top-hole track). See diag-width.js.
+  {
+    const dec = widthDecomposition(A), u14 = u14Onset(A);
+    const byRow = (set) => dec.filter((x) => x.set === set && x.row <= 4)
+      .map((x) => `n${x.row}: ΔW ${f(x.dW / w, 2)}w = drift ${f(x.drift / w, 2)} + trace ${f(x.halfTrace / w, 2)} + clear ${f(x.clearance / w, 2)} + merge ${f(x.merge / w, 2)} (edge ${x.E.edgeKind === 'marking' ? 'marking' : `${x.E.edgeRound}.i${x.E.edgeStitch}`}, βT ${x.E.betaDeg == null ? '—' : f(x.E.betaDeg, 1)}°)`).join('; ');
+    const onset = u14.map((u) => `${u.set}: U14 from row ${u.observed.any ?? '—'} (legs ${u.observed.legCrossing ?? '—'}, same-level span ${u.observed.sameLevelSpan ?? '—'}); causal legs ${u.causal?.n0 ?? '—'}`).join('; ');
+    add({ id: 'D4', name: 'Top-width growth decomposition and U14 onset (diagnostic, #4)',
+      crit: 'diagnostic only — no pass/fail; terms sum exactly to the actual increment',
+      status: 'info', value: [...new Set(dec.map((x) => x.set))].map((set) => `${set} ${byRow(set)}`).join(' | ') + (onset ? ` | ${onset}` : ''),
+      numbers: { decomposition: dec, u14 } });
   }
   // V14 — visible thread lies on the ball, does not float (model and displayed mesh)
   {
