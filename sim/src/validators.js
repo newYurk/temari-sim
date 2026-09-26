@@ -1198,7 +1198,9 @@ export function runValidators(A, stage = '2b', ref = null) {
   //   (1) own set (own cluster: same line + set; own set on another line likewise) → fail (G3/G11 bug)
   //   (2) other set, any class → warn U14 «set collision»: the needle passes UNDER it (§5.3); never a fail.
   // Causal diagnostics: geometric collision-start row on a line = first n with W_n/2 + w/2 ≥ d(s_T(n)), d = distance
-  // to the nearest other-set leg at that level over the ALREADY LAID polylines (#26); observed earlier → printed.
+  // to the nearest other-set thread at that level over the ALREADY LAID polylines (#26) — every class checkHole sees
+  // (legs and channels projected to the surface; #38 follow-up, §5.3 items 1–2: foreign thread of any class);
+  // observed earlier → printed.
   {
     let minMargin = Infinity, worst = null, nHoles = 0;
     let failOwn = 0, failForeign = 0, warnU14 = 0, badNoRoom = 0;
@@ -1209,7 +1211,8 @@ export function runValidators(A, stage = '2b', ref = null) {
     const sTop0 = A.layout?.sTop ?? A.params.sTop_mm ?? 5;
     const phis = A.marking?.phis || [];
     const foreignLatCache = new Map();
-    /** Lateral |y| on the needle line at tip level to nearest other-set leg (6a.21 d(s_T)). */
+    /** Lateral |y| on the needle line at tip level to the nearest already laid other-set thread, legs and channels
+     *  (6a.21 d(s_T); the same classes as checkHole — #38 follow-up). */
     const foreignLatAt = (line, sT, ownSet, idxSeg = Infinity) => {
       if (!(line >= 0) || line >= phis.length || !(sT > 0)) return Infinity;
       const key = `${ownSet}:${line}:${sT.toFixed(4)}:${idxSeg}`;
@@ -1223,7 +1226,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       };
       let dMin = Infinity;
       for (const L of segs) {
-        if (L.type !== 'leg' || L.set === ownSet || !L.pts || L.pts.length < 2 || !(order.get(L.id) < idxSeg)) continue;
+        if ((L.type !== 'leg' && L.type !== 'pickup') || L.set === ownSet || !L.pts || L.pts.length < 2 || !(order.get(L.id) < idxSeg)) continue;
         for (let i = 1; i < L.pts.length; i++) {
           const a = coord(L.pts[i - 1]), b = coord(L.pts[i]);
           if (!(a.f * b.f <= 0 || Math.min(Math.abs(a.f), Math.abs(b.f)) < w)) continue;

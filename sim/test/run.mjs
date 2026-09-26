@@ -1550,10 +1550,10 @@ if (G('8i'))
     const v = runValidators(A, A.path.ops.length - 1, null).find((x) => x.id === 'V16');
     const n = v.numbers || {};
     check((n.failOwn || 0) === 0, `λ=${lambda}: no own-cluster V16 fails (G3/G11)`);
-    // spec v3.2 §6.9 (#38): an observed collision earlier than the causal geometric start is printed for analysis
-    // (transition / closing legs are legal causes), not a fail.
-    if (n.earlyObs) console.log(`  λ=${lambda}: observed earlier than causal geo start (diagnostic): ${n.earlyList.join(', ')}`);
-    // Foreign-early fails would be path bugs; allow 0. Status may be warn (U14) or pass.
+    // #38 follow-up: the causal geometric start counts every class of already laid foreign thread (legs and channels,
+    // as checkHole), so no U14 is observed earlier than it.
+    check((n.earlyObs || 0) === 0, `λ=${lambda}: no U14 observed earlier than the causal geometric start (got ${n.earlyObs}${n.earlyObs ? ': ' + n.earlyList.join(', ') : ''})`);
+    // Status may be warn (U14) or pass; pierced non-top / start holes would be path bugs.
     check(v.status === 'pass' || v.status === 'warn', `λ=${lambda}: V16 pass/warn not fail (got ${v.status}: ${v.value.slice(0, 120)})`);
     check((n.failForeign || 0) === 0, `λ=${lambda}: no foreign-early V16 fails (got ${n.failForeign})`);
     const geoB = Object.entries(n.geoFirst || {}).filter(([k]) => k.startsWith('B:')).map(([, r]) => r);
@@ -1571,20 +1571,49 @@ if (G('8i'))
 if (G('8j'))
 {
   console.log('\n## #38 §5.3 top-hole set collision: other set out of cluster');
-  const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0, rowsMode: 'untilEquator' });
-  const top = (set, row) => A.path.stitches.filter((q) => q.level === 'top' && q.set === set && A.path.rounds.find((r) => r.id === q.round).row === row);
-  for (const row of [4, 5]) {
-    const wA = top('A', row).map((q) => q.eOff - q.xOff), wB = top('B', row).map((q) => q.eOff - q.xOff);
-    const dev = Math.max(...wB.map((x) => Math.abs(x - wA[0])), ...wA.map((x) => Math.abs(x - wA[0])));
-    check(wA.length > 0 && wB.length > 0 && dev < 1e-6, `geo m0.5 row ${row}: B top width = A top width (A ${wA[0]?.toFixed(3)}, max dev ${dev.toExponential(1)})`);
+  const w = 0.714;
+  for (const [lambda, m] of [[0, 0.5], [0, 1.0], [0.32, 0.5], [0.32, 1.0], [0.6, 0.5], [0.6, 1.0]]) {
+    const tag = `${lambda ? 'λ' + lambda : 'geo'} m${m}`;
+    const A = computeAll(recipe, { C_mm: 240, w_mm: w, m_mm: m, shoulderForm: lambda ? 'bow' : 'geodesic', bowLambda: lambda, muWrap: Math.max(lambda, 0.32), rowsMode: 'untilEquator' });
+    const segById = new Map(A.path.segs.map((x) => [x.id, x]));
+    const tops = A.path.stitches.filter((q) => q.level === 'top');
+    if (lambda === 0 && m === 0.5) {
+      const top = (set, row) => tops.filter((q) => q.set === set && q.row === row);
+      for (const row of [4, 5]) {
+        const wA = top('A', row).map((q) => q.eOff - q.xOff), wB = top('B', row).map((q) => q.eOff - q.xOff);
+        const dev = Math.max(...wB.map((x) => Math.abs(x - wA[0])), ...wA.map((x) => Math.abs(x - wA[0])));
+        check(wA.length > 0 && wB.length > 0 && dev < 1e-6, `${tag} row ${row}: B top width = A top width (A ${wA[0]?.toFixed(3)}, max dev ${dev.toExponential(1)})`);
+      }
+    }
+    const foreignInCluster = tops.some((q) => q.sides.cluster.some((c) => c.seg !== 'marking' && segById.get(c.seg)?.set !== q.set));
+    check(!foreignInCluster, `${tag}: no other-set thread in any top-hole cluster`);
+    // completeness: every foreign occupancy excluded from the cluster whose interval covers a hole is recorded once
+    // (side, segment, d < w/2, inSpan flag); nothing else is recorded.
+    let covered = 0, missing = 0, extra = 0, badRec = 0, inSpan = 0, first = null;
+    for (const st of tops) {
+      const recs = st.sides.setCollision || [];
+      for (const [side, y] of [['E', st.eOff], ['X', st.xOff]]) {
+        const want = new Set((st.sides.foreignUnder || []).filter((o) => o.lo < y && y < o.hi).map((o) => o.seg));
+        const got = recs.filter((c) => c.side === side);
+        covered += want.size;
+        for (const sg of want) if (!got.some((c) => c.seg === sg)) { missing++; first = first || `${st.round}/${st.i} ${side} ${sg}`; }
+        extra += got.filter((c) => !want.has(c.seg)).length + (got.length - new Set(got.map((c) => c.seg)).size);
+        for (const c of got) {
+          const L = segById.get(c.seg);
+          if (!L || L.set === st.set || !(c.d >= 0 && c.d < w / 2) || typeof c.inSpan !== 'boolean' || c.segRound !== L.round) badRec++;
+          if (c.inSpan) inSpan++;
+        }
+      }
+    }
+    const v16 = runValidators(A, A.path.ops.length - 1, null).find((x) => x.id === 'V16');
+    check(covered > 0 && missing === 0 && extra === 0 && badRec === 0 && A.path.setCollisions.length === covered,
+      `${tag}: U14 records complete — ${covered} foreign occupancies over a hole, ${missing} unrecorded, ${extra} extra, ${badRec} malformed; ${inSpan} in a foreign top-stitch span${first ? '; first missing ' + first : ''}`);
+    check(v16.numbers.warnU14 === covered, `${tag}: U14 records = V16 set-collision warns (${covered} vs ${v16.numbers.warnU14})`);
+    if (lambda === 0 && m === 0.5) {
+      const v15 = runValidators(A, A.path.ops.length - 1, null).find((x) => x.id === 'V15');
+      check(v15.status === 'pass', `${tag}: V15 pass with set collisions explained (got ${v15.status})`);
+    }
   }
-  const segById = new Map(A.path.segs.map((x) => [x.id, x]));
-  const foreignInCluster = A.path.stitches.filter((q) => q.level === 'top').some((q) => q.sides.cluster.some((c) => c.seg !== 'marking' && segById.get(c.seg)?.set !== q.set));
-  check(!foreignInCluster, 'no other-set thread in any top-hole cluster');
-  check(Array.isArray(A.path.setCollisions) && A.path.setCollisions.length > 0, `setCollision records present (${A.path.setCollisions?.length})`);
-  const V = runValidators(A, A.path.ops.length - 1, null);
-  const v15 = V.find((x) => x.id === 'V15');
-  check(v15.status === 'pass', `V15 pass with set collisions explained (got ${v15.status})`);
 }
 
 // 8k. #39 item 3 / spec v3.2 §3.2(9а–д), (8′), (12) K12, §6.6: λ = 0 legs are free by construction, exitKind by (9г),

@@ -206,37 +206,44 @@ export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwaga
 
 const endsAt = (seg, H) => dist(seg.from, H) < 1e-9 || dist(seg.to, H) < 1e-9;
 
-/** Distance from point p to a polyline (chords of dense surface samples). */
-function ptPolyline(p, pts) {
-  let best = Infinity;
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1], b = pts[i];
-    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
-    const L2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
-    const t = L2 > 0 ? Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / L2)) : 0;
-    best = Math.min(best, Math.hypot(ap[0] - t * ab[0], ap[1] - t * ab[1], ap[2] - t * ab[2]));
-  }
-  return best;
-}
-
-/** §5.3 (2) (#38): U14 «set collision» records for top holes lying under a foreign (other-set) surface leg. */
-export function setCollisions({ R, w, s, holes, laid, set, phiOf }) {
+/** §5.3 (2) (#38): U14 «set collision» records for a top hole under a foreign (other-set) surface thread.
+ *  One construction with the cluster (spec v3.2 §5.3 item 1): the records are exactly the foreign occupancies that
+ *  needleSides excluded from the cluster (`foreignUnder`, any class — legs, hole-entry / hole-exit, channels,
+ *  hidden-start holes) whose interval on the needle line covers the hole, i.e. |x_hole − x_trace| < w/2 in the
+ *  needle-line chart. One record per (side, segment): d = chart distance from the hole to that segment's axis
+ *  (channels projected to the surface; hidden start: its hole). inSpan per item 2: the hole lies in the span
+ *  [x_X(k); x_E(k)] of an already laid foreign top stitch of the same schedule level s_T(k) (layout s), measured
+ *  one-dimensionally along the latitude circle (φ of the hole between φ of that stitch's X and E). */
+export function setCollisions({ R, s, phi, holes, foreignUnder, laid, stitches, set }) {
   const out = [];
-  const tops = laid.filter((x) => x.type === 'pickup' && x.level === 'top' && x.set !== set);
-  for (const [side, H] of Object.entries(holes)) {
-    for (const L of laid) {
-      if (L.type !== 'leg' || L.set === set) continue;
-      const d = ptPolyline(H, L.pts);
-      if (!(d < w / 2)) continue;
-      const ph = toSPhi(R, H).phi;
-      // span of a foreign top stitch on the same latitude circle s_T (both sets share the schedule)
-      const span = tops.find((pk) => {
-        const sE = toSPhi(R, pk.from), sX = toSPhi(R, pk.to);
-        if (Math.abs(sE.s - s) > 1e-6 || Math.abs(sX.s - s) > 1e-6) return false;
-        const c = phiOf(pk.line), a = wrapPi(sX.phi - c), b = wrapPi(sE.phi - c), h = wrapPi(ph - c);
-        return h >= Math.min(a, b) && h <= Math.max(a, b);
-      });
-      out.push({ side, seg: L.id, segRound: L.round, d, inSpan: !!span, spanOf: span ? span.id : null });
+  if (!foreignUnder || !foreignUnder.length) return out;
+  const C = point(R, s, phi);
+  const uC = unit(C), eL = eEast(C), n = ePole(C);
+  const coord = (p) => { const q = unit(p); return { f: R * Math.asin(Math.max(-1, Math.min(1, dot(q, n)))), y: R * Math.atan2(dot(q, eL), dot(q, uC)) }; };
+  const segById = new Map(laid.map((x) => [x.id, x]));
+  const laidIds = new Set(laid.map((x) => x.id));
+  const spans = stitches.filter((st) => st.level === 'top' && st.set !== set && Math.abs(st.s - s) < 1e-6 && laidIds.has(st.pickupId))
+    .map((st) => ({ st, a: toSPhi(R, st.X).phi, b: toSPhi(R, st.E).phi }));
+  const chartDist = (yh, seg) => {
+    if (seg.type === 'hidden-start') return Math.min(...[seg.from, seg.to].map((p) => { const q = coord(p); return Math.hypot(q.y - yh, q.f); }));
+    let best = Infinity;
+    for (let i = 1; i < seg.pts.length; i++) {
+      const P = coord(seg.pts[i - 1]), Q = coord(seg.pts[i]);
+      const dy = Q.y - P.y, df = Q.f - P.f, L2 = dy * dy + df * df;
+      const t = L2 > 0 ? Math.max(0, Math.min(1, ((yh - P.y) * dy + (0 - P.f) * df) / L2)) : 0;
+      best = Math.min(best, Math.hypot(P.y + t * dy - yh, P.f + t * df));
+    }
+    return best;
+  };
+  for (const [side, { y, H }] of Object.entries(holes)) {
+    const segIds = [...new Set(foreignUnder.filter((o) => o.lo < y && y < o.hi).map((o) => o.seg))];
+    if (!segIds.length) continue;
+    const ph = toSPhi(R, H).phi;
+    const span = spans.find(({ a, b }) => { const lo = wrapPi(a - ph), hi = wrapPi(b - ph); return Math.min(lo, hi) <= 0 && Math.max(lo, hi) >= 0 && Math.abs(hi - lo) < Math.PI; });
+    for (const id of segIds) {
+      const L = segById.get(id);
+      const kinds = [...new Set(foreignUnder.filter((o) => o.seg === id && o.lo < y && y < o.hi).map((o) => o.kind))];
+      out.push({ side, seg: id, segRound: L.round, segType: L.type, kind: kinds.join('+'), d: chartDist(y, L), inSpan: !!span, spanOf: span ? span.st.pickupId : null });
     }
   }
   return out;
@@ -1503,7 +1510,9 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       // §5.3 (2) (#38): a top bite under a foreign surface thread (axis closer than w/2) is a legal crossing «under» —
       // U14 «set collision» (warn) with row, segment, distance and whether the bite lies inside the span
       // [x_X(k); x_E(k)] of a foreign top stitch along the latitude circle s_T(k) (same schedule for both sets).
-      sides.setCollision = level === 'top' ? setCollisions({ R, w, s, holes: { E, X }, laid: laid(), set: spec.set, phiOf }) : [];
+      sides.setCollision = level === 'top'
+        ? setCollisions({ R, s, phi: phiOf(k), holes: { E: { y: sides.eOff, H: E }, X: { y: sides.xOff, H: X } }, foreignUnder: sides.foreignUnder, laid: laid(), stitches: W.stitches, set: spec.set })
+        : [];
       for (const q of sides.setCollision) W.setCollisions.push({ round: RD.id, set: spec.set, row: spec.row, line: k, i, s, ...q });
       // (в) lay thread: row 1 = geodesic/small-circle bow; row n≥2 = rail along previous arm (Fable v2)
       let legShape;
