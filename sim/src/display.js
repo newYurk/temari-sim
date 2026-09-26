@@ -16,6 +16,11 @@ export const HID_DEPTH_W = 1.0;      // depth of schematic hidden-start arc, in 
 //    rail-parallel (d≈w) → 0, never ×c.stack; climb → √(2wδ−δ²); transversal — tent on ±w/sinψ; wedge — c.stack.
 //    Later-laid thread rises (c.over), except under-passes per recipe. Hook: A.mechanics.liftAt.
 export const DISPLAY_STACK_LIFT_W = 0.6;
+/** #49 (interim, display only; real heights are #5): cap of the total stack lift, in thread widths. Stack 1 (0.6·w) is
+ *  unchanged; stacked peaks (tents ×stack up to 17 at the default bow 0.32, wedges ×10 at λ 0.6 — 7–11 mm spikes past the
+ *  silhouette) flatten at 1·w. A hard cap, not a saturating curve: it leaves every single-stack feature as it was and
+ *  gives a simple bound (outer point ≤ R + w/2 + w + w/2). */
+export const DISPLAY_STACK_LIFT_MAX_W = 1.0;
 export const DIVE_W = 1.5;           // leg dive length into the hole, in thread widths (display convention)
 /** ε for lift(d)=0 when d ≥ w·(1−ε); same 0.01 as free-leg contact (6a.17). */
 export const LIFT_DIST_EPS = 0.01;
@@ -157,7 +162,8 @@ export function stackProfileFn(A, seg) {
       return peak * 0.5 * (1 + Math.cos(Math.PI * Math.min(1, ds / half)));
     });
   }
-  return (x) => { let v = 0; for (const f of parts) v = Math.max(v, f(x)); return v; };
+  const cap = DISPLAY_STACK_LIFT_MAX_W * w;   // #49
+  return (x) => { let v = 0; for (const f of parts) v = Math.max(v, f(x)); return Math.min(cap, v); };
 }
 
 const lift = (p, r) => mul(unit(p), r);

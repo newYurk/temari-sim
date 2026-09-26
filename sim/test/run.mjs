@@ -4,7 +4,7 @@ import { computeAll, G, finish, validatorStatuses } from './harness.mjs'; // mem
 import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan, geodesicAlphaAt, tipLevelMm } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples, tangencyOk, TANGENCY_SIN_MAX, TANGENCY_RES_W } from '../src/path.js';
-import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS, liftFromDist, DISPLAY_STACK_LIFT_W, LIFT_DIST_EPS, DIVE_W } from '../src/display.js';
+import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS, liftFromDist, DISPLAY_STACK_LIFT_W, DISPLAY_STACK_LIFT_MAX_W, LIFT_DIST_EPS, DIVE_W } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
 import { norm, unit, mul, sub, add, dot, angle, cross } from '../src/geom.js';
 // #22: signed turn (deg) at vertex i of a sphere polyline (tangent-plane projection), and the degenerate-entry check
@@ -1520,7 +1520,9 @@ if (G('8f'))
     }
     // (4) By d: close contacts produce lift; far do not
     check(anyLiftFromClose > 1e-9, `${cfg.label}: liftFromDist(d<w) > 0 on some on-top contact`);
-    check(Number.isFinite(maxLift) && maxLift >= 0, `${cfg.label}: stackProfile finite`);
+    // #49: the display stack lift is bounded (≤ DISPLAY_STACK_LIFT_MAX_W·w; bow 0.32 has tent stacks up to 17 — was ≈ 10·w).
+    check(Number.isFinite(maxLift) && maxLift >= 0 && maxLift <= DISPLAY_STACK_LIFT_MAX_W * w + 1e-12,
+      `${cfg.label}: stackProfile finite and bounded, max ${fmt(maxLift / w, 3)}·w ≤ ${DISPLAY_STACK_LIFT_MAX_W}·w (#49)`);
   }
 }
 
