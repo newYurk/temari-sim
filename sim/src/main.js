@@ -4,7 +4,7 @@ import { computeAll } from './layers.js';
 import { runValidators, summary, refKey } from './validators.js';
 import { runDiagnostics } from './diagnostics.js';
 import { PARAM_SCHEMA, uiDefaults, paramsFromQuery, groupLabel, paramLabel, paramUsed, statusLabel, optionLabel, WRAP_THREADS, wrapMuDefault, THREAD_LOOKS } from './params.js';
-import { Renderer, viridis, warm, SET_COLORS, roundColor, applySetColors } from './render.js';
+import { Renderer, viridis, warm, SET_COLORS, roundColor, roundColorName, applySetColors } from './render.js';
 import { t, fmtNum, applyDomI18n, getLocale, setLocale, onLocaleChange, validatorName } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
@@ -346,7 +346,10 @@ function update() {
   $('step').value = state.k;
   R3.buildThread(A, state.k);
   const op = A.path.ops[state.k];
-  $('opinfo').innerHTML = `<b>${t('op.header', { k: state.k, kEnd: A.path.stageEnd[state.stage] })}</b> (${op.kind}): ${op.label}<div class="src">${t('op.basis', { source: op.source })}</div>`;
+  const opRid = A.path.segs.find((s) => s.id === op.segIds?.[0])?.round ?? (/^([A-Z]\d+):/.exec(op.label || '') || [])[1];
+  const opRi = opRid ? A.path.rounds.findIndex((r) => r.id === opRid) : -1;
+  const opRound = opRi >= 0 ? ` · ${t('op.round', { round: opRid, colour: roundColorName(opRi) })}` : '';
+  $('opinfo').innerHTML = `<b>${t('op.header', { k: state.k, kEnd: A.path.stageEnd[state.stage] })}</b>${opRound} (${op.kind}): ${op.label}<div class="src">${t('op.basis', { source: op.source })}</div>`;
   renderLengths();
   renderLegend();
   renderCaption();
@@ -378,7 +381,7 @@ function renderCaption() {
     : '';
   $('caption').innerHTML =
     t('caption.line1', { C: f(P.C_mm, 0), R: f(A.base.R, 2), N: P.N, w: f(P.w_mm, 3), m: f(P.m_mm, 2), stage: stageName(state.stage), k: state.k }) + '<br>' +
-    t('caption.line2', { round: r.id, thread: r.thread, row: r.row, sTop: f(top.s, 3), eTop: f(top.eOff, 3), xCl: f(cl.xOff, 3), sBot: f(bot.s, 3), eBot: f(bot.eOff, 3) }) + '<br>' +
+    t('caption.line2', { round: r.id, colour: roundColorName(A.path.rounds.findIndex((q) => q.id === r.id)), thread: r.thread, row: r.row, sTop: f(top.s, 3), eTop: f(top.eOff, 3), xCl: f(cl.xOff, 3), sBot: f(bot.s, 3), eBot: f(bot.eOff, 3) }) + '<br>' +
     t('caption.line3', { rLen: f(r.length, 2), uA: f(A.path.threads.A.uEnd, 1), uB }) + tipLine;
 }
 
@@ -402,16 +405,16 @@ function renderLengths() {
     const used = path.segs.filter((s) => s.thread === thr && ids2.has(s.id)).reduce((a, s) => a + s.length, 0);
     rows.push([t('len.threadTot', { t: thr, k: state.k, used: f(used, 1), mass: f(tot * A.params.tex / 1e6, 3) }), `<b>${f(tot)}</b>`]);
   }
-  let html = rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b} ${getLocale() === 'ru' ? 'мм' : 'mm'}</td></tr>`).join('');
+  let html = rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b} ${t('unit.mm')}</td></tr>`).join('');
   const v3 = V && V.find((v) => v.id === 'V3');
   if (v3 && v3.numbers) {
     const d = Math.abs(v3.numbers.rowLen - v3.numbers.refLen);
-    html += `<tr class="${d < 1e-6 ? 'ok' : ''}"><td>${t('len.v3')}</td><td class="n">${f(v3.numbers.refLen)} ${getLocale() === 'ru' ? 'мм' : 'mm'} · Δ ${d.toExponential(1)}</td></tr>`;
+    html += `<tr class="${d < 1e-6 ? 'ok' : ''}"><td>${t('len.v3')}</td><td class="n">${f(v3.numbers.refLen)} ${t('unit.mm')} · Δ ${d.toExponential(1)}</td></tr>`;
   }
   const hw = A.params.hw, w = A.params.w_mm, R = A.base.R;
   const legs = segs.filter((s) => s.type === 'leg').reduce((a, s) => a + s.length, 0);
   // #5: three lengths of the legs in the stage — on the sphere (V3), along the axis R + h/2, with the lift (mechanics)
-  const MX = A.mechanics, mm = getLocale() === 'ru' ? 'мм' : 'mm';
+  const MX = A.mechanics, mm = t('unit.mm');
   if (MX && !MX.displayOnly) {
     const L3 = segs.filter((s) => s.type === 'leg').reduce((a, s) => { const q = MX.lengths.perSeg[s.id]; if (q) { a.sphere += q.sphere; a.axis += q.axis; a.lifted += q.lifted; } return a; }, { sphere: 0, axis: 0, lifted: 0 });
     html += `<tr><td>${t('len.lift3', { hw: f(hw, 2), sphere: f(L3.sphere, 1), axis: f(L3.axis, 1), pct: f(100 * (L3.lifted - L3.axis) / Math.max(1e-9, L3.axis), 2), mode: MX.mode })}</td><td class="n"><b>${f(L3.lifted, 1)}</b> ${mm}</td></tr>`;
@@ -421,7 +424,7 @@ function renderLengths() {
   }
   if (A.path.tipDrop) {
     const td = A.path.tipDrop;
-    const unit = getLocale() === 'ru' ? 'мм' : 'mm';
+    const unit = t('unit.mm');
     html += `<tr class="${td.phi3Warn ? 'warn' : 'ok'}"><td>${t('len.tipDrop')} · ${td.shoulderForm}</td><td class="n"><b>${f(td.tipDrop_mm, 3)}</b> ${unit}</td></tr>`;
   }
   $('lengths').innerHTML = html;
@@ -575,10 +578,10 @@ function renderLegend() {
     const shown = new Set(A.path.ops.slice(0, state.k + 1).map((o) => o.round));
     $('legend').innerHTML = A.path.rounds.map((r, i) => {
       const pending = shown.has(r.id) ? '' : t('legend.pending');
-      return `<span${shown.has(r.id) ? '' : ' style="opacity:.4"'}><span class="sw" style="background:#${roundColor(i).toString(16).padStart(6, '0')}"></span>${t('legend.round', { id: r.id, thread: r.thread, row: r.row, pending })}</span>`;
+      return `<span${shown.has(r.id) ? '' : ' style="opacity:.4"'}><span class="sw" style="background:#${roundColor(i).toString(16).padStart(6, '0')}"></span>${t('legend.round', { id: r.id, colour: roundColorName(i), thread: r.thread, row: r.row, pending })}</span>`;
     }).join('') + liftNote;
   } else if (R3.opts.color === 'u') {
-    $('legend').innerHTML = Object.values(A.path.threads).map((thr) => `${t('legend.u', { id: thr.id })}<div class="bar" style="background:${grad(thr.id === 'B' ? warm : viridis)}"></div>${f(thr.uEnd, 1)} ${getLocale() === 'ru' ? 'мм' : 'mm'}`).join('<br>');
+    $('legend').innerHTML = Object.values(A.path.threads).map((thr) => `${t('legend.u', { id: thr.id })}<div class="bar" style="background:${grad(thr.id === 'B' ? warm : viridis)}"></div>${f(thr.uEnd, 1)} ${t('unit.mm')}`).join('<br>');
   } else if (R3.opts.color === 'set') {
     $('legend').innerHTML = Object.entries(SET_COLORS).map(([k2, c]) => `<span><span class="sw" style="background:#${c.toString(16).padStart(6, '0')}"></span>${t('legend.set', { k: k2 })}</span>`).join('') + liftNote;
   } else {

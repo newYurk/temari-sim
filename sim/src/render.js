@@ -32,10 +32,22 @@ export function applySetColors(map = {}) {
   }
   return out;
 }
-// окраска «по обходу» (по умолчанию): каждый обход в порядке работы — свой контрастный цвет; без жёлтого/золотого (разметка)
-// и без оранжевого (подсветка текущей операции); 12 цветов, дальше по кругу
-export const ROUND_COLORS = [0x1d4ed8, 0xc2185b, 0x16a34a, 0x7c3aed, 0x0891b2, 0xdc2626, 0x7c4a1e, 0x334155, 0x65a30d, 0xf472b6, 0x60a5fa, 0x115e59];
-export const roundColor = (i) => ROUND_COLORS[((i % ROUND_COLORS.length) + ROUND_COLORS.length) % ROUND_COLORS.length];
+// Colour "by round" (default, D47): each round in work order gets its own contrasting colour, 18 named colours in the order
+// A1, B1, A2, B2, …; beyond 18 — golden-angle hues h = frac(0.618·i) (HSL), no cycling, so no two rounds share a colour.
+export const ROUND_COLORS = [0x1d4ed8, 0xc2185b, 0x16a34a, 0xea580c, 0x7c3aed, 0x0891b2, 0x7c4a1e, 0xf472b6, 0x65a30d, 0x334155,
+  0x60a5fa, 0xdc2626, 0xca8a04, 0x115e59, 0xa21caf, 0x94a3b8, 0x4d7c0f, 0xfacc15];
+/** i18n keys of the colour names (colour.<key>), same order as ROUND_COLORS. */
+export const ROUND_COLOR_KEYS = ['blue', 'crimson', 'green', 'orange', 'violet', 'teal', 'brown', 'pink', 'lime', 'graphite',
+  'lightBlue', 'red', 'mustard', 'darkTeal', 'purple', 'blueGrey', 'olive', 'yellow'];
+const goldenHue = (i) => (((0.618 * i) % 1) + 1) % 1;
+function hslHex(h, s, l) {
+  const f = (n) => { const k = (n + h * 12) % 12, a = s * Math.min(l, 1 - l); return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))); };
+  return (f(0) << 16) | (f(8) << 8) | f(4);
+}
+export const roundColor = (i) => (i >= 0 && i < ROUND_COLORS.length ? ROUND_COLORS[i] : i < 0 ? ROUND_COLORS[0] : hslHex(goldenHue(i), 0.7, 0.45));
+/** Localised colour name of round index i (named for the first 18, "hue N°" beyond). */
+export const roundColorName = (i) => (i >= 0 && i < ROUND_COLORS.length ? t('colour.' + ROUND_COLOR_KEYS[i])
+  : i < 0 ? t('colour.' + ROUND_COLOR_KEYS[0]) : t('colour.hue', { deg: Math.round(goldenHue(i) * 360) }));
 // «тёплая» шкала для нити B (по длине u), 5 опорных цветов
 const WARM = [[80, 10, 60], [150, 20, 80], [210, 60, 70], [240, 130, 50], [250, 210, 90]];
 export function warm(t) {

@@ -94,7 +94,7 @@ export function layerLayout(recipe, P, base, marking) {
   const pins = Array.from({ length: v }, (_, k) => ({ line: k, s: sBotAt(k), p: at(k, sBotAt(k)).xyz }));
   // a non-default bottom mode joins the stamp (the default keeps the S8 stamp)
   const stamp = bm.mode === 'fraction' ? hash({ inputs, parents }) : hash({ inputs, parents, bottom: bm });
-  return { id: 'layout', inputs, parents, stamp, sTop, sBot, ...(sBotK ? { sBotK } : {}), pins, topBasis: P.topMode === 'mm' ? 'мм от СП (GT14)' : 'доля Q',
+  return { id: 'layout', inputs, parents, stamp, sTop, sBot, ...(sBotK ? { sBotK } : {}), pins, topBasis: P.topMode === 'mm' ? 'mm from the north pole (GT14)' : 'fraction of Q',
     center, bites, region, program };
 }
 
