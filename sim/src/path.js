@@ -9,6 +9,7 @@ import {
   point, offsetPt, slerp, lineSeg, geodLen, dist, rotateToward, toSPhi, wrapPi, tangentTo, ePole, dot,
   closeZones, angle, unit, add, sub, mul, cross, eEast, perpPt, segSegDist, polyLen,
 } from './geom.js';
+import { Chain, arcGC, arcSmall, offsetChain, ang } from './arcs.js';
 
 /** Default polyline samples per visible leg. Tools may override via setLegSamples — default layout unchanged. */
 const LEG_SAMPLES_DEFAULT = 96;
@@ -363,7 +364,7 @@ function layLeg(R, from, to, phiMark, shoulderForm, lambdaCmd = 0, bowSide = 'po
     return {
       pts: slerp(R, from, to, n), length: geoLen,
       shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
-      bowCenter: null, phi3Warn: false, layMode: 'geodesic',
+      bowCenter: null, phi3Warn: false, layMode: 'geodesic', arcs: [arcGC(from, to, 'free')],
     };
   }
   const rho = Math.atan(1 / lambda); // arccot(λ)
@@ -372,7 +373,7 @@ function layLeg(R, from, to, phiMark, shoulderForm, lambdaCmd = 0, bowSide = 'po
     return {
       pts: slerp(R, from, to, n), length: geoLen,
       shoulderForm: 'geodesic', bowLateralMm: 0, phi3CapMm: 0, lambda: 0, rho: Math.PI / 2,
-      bowCenter: null, phi3Warn: false, layMode: 'geodesic',
+      bowCenter: null, phi3Warn: false, layMode: 'geodesic', arcs: [arcGC(from, to, 'free')],
     };
   }
   const pts = smallCircleArc(R, from, to, Pc, n);
@@ -402,227 +403,61 @@ function layLeg(R, from, to, phiMark, shoulderForm, lambdaCmd = 0, bowSide = 'po
     shoulderForm: 'bow',
     bowLateralMm, phi3CapMm, lambda, rho, bowCenter: Pc, phi3Warn: false,
     layMode: 'smallCircle', bowSide: bowSide === 'equator' ? 'equator' : 'pole',
+    arcs: [arcSmall(from, to, Pc, 'free')],
   };
 }
 
 
 /**
- * Point on the small circle ∠(P,·)=ρ in the radial direction of `toward`.
- * Used to place the rail start on the concentric circle near X_n (short splice).
- */
-function onSmallCircle(Pc, rho, toward) {
-  const k = unit(Pc), t = unit(toward);
-  const radial = unit(sub(t, mul(k, dot(t, k))));
-  return unit(add(mul(k, Math.cos(rho)), mul(radial, Math.sin(rho))));
-}
-
-/**
- * Row n≥2 rail = parallel curve of the ACTUALLY laid polyline of row n−1, offset w
- * outward (Errata 6a.7(1)). Concentric-about-P is only the special case when that
- * polyline is a small-circle arc. Measure signed d_n against THIS rail, then join:
+ * Row n≥2 rail = parallel curve of the ACTUALLY laid leg of row n−1, offset w outward (spec v3.1 §3.2(8)).
+ * Built from the analytic arcs of that leg (arcs.js, #36): exact poles and radii, exact continuous tangent
+ * field, no finite differences over sampled neighbours. Concentric-about-P is the special case when the
+ * leg is the row-1 small-circle arc. Measure signed d_n against THIS rail, then join:
  *   exterior (d>0): geodesic tangent at T (kink at T ≤1°);
  *   interior (δ>0): climb/merge to M at ℓ_m=max(w,3δ) forward (kinks ≤20°).
  */
 
-/** Unit tangent at sample i of polyline (toward increasing index). */
-function polyTangent(pts, i) {
-  if (i <= 0) return tangentTo(pts[0], pts[1]);
-  if (i >= pts.length - 1) return tangentTo(pts[pts.length - 2], pts[pts.length - 1]);
-  return unit(add(tangentTo(pts[i - 1], pts[i]), tangentTo(pts[i], pts[i + 1])));
+/** Outward side of a chain of arcs: +1 = left of travel, −1 = right. Outward is equatorward (the next
+ *  packed tip lies toward the equator); decided once per chain at its middle, from construction. */
+function outwardSide(arcs) {
+  const ch = new Chain(1, arcs, 1);
+  const { q, T } = ch.at(ch.len / 2);
+  return dot(cross(q, T), ePole(q)) > 0 ? -1 : 1;
+}
+
+/** Analytic arcs of a laid leg (every leg carries them; sampled pts are output only). */
+function armArcs(arm) {
+  if (!arm?.arcs?.length) throw new Error(`rail: leg ${arm?.id ?? '?'} has no analytic arcs (#36)`);
+  return arm.arcs;
+}
+
+/** The laid leg itself as a chain (outward side as its rail). */
+function laidChain(R, arm) {
+  const arcs = armArcs(arm);
+  return new Chain(R, arcs, outwardSide(arcs));
 }
 
 /**
- * Continuous unit tangent at an arc-length point P={q,i,t} of a polyline: vertex tangents
- * of i and i+1 blended by t and projected onto the tangent plane at q. Unlike the
- * piecewise-constant polyTangent(pts, P.i), this has no jumps at vertices, so tangency
- * residuals have only genuine roots (no facet-boundary pseudo-roots whose selection
- * would depend on float round-off, scale or sample count).
+ * Rail of row n on the laid leg prevArm of row n−1 (§3.2(8), (12)): { core, rail, kind }.
+ * core = parallel at w of the leg body (the entry splice / climb prefix is not the rail, as before);
+ * rail = core continued along the great circles tangent at both ends (consumers see the continuation).
+ * Geodesic-form prev (λ = 0): parallel of the great circle prev.from → prev.to, the same GC packing plane
+ * as packThenPierce's analytic branch. Cached per leg (the packing root and the leg share one rail).
  */
-function polyTangentAt(pts, P) {
-  const q = unit(P.q);
-  const j = Math.min(P.i + 1, pts.length - 1);
-  const v = add(mul(polyTangent(pts, P.i), 1 - P.t), mul(polyTangent(pts, j), P.t));
-  return unit(sub(v, mul(q, dot(v, q))));
+const railCache = new WeakMap();
+function railOf(R, prevArm, w) {
+  const key = `${R}|${w}`;
+  const hit = railCache.get(prevArm);
+  if (hit && hit.key === key) return hit.val;
+  const gcPack = prevArm.shoulderForm === 'geodesic' && !prevArm.bowCenter;
+  const body = gcPack ? [arcGC(prevArm.from, prevArm.to, 'free')] : armArcs(prevArm).filter((A) => A.cls !== 'splice');
+  const side = outwardSide(body);
+  const core = new Chain(R, offsetChain(body, (w || 0) / R, side), side);
+  const extMm = Math.max(5 * (w || 0), mmAtW(10, w || W0_MM));
+  const val = { core, rail: core.extended(extMm), kind: gcPack ? 'gc-plane-parallel' : 'poly-parallel' };
+  railCache.set(prevArm, { key, val });
+  return val;
 }
-
-/** Outward unit normal in the tangent plane at p for polyline tangent T.
- *  Always equatorward (increasing bottom-s): next packed tip lies toward the equator.
- *  Using “away from bowCenter” is wrong for equator-side bows (P equatorward ⇒ radial is poleward). */
-function polyOutwardN(p, T, prevArm) {
-  void prevArm;
-  let N = unit(cross(p, T));
-  if (dot(N, ePole(p)) > 0) N = mul(N, -1); // equatorward
-  return N;
-}
-
-/** Parallel offset of spherical polyline by geodesic distance w (mm) outward. */
-function parallelOffsetPoly(R, pts, w, prevArm) {
-  const alpha = (w || 0) / R;
-  const out = [];
-  for (let i = 0; i < pts.length; i++) {
-    const p = unit(pts[i]);
-    const T = polyTangent(pts, i);
-    const N = polyOutwardN(p, T, prevArm);
-    out.push(mul(unit(add(mul(p, Math.cos(alpha)), mul(N, Math.sin(alpha)))), R));
-  }
-  return out;
-}
-
-/**
- * Extend a spherical polyline past both ends so a nearby X_n / E_n whose along-track
- * position falls just outside the previous arm still has a true lateral foot on the rail
- * (Errata 6a.7: X_n sits ~w ahead along the needle, often ~1° before the prior arc start).
- */
-function extendPolyEnds(R, pts, extMm, w = W0_MM) {
-  if (!pts || pts.length < 2 || !(extMm > 0)) return pts;
-  const ext = extMm / R; // rad
-  const step = mmAtW(0.5, w);
-  const nExt = Math.max(2, Math.min(32, Math.round(extMm / Math.max(step, 1e-9))));
-  const T0 = tangentTo(pts[1], pts[0]); // outward at start (backward)
-  const T1 = tangentTo(pts[pts.length - 2], pts[pts.length - 1]); // forward at end
-  const pre = [];
-  for (let i = nExt; i >= 1; i--) {
-    const a = ext * (i / nExt);
-    pre.push(mul(unit(add(mul(unit(pts[0]), Math.cos(a)), mul(T0, Math.sin(a)))), R));
-  }
-  const post = [];
-  for (let i = 1; i <= nExt; i++) {
-    const a = ext * (i / nExt);
-    post.push(mul(unit(add(mul(unit(pts[pts.length - 1]), Math.cos(a)), mul(T1, Math.sin(a)))), R));
-  }
-  return [...pre, ...pts, ...post];
-}
-
-/** True iff rail-borne samples of prev arm lie on a small circle about bowCenter.
- *  Climb/tangent geodesic prefixes (spliceMm) leave the circle and must be skipped — otherwise
- *  packing for n≥3 falsely rejects the concentric special case and falls into the w-tube path. */
-function isSmallCircleArm(prevArm, tolMm) {
-  if (!prevArm?.bowCenter || !Number.isFinite(prevArm.rho) || !prevArm.pts || prevArm.pts.length < 3) return false;
-  const Pc = unit(prevArm.bowCenter);
-  const R = Math.hypot(prevArm.pts[0][0], prevArm.pts[0][1], prevArm.pts[0][2]);
-  // 0.02 mm at C=240 (R=C/2π); scale with R so ×k does not flip the class.
-  if (tolMm == null) tolMm = 0.02 * (R / (240 / (2 * Math.PI)));
-  const skipMm = Math.max(prevArm.climbMm || 0, prevArm.spliceMm || 0);
-  let cum = 0;
-  const samples = [];
-  for (let i = 0; i < prevArm.pts.length; i++) {
-    if (i > 0) cum += R * angle(prevArm.pts[i - 1], prevArm.pts[i]);
-    if (cum + 1e-9 * R >= skipMm) samples.push(prevArm.pts[i]);
-  }
-  if (samples.length < 3) return false;
-  const step = Math.max(1, Math.floor(samples.length / 12));
-  for (let i = 0; i < samples.length; i += step) {
-    if (Math.abs(R * (angle(Pc, unit(samples[i])) - prevArm.rho)) > tolMm) return false;
-  }
-  return true;
-}
-
-
-function closestOnPoly(R, u, pts) {
-  const U = unit(u);
-  let best = null;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const a = unit(pts[i]), b = unit(pts[i + 1]);
-    const om = angle(a, b);
-    if (om < 1e-15) continue;
-    let lo = 0, hi = 1;
-    for (let it = 0; it < 36; it++) {
-      const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
-      const p1 = unit(add(mul(a, Math.sin((1 - m1) * om) / Math.sin(om)), mul(b, Math.sin(m1 * om) / Math.sin(om))));
-      const p2 = unit(add(mul(a, Math.sin((1 - m2) * om) / Math.sin(om)), mul(b, Math.sin(m2 * om) / Math.sin(om))));
-      if (angle(U, p1) <= angle(U, p2)) hi = m2; else lo = m1;
-    }
-    const tt = 0.5 * (lo + hi);
-    const q = unit(add(mul(a, Math.sin((1 - tt) * om) / Math.sin(om)), mul(b, Math.sin(tt * om) / Math.sin(om))));
-    const d = R * angle(U, q);
-    const T = unit(sub(b, mul(q, dot(b, q))));
-    if (!best || d < best.distMm) best = { q, i, t: tt, distMm: d, T };
-  }
-  if (!best) {
-    const q = unit(pts[0]);
-    return { q, i: 0, t: 0, distMm: R * angle(U, q), T: polyTangent(pts, 0) };
-  }
-  return best;
-}
-
-/** Signed lateral mm from unit X to polyline: >0 outward, <0 inward. */
-function signedLateralToPoly(R, X, pts, prevArm) {
-  const hit = closestOnPoly(R, X, pts);
-  const N = polyOutwardN(hit.q, hit.T, prevArm);
-  const towardX = unit(sub(unit(X), mul(hit.q, dot(unit(X), hit.q))));
-  const signedMm = hit.distMm * (dot(towardX, N) >= 0 ? 1 : -1);
-  return { ...hit, N, signedMm };
-}
-
-/** Arc length (mm) from start of polyline to sample (i,t). */
-function polyArcMm(R, pts, i, t) {
-  let L = 0;
-  for (let k = 0; k < i; k++) L += R * angle(pts[k], pts[k + 1]);
-  if (i < pts.length - 1 && t > 0) L += t * R * angle(pts[i], pts[i + 1]);
-  return L;
-}
-
-/** Point at arc length sMm along polyline. */
-function pointAtArcMm(R, pts, sMm) {
-  let rem = Math.max(0, sMm);
-  for (let i = 0; i < pts.length - 1; i++) {
-    const seg = R * angle(pts[i], pts[i + 1]);
-    if (rem <= seg + 1e-15 || i === pts.length - 2) {
-      const u = seg > 1e-15 ? Math.min(1, Math.max(0, rem / seg)) : 0;
-      const a = unit(pts[i]), b = unit(pts[i + 1]);
-      const om = angle(a, b);
-      const q = om < 1e-15 ? a
-        : unit(add(mul(a, Math.sin((1 - u) * om) / Math.sin(om)), mul(b, Math.sin(u * om) / Math.sin(om))));
-      return { q, i, t: u };
-    }
-    rem -= seg;
-  }
-  return { q: unit(pts[pts.length - 1]), i: pts.length - 2, t: 1 };
-}
-
-/**
- * Resampled slice of polyline from (i0,t0) toward `to` (nSeg segments).
- * Walks along arc-length in the direction of the projection of `to` — forward OR
- * backward — so T₁…T₂ is never traversed against travel (avoids ~180° foldbacks).
- */
-function polySliceToward(R, pts, i0, t0, to, nSeg) {
-  const s0 = polyArcMm(R, pts, i0, t0);
-  const hitTo = closestOnPoly(R, to, pts);
-  const sTo = polyArcMm(R, pts, hitTo.i, hitTo.t);
-  const forward = sTo >= s0 - 1e-12;
-  const start = pointAtArcMm(R, pts, s0).q;
-  const end = pointAtArcMm(R, pts, sTo).q;
-  const chunk = [mul(unit(start), R)];
-  if (forward) {
-    for (let i = i0 + 1; i <= hitTo.i; i++) chunk.push(pts[i]);
-    chunk.push(mul(unit(end), R));
-  } else {
-    for (let i = i0; i > hitTo.i; i--) chunk.push(pts[i]);
-    chunk.push(mul(unit(end), R));
-  }
-  for (let i = chunk.length - 1; i > 0; i--) {
-    if (R * angle(chunk[i], chunk[i - 1]) < 1e-12) chunk.splice(i, 1);
-  }
-  if (chunk.length < 2) chunk.push(mul(unit(end), R));
-  const n = Math.max(1, nSeg);
-  const lens = [0];
-  for (let i = 1; i < chunk.length; i++) lens.push(lens[i - 1] + R * angle(chunk[i - 1], chunk[i]));
-  const total = lens[lens.length - 1] || 1e-15;
-  const out = [];
-  for (let k = 0; k <= n; k++) {
-    const target = (k / n) * total;
-    let j = 0;
-    while (j < lens.length - 2 && lens[j + 1] < target) j++;
-    const seg = lens[j + 1] - lens[j] || 1e-15;
-    const u = (target - lens[j]) / seg;
-    const a = unit(chunk[j]), b = unit(chunk[Math.min(j + 1, chunk.length - 1)]);
-    const om = angle(a, b);
-    if (om < 1e-15) out.push(mul(a, R));
-    else out.push(mul(unit(add(mul(a, Math.sin((1 - u) * om) / Math.sin(om)), mul(b, Math.sin(u * om) / Math.sin(om)))), R));
-  }
-  return out;
-}
-
 
 /** Spherical distance (mm) from point to a short geodesic segment (incl. endpoints). */
 function pointSegDistMm(R, p, a, b) {
@@ -688,7 +523,7 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       bowCenter: null, phi3Warn: false, layMode: 'rail',
       spliceMm: 0, lateralMm: 0, turnAtTDeg: 0, interiorXn: false, joinMode: 'free',
       climbMm: 0, deltaMm: 0, deltaFail: false, railKind: 'free',
-      holeTurnDeg: 0, mergeTurnDeg: 0,
+      holeTurnDeg: 0, mergeTurnDeg: 0, arcs: [arcGC(from, to, 'free')],
     };
   }
 
@@ -725,7 +560,7 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     if (minGap >= wContact) {
       // Free leg — no rail.
       const pts = slerp(R, from, to, n);
-      const latHit = signedLateralToPoly(R, X0, prevPts, prevArm);
+      const latHit = laidChain(R, prevArm).lateral(X0);
       const dLat = Math.max(0, latHit.distMm - (w || 0)) * (latHit.signedMm >= 0 ? 1 : -1);
       let holeTurnDeg = 0;
       if (pts.length >= 3) {
@@ -755,80 +590,35 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
         joinMode: 'free', climbMm: 0, deltaMm: 0, deltaFail: false,
         railKind: 'free', holeTurnDeg, mergeTurnDeg: 0,
         tubeTransitions: transitions, tubeSegments: segments, minGapMm: minGap, dualIncursion,
+        arcs: [arcGC(from, to, 'free')],
       };
     }
   } // end geodesic-form free-exit (6a.17 ε=0.01)
 
   // Contact: one contiguous geometric rail (tangent/climb entry → rail → tangent exit / 6a.7 splice).
-  // 6a.11(1)/(2)(C): parallel of laid curve. When packing used the GC plane (geodesic-form prev),
-  // build the same GC-plane parallel here so E lands on the rail (no tip-snap knees).
-  // Bow / small-circle: poly-parallel of laid polyline. Extend ends by GC tangent.
-  const extMm = Math.max(5 * (w || 0), mmAtW(10, w || W0_MM));
-  let railPts, railKind;
-  // Match packThenPierce: any geodesic-form prev (row-1 layMode 'geodesic', rails, …)
-  // uses the GC packing plane. Excluding 'geodesic' forced poly-parallel → false
-  // near-on-rail lat≈0 and tip-snap knees that grow with N (B.8 / 6a.15).
-  const gcPack = prevArm.shoulderForm === 'geodesic' && !prevArm.bowCenter;
-  let corePts;
-  if (gcPack) {
-    // Same construction as packThenPierce GC branch: parallel of the great circle
-    // through prev.from → prev.to (not the climb-kinked polyline).
-    let nrm = armPackNormal(prevArm);
-    if (dot(nrm, [0, 0, 1]) > 0) nrm = mul(nrm, -1); // equatorward
-    const alpha = (w || 0) / R;
-    const A0 = unit(prevArm.from), B0 = unit(prevArm.to);
-    const om = angle(A0, B0) || 1e-15;
-    const nCore = Math.max(16, getLegSamples());
-    corePts = [];
-    for (let i = 0; i <= nCore; i++) {
-      const t = i / nCore;
-      const g = unit(add(mul(A0, Math.sin((1 - t) * om) / Math.sin(om)), mul(B0, Math.sin(t * om) / Math.sin(om))));
-      corePts.push(mul(unit(add(mul(g, Math.cos(alpha)), mul(nrm, Math.sin(alpha)))), R));
-    }
-    railPts = extendPolyEnds(R, corePts, extMm, w || W0_MM);
-    railKind = 'gc-plane-parallel';
-  } else {
-    // Match packThenPierce tangentParallel: offset the rail BODY only (strip climb/tangent prefix).
-    const skipMm = Math.max(prevArm.climbMm || 0, prevArm.spliceMm || 0, 0);
-    let body = prevPts;
-    if (skipMm > 1e-9) {
-      let cum = 0, i0 = 0;
-      for (let i = 1; i < prevPts.length; i++) {
-        cum += R * angle(prevPts[i - 1], prevPts[i]);
-        if (cum + 1e-9 >= skipMm) { i0 = i; break; }
-      }
-      body = prevPts.slice(Math.max(0, i0));
-      if (body.length < 2) body = prevPts;
-    }
-    corePts = parallelOffsetPoly(R, body, w || 0, prevArm);
-    railPts = extendPolyEnds(R, corePts, extMm, w || W0_MM);
-    railKind = 'poly-parallel';
-  }
+  // Spec v3.1 §2, §3.2(8) (#36): the rail is the parallel of the ANALYTIC arcs of the laid leg of row n−1
+  // (geodesic-form prev: of the great circle prev.from → prev.to, the GC packing plane of packThenPierce),
+  // continued along the great circles tangent at its ends. Entry, exit and the packing root use one exact,
+  // continuous tangent field (rail.at(s).T); the rail is sampled only for the output polyline.
+  const { core, rail, kind: railKind } = railOf(R, prevArm, w);
   const X = unit(from), E = unit(to);
   // Lateral: prefer extended rail (bow tips need the GC extension). But if the extension
   // creates a false near-zero foot while the CORE says X is far outside (λ=0 geodesic
   // arms), use the core lateral — otherwise tiny splices + tip knees ∝ N (B.8).
-  const latExt = signedLateralToPoly(R, X, railPts, prevArm);
-  const latCore = signedLateralToPoly(R, X, corePts, prevArm);
+  const latExt = rail.lateral(X);
+  const latCore = core.lateral(X);
   let lat, dLat;
   // onRail band: |d| < 0.02·w (dimensionless, so ×k similarity cannot flip it).
   const onRailTol = 0.02 * Math.max(w || W0_MM, 1e-9);
   // When the core foot is clamped at a core END (X lies beyond the core along-track), the core
-  // distance is along-track, not lateral, and sign(dot(towardX, N)) is the sign of a near-zero
-  // quantity (towardX ∥ T): round-off, not geometry — it flipped joinMode across CPUs (x86 vs
-  // arm64). There the lateral side is read from the extended rail, which is the true lateral
-  // measure (spec v3 §3.2(8): consumers see the rail's continuation).
-  const nCore = corePts.length;
-  const coreFootAtEnd = (latCore.i === 0 && latCore.t < 1e-3)
-    || (latCore.i >= nCore - 2 && latCore.t > 1 - 1e-3);
+  // distance is along-track, not lateral, and its sign is the sign of a near-zero quantity. There the
+  // lateral side is read from the extended rail, which is the true lateral measure (spec v3 §3.2(8):
+  // consumers see the rail's continuation). Clamped is exact on the analytic core (#36).
+  const coreFootAtEnd = latCore.clamped !== null;
   // X beyond the core end, on the rail's continuation: the continuation is the great circle tangent
   // to the rail at its end, so the geodesic from X to the core end is a tangency when it meets the
   // rail tangent with sin ≤ 0.01, the same dimensionless tangency criterion as §3.2(13б) (junction
-  // free → rail is a tangency, §3.2(13д)). sin = |d_ext| / (distance beyond the end). Top legs whose
-  // X_n lies on the continuation (≈4 w beyond the end) have sin ≲ 0.006 on grids 96–384; genuine
-  // exterior / interior entries next to an end have sin ≥ 0.03. The old test (|d_ext| against the
-  // 0.02·w onRail band) sat on the band edge: d_ext = 0.0159 → 0.0113 mm under C·(1 + 1e−9) switched
-  // between the 2.91 mm along-track distance and 0.011 mm (#35).
+  // free → rail is a tangency, §3.2(13д)). sin = |d_ext| / (distance beyond the end) (#35).
   const endSin = coreFootAtEnd ? Math.abs(latExt.signedMm) / Math.max(latCore.distMm, 1e-15) : Infinity;
   const onExtension = coreFootAtEnd && endSin <= 0.01;
   // Otherwise X counts as outside only if it is off the extension by more than the onRail band; with
@@ -841,33 +631,32 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     && Math.abs(latExt.signedMm) < 0.5 * (w || 0);
   if (falseExtFoot) {
     dLat = latCore.distMm; // outside ⇒ positive; magnitude only (sign may be round-off at an end)
-    lat = closestOnPoly(R, latCore.q, railPts);
-    lat.signedMm = dLat;
+    lat = { ...rail.closest(latCore.q), signedMm: dLat };
   } else {
     lat = latExt;
     dLat = latExt.signedMm;
   }
   const delta = dLat < 0 ? -dLat : 0;
-  const hitE = closestOnPoly(R, E, railPts);
+  const hitE = rail.closest(E);
 
-  let Tpt, splice, joinMode;
+  let Tpt, sT, splice, joinMode;
   // Scale with w so xk similarity does not flip onRail/climb (absolute 1e-6 mm thresh).
   if (onExtension || Math.abs(dLat) < onRailTol) {
-    Tpt = lat.q; splice = 0; joinMode = 'onRail';
+    Tpt = lat.q; sT = lat.s; splice = 0; joinMode = 'onRail';
   } else if (dLat < 0) {
     // 6a.7(3) climb/merge: M at ℓ_m = max(w, 3δ) forward toward E
     const Lm = Math.max(w || 0, 3 * delta);
-    const s0 = polyArcMm(R, railPts, lat.i, lat.t);
-    const sE = polyArcMm(R, railPts, hitE.i, hitE.t);
-    const sM = Math.min(s0 + Lm, Math.max(s0 + 1e-9, sE * 0.999));
-    Tpt = pointAtArcMm(R, railPts, sM).q;
+    const s0 = lat.s;
+    const sE = hitE.s;
+    sT = Math.min(s0 + Lm, Math.max(s0 + 1e-9, sE * 0.999));
+    Tpt = rail.at(sT).q;
     splice = R * angle(X, Tpt);
     joinMode = 'climb';
   } else {
     // 6a.7(2)/6a.11: exterior geodesic tangent to rail at T (turn at T ≤ 1°).
     // Tangency: X lies in the great-circle plane spanned by q and Ta ⇒ dot(X, q×Ta)=0.
-    const s0 = polyArcMm(R, railPts, lat.i, lat.t);
-    const sE = polyArcMm(R, railPts, hitE.i, hitE.t);
+    const s0 = lat.s;
+    const sE = hitE.s;
     // Search near the lateral foot at L_j ≈ √(2·d·w). Wide [s0,sE] scans found far false
     // tangents (splice ≈50 mm ≈ whole leg → near-end knees that GROW with sample count —
     // B.8 / same class as absolute 0.02 mm). Cap splice window; never use the foot as T.
@@ -880,9 +669,9 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     const spliceCap = Math.max(span, 20 * (w || 0));
     const cos1 = Math.cos(Math.PI / 180);
     const tangRes = (s) => {
-      const P = pointAtArcMm(R, railPts, s);
-      const q = unit(P.q);
-      const Ta = polyTangentAt(railPts, P); // v3 §3.2(8): same continuous tangent field as the exit
+      const P = rail.at(s);
+      const q = P.q;
+      const Ta = P.T; // v3 §3.2(8): the rail's exact, continuous tangent field (same as the exit)
       const spl = R * angle(X, q);
       // Co-directional arrival∥rail along travel toward E (no abs — abs accepted ~180° reverse).
       const Tdir = towardE > 0 ? Ta : mul(Ta, -1);
@@ -933,12 +722,12 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       // No co-directional tangency in the window — climb/merge path below (not a reverse tangent).
       best = { s: s0, score: 0, cost: Infinity, res: 0 };
     }
-    Tpt = tangRes(best.s).q;
+    sT = rail.at(best.s).s;
+    Tpt = rail.at(sT).q;
     splice = R * angle(X, Tpt);
     // 6a.17 / block-B: exterior tangent ≤1°. If search landed >1° from parallel, use climb/merge instead.
     {
-      const hitJ = closestOnPoly(R, Tpt, railPts);
-      const Trail = polyTangentAt(railPts, hitJ);
+      const Trail = rail.at(sT).T;
       const Tarrive = mul(tangentTo(unit(Tpt), unit(X)), -1);
       const nrm = unit(Tpt);
       const proj = (v) => {
@@ -956,13 +745,12 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
         // Fall back to climb/merge (≤20°). Grow ℓ_m until merge angle ≤20° (6a.7 / block-B).
         const deltaHere = Math.max(0, -dLat);
         let Lm = Math.max(w || 0, 3 * deltaHere, mmAtW(2, w || W0_MM));
-        const sFoot = polyArcMm(R, railPts, lat.i, lat.t);
-        const sE2 = polyArcMm(R, railPts, hitE.i, hitE.t);
+        const sFoot = lat.s;
+        const sE2 = hitE.s;
         const dir = sE2 >= sFoot ? 1 : -1;
         const angAt = (sM) => {
-          const q = unit(pointAtArcMm(R, railPts, sM).q);
-          const hitJ2 = closestOnPoly(R, q, railPts);
-          const Trail2 = polyTangentAt(railPts, hitJ2);
+          const P = rail.at(sM);
+          const q = P.q;
           const Tarr = mul(tangentTo(q, unit(X)), -1);
           const n2 = q;
           const pr = (v) => {
@@ -970,7 +758,7 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
             const len = Math.hypot(p[0], p[1], p[2]);
             return len < 1e-15 ? null : mul(p, 1 / len);
           };
-          const a = pr(Tarr), b = pr(Trail2);
+          const a = pr(Tarr), b = pr(P.T);
           if (!a || !b) return 180;
           // Co-directional merge angle (no abs — reverse would read as ~0°).
           return Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * 180 / Math.PI;
@@ -985,7 +773,8 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
           if (dir < 0 && sM < Math.min(sFoot, sE2)) { sM = Math.min(sFoot, sE2); aM = angAt(sM); break; }
           aM = angAt(sM);
         }
-        Tpt = unit(pointAtArcMm(R, railPts, sM).q);
+        sT = rail.at(sM).s;
+        Tpt = rail.at(sT).q;
         splice = R * angle(X, Tpt);
         joinMode = 'climb';
       } else {
@@ -1004,33 +793,17 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     const s = Math.sin(a);
     pts.push(mul(unit(add(mul(X, Math.sin((1 - tt) * a) / s), mul(Tpt, Math.sin(tt * a) / s))), R));
   }
-  const hitT = closestOnPoly(R, Tpt, railPts);
   // Spec v3 §3.2(13) (= v2 6a.23, #21) upper end: E_n is fixed, so the exit is the tangent from a fixed point to the
   // (convex) rail. Window [T₁; rail end] in travel direction — never behind T₁ (no backward walk).
-  // One continuous tangent field (polyTangentAt) for entry and exit. No cost pull toward E:
+  // One continuous tangent field (rail.at(s).T, exact) for entry and exit. No cost pull toward E:
   // geometry chooses. Tangency is dimensionless: sin∠(rail tangent at T, T→E_n) ≤ 0.01 or
   // residual ≤ 0.02·w (§3.2(13б)); cos 5° is only a direction guard. Window (13в). No root → drain
   // at the hole (E inside the rail, mirror of (11)) or free geodesic from the end of contact (E
   // outside); fail only on contradiction (13г). Lower-end packing root: §3.2(12), no tangency search.
-  const sT0 = polyArcMm(R, railPts, hitT.i, hitT.t);
-  const sE0 = polyArcMm(R, railPts, hitE.i, hitE.t);
+  const sT0 = sT;
+  const sE0 = hitE.s;
   const forward = sE0 >= sT0;
-  const railCum = [0];
-  for (let i = 1; i < railPts.length; i++) railCum.push(railCum[i - 1] + R * angle(railPts[i - 1], railPts[i]));
-  const railLen = railCum[railCum.length - 1];
-  const railAt = (sMm) => {
-    const s = Math.min(railLen, Math.max(0, sMm));
-    let lo = 0, hi = railPts.length - 1;
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (railCum[mid] <= s) lo = mid; else hi = mid; }
-    const i = Math.min(lo, railPts.length - 2);
-    const seg = railCum[i + 1] - railCum[i];
-    const u = seg > 1e-15 ? Math.min(1, Math.max(0, (s - railCum[i]) / seg)) : 0;
-    const a = unit(railPts[i]), b = unit(railPts[i + 1]);
-    const om = angle(a, b);
-    const q = om < 1e-15 ? a
-      : unit(add(mul(a, Math.sin((1 - u) * om) / Math.sin(om)), mul(b, Math.sin(u * om) / Math.sin(om))));
-    return { q, i, t: u };
-  };
+  const railLen = rail.len;
   const sLo = forward ? sT0 : 0;
   const sHi = forward ? railLen : sT0;
   const dirS = forward ? 1 : -1;
@@ -1038,10 +811,9 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   const wEff = Math.max(w || W0_MM, 1e-9);
   const tanSinTol = 0.01, tanResTol = 0.02 * wEff;
   const exitRes = (s) => {
-    const P = railAt(s);
+    const P = rail.at(s);
     const q = P.q;
-    const Ta = polyTangentAt(railPts, P);
-    const Tdir = forward ? Ta : mul(Ta, -1);
+    const Tdir = forward ? P.T : mul(P.T, -1);
     const towardE = tangentTo(q, E);
     const res = dot(E, cross(q, Tdir));
     return {
@@ -1051,16 +823,16 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     };
   };
   const isTangent = (t) => t.score > cosAccept && (t.sin <= tanSinTol || t.resMm <= tanResTol);
-  // Scan at about half the rail vertex spacing (grid-following, dimensionless in the rail).
-  const nScan = Math.max(160, Math.min(4000, 2 * railPts.length));
+  // Scan step w/4 along the window: set by the thread, not by the output grid (#36).
+  const nScan = Math.max(160, Math.ceil((sHi - sLo) / (0.25 * wEff)));
   const { samples, cands } = exitCandidates(exitRes, sLo, sHi, nScan);
   // Which end construction applies follows from the leg's role, not from a numeric band (#35):
   // a BOTTOM leg ends at E_n = the packing root on the rail (§3.2(12)), so the thread stays on the
   // rail up to the hole ('atE'; the tangent at E_n's own foot). E_n measurably off the rail there is
-  // a construction error: reported loudly (exitKind 'offRail', exitFail), not switched to another
-  // branch. A TOP leg ends at a given hole: tangent from a point (13), drain (13г) or free geodesic,
-  // never 'atE' (the |d_E| < 0.02·w band gave top legs a ≈90° hook on a ≈0.013 mm tail).
-  const latE = signedLateralToPoly(R, E, railPts, prevArm);
+  // a construction contradiction: exitKind 'offRail', exitFail — a loud fail (V8), never a silent
+  // continuation (§2, §5.6, #36). A TOP leg ends at a given hole: tangent from a point (13), drain
+  // (13г) or free geodesic, never 'atE'.
+  const latE = rail.lateral(E);
   const dE = latE.signedMm;
   const eOnRail = endLevel === 'bottom';
   const eOffRail = eOnRail && !(Math.abs(dE) < onRailTol);
@@ -1099,12 +871,13 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       const om = angle(best.q, E);
       const L = R * om;
       if (L > wEff) {
+        const laid = laidChain(R, prevArm);
         const nChk = Math.max(8, Math.ceil(L / (0.25 * wEff)));
         for (let k = 1; k < nChk; k++) {
           const tt = k / nChk;
           if (tt * L < wEff) continue;
           const g = unit(add(mul(best.q, Math.sin((1 - tt) * om) / Math.sin(om)), mul(E, Math.sin(tt * om) / Math.sin(om))));
-          if (pointPolyDistMm(R, g, prevPts) < wEff * (1 - 0.01)) { exitFail = true; break; }
+          if (laid.closest(g).distMm < wEff * (1 - 0.01)) { exitFail = true; break; }
         }
       }
       if (exitFail) exitKind = 'contradiction';
@@ -1113,22 +886,23 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   const exitSin = eOnRail ? 0 : best.sin, exitResMm = eOnRail ? Math.abs(dE) : best.resMm; // at E: tangent at the foot
   const exitAlongMm = Math.abs(best.s - sT0);
   const exitQ = best.q;
-  const railSlice = polySliceToward(R, railPts, hitT.i, hitT.t, exitQ, Math.max(1, n - Tcount));
+  // Output samples of the rail T₁ … exit (uniform in arc length); the analytic arcs are kept on the leg.
+  const railSlice = rail.sample(sT0, best.s, Math.max(1, n - Tcount));
   for (let i = 0; i < railSlice.length; i++) {
     if (Tcount > 0 && i === 0) continue;
     pts.push(railSlice[i]);
   }
-  if (!pts.length) pts.push(...railSlice);
-  // Bottom leg ('atE', §3.2(12)): E_n is the packing root on the rail, so the rail itself ends at E_n.
-  // The packing root and this rail polyline are two representations of one parallel and agree only
-  // to |d_E| < 0.02·w (≈0.006 mm at λ = 0), so the rail's last point (E_n's foot) is replaced by E_n
-  // instead of adding a lateral tail — that tail was a ≈90° hook on the raw polyline (#35).
+  const legArcs = [];
+  if (splice > 1e-15) legArcs.push(arcGC(X, Tpt, 'splice'));
+  legArcs.push(...rail.sub(sT0, best.s));
+  // Bottom leg ('atE', §3.2(12)): E_n is the packing root on the rail, so the rail itself ends at E_n
+  // (|d_E| is round-off of the root on the same analytic rail; the arcs end at E_n's foot).
   if (exitKind === 'atE' && pts.length >= 2) pts[pts.length - 1] = mul(unit(to), R);
   // Geodesic Tex → E (tangent when exit score is high).
   {
     const last = unit(pts[pts.length - 1]);
     const Eend = unit(to);
-    const gap = R * angle(last, Eend);
+    const gap = R * ang(last, Eend); // exact (acos has a ≈1e-6 mm floor here, #36)
     if (gap > Math.max(1e-9 * R, 1e-6 * ((w || W0_MM) / W0_MM))) {
       const nTail = Math.max(2, Math.min(12, Math.round(gap / Math.max(mmAtW(0.25, w || W0_MM), 1e-6))));
       for (let k = 1; k <= nTail; k++) {
@@ -1137,6 +911,10 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
         const s = Math.sin(om) || 1e-15;
         pts.push(mul(unit(add(mul(last, Math.sin((1 - tt) * om) / s), mul(Eend, Math.sin(tt * om) / s))), R));
       }
+      // The exit root is a tangency by construction (§3.2(13)); drain and free exits are real corners.
+      // A bottom leg ('atE' / 'offRail') has no tail: its arcs end at E_n's foot on the rail.
+      const tail = exitKind === 'atE' || exitKind === 'offRail' ? null : arcGC(exitQ, Eend, 'tail');
+      if (tail) legArcs.push(exitKind === 'root' ? { ...tail, join: 'tangent' } : tail);
     }
   }
 
@@ -1266,6 +1044,7 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     holeTurnDeg,
     mergeTurnDeg,
     exitKind, exitFail, exitSin, exitResMm, exitAlongMm, rawTurnMaxDeg, rawTurnAtMm,
+    exitDeMm: dE, arcs: legArcs,
   };
 }
 
@@ -1292,6 +1071,7 @@ function armPackNormal(arm) {
  *  sidesAt(s) → needleSides at level s. */
 function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
   const h = w / 10;
+  const skipped = [];
   const prevPts = prevArm?.pts;
   // Pure geodesic row-1 (no bow): analytic GC-plane parallel — λ=0 Δ₂ = 4.968.
   // Bow / rail / climb: 6a.11(1) tangent continuation of the laid parallel (NOT concentric ρ+w/R).
@@ -1306,29 +1086,11 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
     || (prevArm?.layMode === 'smallCircle')
     || ((prevArm?.climbMm || 0) > 1e-9 && prevArm?.shoulderForm === 'bow');
   if (useTangent && prevPts && prevPts.length >= 2) {
-    const extMm = Math.max(5 * (w || 0), mmAtW(10, w || W0_MM));
-    const skipMm = Math.max(prevArm.climbMm || 0, prevArm.spliceMm || 0, 0);
-    let body = prevPts;
-    if (skipMm > 1e-9) {
-      let cum = 0;
-      let i0 = 0;
-      for (let i = 1; i < prevPts.length; i++) {
-        cum += R * angle(prevPts[i - 1], prevPts[i]);
-        if (cum + 1e-9 >= skipMm) { i0 = i; break; }
-      }
-      body = prevPts.slice(Math.max(0, i0));
-      if (body.length < 2) body = prevPts;
-    }
-    const railCore = parallelOffsetPoly(R, body, w || 0, prevArm);
-    const coreLen = railCore.length;
-    // Extend PAST THE END only (pre-extend still via extendPolyEnds for lateral foot near start)
-    const railPts = extendPolyEnds(R, railCore, extMm, w || W0_MM);
-    const nExt = Math.max(2, Math.min(32, Math.round(extMm / Math.max(mmAtW(0.5, w), 1e-9))));
-    const coreEnd = nExt + coreLen - 1;
-    const gHit = (s) => {
-      const E = unit(perpPt(R, s, phiK, sidesAt(s).eOff));
-      return signedLateralToPoly(R, E, railPts, prevArm);
-    };
+    // Same analytic rail as railLeg (§3.2(8), #36): parallel of the laid arcs of row n−1, continued along
+    // the great circle tangent at its end; g(s) = signed distance of E(s) to it is exact and smooth, so
+    // the first transversal root is found by bisection without polyline-tip artefacts.
+    const { rail } = railOf(R, prevArm, w);
+    const gHit = (s) => rail.lateral(unit(perpPt(R, s, phiK, sidesAt(s).eOff)));
     const g = (s) => gHit(s).signedMm;
     // First transversal root with s > sInside. Skip spurious early roots (dense-grid chatter)
     // that would shrink Δ below ~0.7·expected (6a.12 / 6a.17 packing stability on 96/192/384).
@@ -1350,33 +1112,15 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
       }
       const sCand = (a + b) / 2;
       const hitCand = gHit(sCand);
-      // Require real crossing of the rail (not grazed tip) and Δ large enough.
       if ((sCand - sInside) >= minDs - 1e-9) { s = sCand; hit = hitCand; break; }
+      skipped.push(sCand - sInside);
       scan = hi + h; // try next sign change
     }
     if (s == null || hit == null) return null; // no root — caller hard-fails (no silent sChan fallback)
-    // Forbid false root on the unrextended polyline tip (foot at last core vertex).
-    if (hit.i >= coreEnd - 1 && hit.i <= coreEnd && hit.t > 0.98 && hit.distMm < w * 0.25) {
-      // Prefer a root on the GC extension past the tip, if any
-      let lo2 = s, glo2 = g(s), hi2 = null;
-      for (let t = s + h; t <= sMax; t += h) {
-        const gt = g(t);
-        if (glo2 * gt <= 0) { hi2 = t; break; }
-        lo2 = t; glo2 = gt;
-      }
-      if (hi2 != null) {
-        for (let it = 0; it < 60; it++) {
-          const mid = (lo2 + hi2) / 2, gm = g(mid);
-          if (glo2 * gm <= 0) hi2 = mid; else { lo2 = mid; glo2 = gm; }
-        }
-        const s2 = (lo2 + hi2) / 2;
-        const hit2 = gHit(s2);
-        if (hit2.i > coreEnd) return { s: s2, sPrevCross: null, sLaidCross: s2, sigma: 1, method: 'tangentParallel' };
-      }
-      // Tip false root with no extension root → reject
-      return null;
-    }
-    return { s, sPrevCross: null, sLaidCross: s, sigma: 1, method: 'tangentParallel' };
+    // Conditioning of the root: sin of the angle between the E-line (meridian direction) and the rail.
+    const Es = unit(perpPt(R, s, phiK, sidesAt(s).eOff));
+    const crossSin = Math.abs(dot(ePole(Es), hit.N));
+    return { s, sPrevCross: null, sLaidCross: s, sigma: 1, method: 'tangentParallel', crossSin, onExt: hit.s < rail.coreS0 || hit.s > rail.coreS1, skipped };
   }
   // --- geodesic / GC packing-plane parallel at distance w ---
   let n = armPackNormal(prevArm);
@@ -1455,6 +1199,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     // Channel clearance is informational only; packing root is authoritative.
     const s = pp.s;
     return { s, levelInfo: { rule: 'packThenPierce', method: pp.method, sPrev: prevSt.s, sPrevCross: pp.sPrevCross, sLaidCross: pp.sLaidCross, sPack: pp.s, sChan,
+      crossSin: pp.crossSin ?? null, packSkipped: pp.skipped?.length ?? 0, packOnExt: pp.onExt ?? null,
       channelBinding: false, dS: s - prevSt.s, prevArm: prevArm.id, basis: LV.bottom.next.basis,
       shoulderForm: prevArm.shoulderForm || 'geodesic',
       bowLateralMm: prevArm.bowLateralMm || 0, phi3CapMm: prevArm.phi3CapMm || 0,
@@ -1594,7 +1339,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         joinMode: legShape.joinMode || null, climbMm: legShape.climbMm ?? 0, deltaMm: legShape.deltaMm ?? 0, deltaFail: !!legShape.deltaFail,
         railKind: legShape.railKind || null, holeTurnDeg: legShape.holeTurnDeg ?? 0, mergeTurnDeg: legShape.mergeTurnDeg ?? 0,
         exitKind: legShape.exitKind || null, exitFail: !!legShape.exitFail, exitSin: legShape.exitSin ?? null, exitResMm: legShape.exitResMm ?? null, exitAlongMm: legShape.exitAlongMm ?? null,
-        rawTurnMaxDeg: legShape.rawTurnMaxDeg ?? null, rawTurnAtMm: legShape.rawTurnAtMm ?? null });
+        rawTurnMaxDeg: legShape.rawTurnMaxDeg ?? null, rawTurnAtMm: legShape.rawTurnAtMm ?? null,
+        exitDeMm: legShape.exitDeMm ?? null, arcs: legShape.arcs });
       if (i === 1) RD.firstLegId = leg.id;
       // перекресты и прилегания со ВСЕМИ ранее уложенными плечами (обе нити): правило над/под
       for (const other of legs()) {

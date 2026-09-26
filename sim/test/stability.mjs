@@ -6,16 +6,17 @@
 //   sim: C, w, m, startRun × 1.25 (top level as a fraction of Q, so the pattern is similar)
 // Discrete decisions must be identical: rows per set, number of legs, per leg joinMode / exitKind /
 // exitFail / interiorXn / railKind / layMode / level, and every validator status (V-classes).
-// Continuous outputs (leg points, stitch E/X, levels s, leg lengths) must agree to TOL_CONT
-// (dimensionless: positions / R, lengths relative; the ×1.25 build is compared after scaling).
-// A flipped branch moves points by ≥ 2e−4·R in every case seen in #35; the round-off floor of
-// the recursive rail construction is ≤ 6e−6·R (bow) and ≈ 1e−9·R (geodesic).
+// Continuous outputs (leg points, stitch E/X, levels s, leg lengths) must agree to TOL_CONT = 1e−6
+// (dimensionless: positions / R, lengths relative; the ×1.25 build is compared after scaling; #36 acceptance).
+// A flipped branch moves points by ≥ 2e−4·R in every case seen in #35. Since #36 the rails are built
+// from the analytic arcs of row n−1 (no finite differences), so the round-off floor is ≲ 1e−7·R for
+// bow and geodesic alike, on grid 96 and 384 (it was ≤ 6e−6·R for bow at 96 and ≈ 3e−2·R at 384).
 // Raw-polyline turns: every rail leg reports the largest interior turn of its constructed
 // polyline before the uniform resample (rawTurnMaxDeg); it must stay ≤ 20° (6a.18 kink limit),
 // so a hook on a sub-sample tail (the top-leg 'atE' hook of #35: ≈90° raw, ≈1.4° at grid 96)
 // cannot hide behind the resample.
 
-export const TOL_CONT = 5e-5;
+export const TOL_CONT = 1e-6;
 export const RAW_TURN_MAX_DEG = 20;
 
 /** Cases of test 8d0f: grid N, perturbations, and pattern params on top of STABILITY_BASE. */
@@ -25,6 +26,9 @@ export const STABILITY_CASES = [
   { label: 'bow0.32 m0.5@96', N: 96, modes: ['eps', 'sim'], raw: { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, m_mm: 0.5 } },
   { label: 'bow0.6 m1@96', N: 96, modes: ['eps'], raw: { shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, m_mm: 1 } },
   { label: 'geo m0.5@384', N: 384, modes: ['eps'], raw: { shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, m_mm: 0.5 } },
+  // #36: rails from the analytic arcs of row n−1 — grid 384 must be as stable as 96 for bow legs too.
+  { label: 'bow0.32 m0.5@384', N: 384, modes: ['eps'], raw: { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, m_mm: 0.5 } },
+  { label: 'bow0.6 m0.5@384', N: 384, modes: ['eps'], raw: { shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, m_mm: 0.5 } },
 ];
 /** Every computeAll input of 8d0f as { N, raw } (the parallel runner precomputes them). */
 export function stabilityBuilds() {

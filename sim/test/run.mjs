@@ -1005,6 +1005,22 @@ if (G('8d0f'))
     }
   }
   setLegSamples(prevN);
+  // #36 / spec v3.1 §2, §5.6: a rail contradiction is a loud fail, never a silent continuation. Every bottom
+  // leg ends on its own analytic rail (|d_E| at round-off), and a forced offRail must fail V8 with its d_E.
+  {
+    const B = computeAll(recipe, { shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32, rowsMode: 'untilEquator' });
+    const bottoms = B.path.segs.filter((q) => q.type === 'leg' && q.level === 'bottom' && q.exitKind);
+    const maxDe = Math.max(...bottoms.map((q) => Math.abs(q.exitDeMm)));
+    check(bottoms.length > 0 && bottoms.every((q) => q.exitKind === 'atE') && maxDe <= 1e-9 * B.base.R,
+      `bow0.32@96: every bottom leg ends on its analytic rail (${bottoms.length} atE, max |d_E| ${maxDe.toExponential(1)} mm ≤ 1e−9·R)`);
+    const v8Before = runValidators(B, B.path.ops.length - 1, null).find((x) => x.id === 'V8');
+    const leg = bottoms[bottoms.length - 1];
+    Object.assign(leg, { exitKind: 'offRail', exitFail: true, exitDeMm: 0.05 });
+    const v8 = runValidators(B, B.path.ops.length - 1, null).find((x) => x.id === 'V8');
+    console.log(`  forced offRail on ${leg.id}: V8 ${v8Before.status} → ${v8.status}; ${(v8.value.match(/rail contradictions[^;]*/) || ['—'])[0]}`);
+    check(v8.status === 'fail' && /rail contradictions 1: .*offRail d_E=0[.,]05/.test(v8.value) && v8.details.exitFails.includes(leg.id),
+      `forced offRail on ${leg.id} → V8 fail naming the leg and d_E (loud, #36)`);
+  }
 }
 
 // 8d0b. K16 at λ=0 (#31, §3.2 (15)): promise by formula with the Clairaut mean ᾱ of the actual leg, per T (K16a)
@@ -1126,12 +1142,12 @@ if (G('8e'))
     freeAlls.push(freeAll);
     check(freeAll > 0 && viol === 0, `N=${N}: all ${freeAll} freeAll arms are joinMode=free (Codex 6a.15)`);
     if (N <= 192) check(peakOver === 0 && maxPeak <= 20, `N=${N}: all peaks ≤20° (max ${fmt(maxPeak, 2)})`);
-    else console.log(`  N=${N}: peak ${fmt(maxPeak, 2)}° printed, not gated (#22, #36: grid 384 amplifies noise ≈ w/h per row)`);
+    else console.log(`  N=${N}: peak ${fmt(maxPeak, 2)}° printed, not gated (#22: the output grid resolves the climb kinks differently; rails are analytic since #36)`);
   }
   setLegSamples(null);
   check(freeAlls.every((x) => x === freeAlls[0]), `B.8 freeAll count grid-invariant 96/192/384 (${freeAlls.join('/')})`);
   // Coordinator (#31): gate 96→192 non-increase only; 384 is printed (see #22 / #36).
-  check(peaks[0] >= peaks[1] - 1e-6, `B.8 peaks non-increasing 96→192 (${fmt(peaks[0], 2)}→${fmt(peaks[1], 2)}; 384: ${fmt(peaks[2], 2)} not gated, #22/#36)`);
+  check(peaks[0] >= peaks[1] - 1e-6, `B.8 peaks non-increasing 96→192 (${fmt(peaks[0], 2)}→${fmt(peaks[1], 2)}; 384: ${fmt(peaks[2], 2)} not gated, #22)`);
 }
 
 // 8f. Display 6a.17 lift(d): by distance d, all rows / both sets (review of 51eddd6)

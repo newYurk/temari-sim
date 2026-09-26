@@ -706,15 +706,20 @@ export function runValidators(A, stage = '2b', ref = null) {
     }
     // δ>w/2 = G3 miss (6a.7 / 6a.11(2) / 6a.12): always a bug on legs IN THIS PREFIX.
     const deltaFails = segs.filter((s) => s.deltaFail).length;
+    // Rail construction contradictions (spec v3.1 §2, §5.6, #36): a bottom leg whose packing root E_n is off
+    // its own rail ('offRail') or a free exit that re-enters the tube ('contradiction') — loud, never silent.
+    const exitFails = segs.filter((s) => s.type === 'leg' && s.exitFail);
+    const exitTxt = exitFails.length ? `; rail contradictions ${exitFails.length}: ` + exitFails.slice(0, 6).map((s) => `${s.id}/${s.round} ${s.exitKind}`
+      + (s.exitKind === 'offRail' ? ` d_E=${f(s.exitDeMm, 4)} mm` : '')).join('; ') : '';
     const unexpected = badRest.length + naRest.length;
-    add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: axis distance ≥ w (tube Ø w); allowed: crossing, tipCross (6a.13), tip-zone/over-bite, through-row, uwagake wedge, climb/merge (6a.7), catch, join; tip contacts CLASSIFIED not excluded; δ>w/2 fail',
-      status: unexpected || deltaFails ? 'fail' : warnList.length ? 'warn' : 'pass',
+    add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: axis distance ≥ w (tube Ø w); allowed: crossing, tipCross (6a.13), tip-zone/over-bite, through-row, uwagake wedge, climb/merge (6a.7), catch, join; tip contacts CLASSIFIED not excluded; δ>w/2 fail; rail contradiction (offRail / free exit into the tube, #36) fail',
+      status: unexpected || deltaFails || exitFails.length ? 'fail' : warnList.length ? 'warn' : 'pass',
       value: `near-zones < w: ${Object.entries(cnt).map(([k2, v]) => `${k2} — ${v}`).join('; ')}; unexpected ${unexpected}` +
         (badPromoted.length || naPromoted.length ? `; tip-classified ${badPromoted.length + naPromoted.length}` : '') +
-        (deltaFails ? `; δ>w/2 fails ${deltaFails}` : '') + wedgeTxt +
+        (deltaFails ? `; δ>w/2 fails ${deltaFails}` : '') + exitTxt + wedgeTxt +
         (badRest.length ? ': ' + badRest.slice(0, 6).map((b) => `${b.a}×${b.b} s=${f(b.s, 1)} d=${f(b.d, 3)}`).join('; ') : '') +
         (warnList.length ? `; warnings (hidden wrap threads closer than w; radial compress not modelled): ${warnList.slice(0, 8).join('; ')}${warnList.length > 8 ? '…' : ''}` : ''),
-      details: { found, bad, badRest, badPromoted, notAllowed, naRest, naPromoted, warnList } });
+      details: { found, bad, badRest, badPromoted, notAllowed, naRest, naPromoted, warnList, exitFails: exitFails.map((s) => s.id) } });
   }
 
   // K16 (6a.16 / 6a.17 / 6a.20) — tip coverage; K16b at λ=0 is two-sided Clairaut-window diagnostic

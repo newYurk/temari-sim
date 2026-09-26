@@ -63,13 +63,14 @@ const PREWARM = [
   { cost: 12, N: 96, raw: { N: 16, sTop_mm: 4 } }, // 12
   // 13…: the builds of 8d0f (stability.mjs), in stabilityBuilds() order.
   // validate: also precompute the validator statuses (validatorStatuses); cost = compute + validate.
-  ...stabilityBuilds().map((b) => ({ cost: b.N === 384 ? 17 : b.raw.shoulderForm === 'geodesic' ? 2 : b.raw.bowLambda >= 0.6 ? 20 : 13, validate: true, ...b })),
+  // Bow at 384 (#36): compute + validators ≈ 38 s (λ 0.32) and ≈ 82 s (λ 0.6), mostly V8 on 384-point legs (#37).
+  ...stabilityBuilds().map((b) => ({ cost: b.raw.shoulderForm === 'geodesic' ? (b.N === 384 ? 17 : 2) : b.N === 384 ? (b.raw.bowLambda >= 0.6 ? 82 : 38) : (b.raw.bowLambda >= 0.6 ? 12 : 5), validate: true, ...b })),
 ];
 const GROUP_COST = {
   pre: { cost: 6 }, '2b': { cost: 4, uses: [9, 10] }, '2c': { cost: 8, uses: [12] }, 3: { cost: 6 }, 4: { cost: 5 }, 5: { cost: 0 }, 6: { cost: 3 },
   7: { cost: 6 }, 8: { cost: 14 }, '8b': { cost: 18 }, '8b2': { cost: 16 },
   '8c': { cost: 45, uses: [0, 1, 2, 3, 5, 6, 7, 11] }, '8d0': { cost: 1 }, '8d0a': { cost: 4, uses: [1, 5, 6] }, '8d0c': { cost: 1, uses: [4, 6, 8] },
-  '8d0f': { cost: 2, uses: stabilityBuilds().map((_, j) => 13 + j) },
+  '8d0f': { cost: 2, uses: [6, ...stabilityBuilds().map((_, j) => 13 + j)] },
   '8d0b': { cost: 5 }, '8d': { cost: 14, uses: [6] }, '8e': { cost: 7, uses: [7, 11] }, '8f': { cost: 4, uses: [6] }, '8g': { cost: 8 },
   '8h': { cost: 20 }, '8i': { cost: 45, uses: [5, 6] }, 9: { cost: 3 },
 };
