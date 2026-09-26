@@ -2,7 +2,7 @@
 // Validators — pure functions over the pipeline result (or its prefix up to operation k).
 // Each: id, name (English canonical; UI translates via i18n), criterion from criteria.md / basis,
 // status pass|fail|warn|info|n/a, numbers. Work may span several rounds and threads (A1, B1, A2 …).
-import { dist, norm, toSPhi, dot, unit, sub, mul, ePole, eEast, haversineLen, point, cross, segSegDist, angle, add as vadd, clamp } from './geom.js';
+import { dist, norm, toSPhi, dot, unit, sub, mul, ePole, eEast, haversineLen, point, cross, segSegDist, angle, add as vadd, clamp, wrapPi } from './geom.js';
 import { prefix } from './layers.js';
 import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
 import { tubeMesh } from './tube.js';
@@ -13,6 +13,22 @@ import { EPS_C, DEG_MAX_W } from './path.js';
 /** Test hook (#26 mutation): V16 fan onset over ALL threads (future ones included) instead of the causal prefix. */
 let V16_ACAUSAL = false;
 export function setV16AcausalForTest(on) { V16_ACAUSAL = !!on; }
+
+/**
+ * #23 (6a.11 packing): a contact is `rail-parallel` only for line neighbours of one set — legs of rows n−1 and n of the
+ * same stitch and marking line, the later one laid on the rail of the earlier — at axis distance d ∈ [w(1 − εc), w].
+ * Anything else (a foreign pair, a non-neighbour, or a neighbour pressed deeper than the band) is a crossing, tipCross,
+ * climb, separate or unexpected, never rail-parallel. (Was: any same-set Δrow = 1 pair with d ≥ 0.5·w.)
+ */
+export function railParallelPair(P, Q, d, w) {
+  if (!P || !Q || P.type !== 'leg' || Q.type !== 'leg' || P.set !== Q.set) return false;
+  const lo = P.row <= Q.row ? P : Q, hi = lo === P ? Q : P;
+  if (hi.row - lo.row !== 1 || hi.stitch !== lo.stitch || hi.line !== lo.line || hi.layMode !== 'rail') return false;
+  return d != null && d >= w * (1 - EPS_C) && d <= w * (1 + 1e-9);
+}
+
+/** #23 / §5.3 (2)(3): half-length along s of the push-aside zone at a hole, w/sin ψ + w/2 (ψ = the leg's angle to the line). */
+export function separateZoneMm(sinPsi, w) { return (sinPsi > 1e-12 ? w / sinPsi : Infinity) + w / 2; }
 
 const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : String(x));
 
@@ -764,7 +780,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     const lift = (R + w / 2) / R;
     const axis = segs.map((s) => (s.type === 'leg' ? s.pts.map((p) => [p[0] * lift, p[1] * lift, p[2] * lift]) : s.pts));
     const boxes = axis.map(bbox);
-    const found = [], bad = [];
+    const found = [], bad = [], separateList = [];
     const nextOf = (h) => path.segs.find((x) => x.thread === h.thread && Math.abs(x.u0 - h.u1) < 1e-12);
     const classify = (P, Q, md) => {
       const k = pairKey(P.id, Q.id);
@@ -784,6 +800,29 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (types === 'leg+pickup') {
         const K = P.type === 'pickup' ? P : Q, L = P.type === 'leg' ? P : Q;
         if (later === L) return 'leg over hidden stitch (later on top; channel under marking)';
+        // #23 / §5.3 (2)(3) (Fable delta, #50): at a bite the craftsman pushes the thread aside (≤ w/2 locally, over a length
+        // w/sin ψ); the flat model does not move it and records class `separate`. A later FOREIGN channel within the
+        // push-aside zone at its hole, |s − s_hole| ≤ w/sin ψ + w/2 (ψ = the leg's angle to the marking line at the
+        // contact), is U14 «set collision» (warn, printed, with inSpan); outside the zone it stays unexpected (fail).
+        const st = K.set !== L.set ? stitchesDone.find((x) => x.pickupId === K.id) : null;
+        if (st) {
+          const cpL = unit(L === P ? md.cp : md.cq);
+          let iN = 0, dN = Infinity;
+          for (let i = 0; i < L.pts.length; i++) { const dd = dist(unit(L.pts[i]), cpL); if (dd < dN) { dN = dd; iN = i; } }
+          const T = unit(sub(L.pts[Math.min(L.pts.length - 1, iN + 1)], L.pts[Math.max(0, iN - 1)]));
+          const sinPsi = Math.abs(dot(T, eEast(cpL)));
+          const H = dist(cpL, unit(st.E)) <= dist(cpL, unit(st.X)) ? st.E : st.X;   // the channel's hole nearest the contact
+          const dS = Math.abs(toSPhi(R, cpL).s - toSPhi(R, H).s);
+          const zone = separateZoneMm(sinPsi, w);
+          if (dS <= zone) {
+            const ph = toSPhi(R, H).phi;
+            const span = stitchesDone.find((x) => x.level === 'top' && x.set !== K.set && Math.abs(x.s - st.s) < 1e-6 && order.get(x.pickupId) < order.get(K.id)
+              && (() => { const lo = wrapPi(toSPhi(R, x.X).phi - ph), hi = wrapPi(toSPhi(R, x.E).phi - ph); return Math.min(lo, hi) <= 0 && Math.max(lo, hi) >= 0 && Math.abs(hi - lo) < Math.PI; })());
+            separateList.push({ leg: L.id, legRound: L.round, channel: K.id, channelRound: st.round, d: md.d, dW: md.d / w, dS, zone, psiDeg: Math.asin(Math.min(1, sinPsi)) * 180 / Math.PI,
+              dHoleMm: R * angle(cpL, unit(H)), inSpan: !!span, spanOf: span ? span.pickupId : null });
+            return 'separate: foreign channel pushes the leg aside at its hole (U14 set collision, §5.3 (2)(3))';
+          }
+        }
         return null;                                   // channel passed under a leg not counted in occupancy — error
       }
       if (types === 'pickup+pickup') {
@@ -839,8 +878,8 @@ export function runValidators(A, stage = '2b', ref = null) {
             }
           }
         }
-        // Rail parallel of prev row at ~w (includes same-line mid-leg flush — NOT tipCross).
-        if (P.set === Q.set && Math.abs(P.row - Q.row) === 1 && md.d >= w * 0.5) {
+        // Rail parallel of prev row at ~w (same-line neighbours in the band only, #23 — NOT tipCross).
+        if (railParallelPair(P, Q, md.d, w)) {
           return 'rail parallel of prev row at distance w (6a.11)';
         }
         // Same-line neighbor outside rail-parallel band → unexpected (not tipCross).
@@ -867,11 +906,11 @@ export function runValidators(A, stage = '2b', ref = null) {
     const notAllowed = path.crossings.filter((c) => !c.allowed && ids.has(c.a) && ids.has(c.b));
     // 6a.13 / Codex block-B: tip contacts must be CLASSIFIED (tipCross / through-row / tip-zone),
     // not excluded from unexpected. Unclassified remainder = fail.
-    // Flush rail-parallel (d∈[0.5w, w]) is a classified expected class (6a.11), not a tip dump.
-    const flushOk = (d) => d != null && d >= w * 0.5 && d < w * (1 + 1e-3);
+    // Flush rail-parallel is a classified expected class (6a.11), not a tip dump — only line neighbours in the band
+    // [w(1−εc), w] (#23: was any pair with d ≥ 0.5·w, which hid foreign and deep contacts).
     // Re-classify residual bad / notAllowed that classify() missed but tipCrossAt / tip-zone cover.
     const promote = (a, b, cpOrS, d, atPt = null) => {
-      if (flushOk(d)) return 'rail parallel of prev row at distance w (6a.11)';
+      if (railParallelPair(segById.get(a), segById.get(b), d, w)) return 'rail parallel of prev row at distance w (6a.11)';
       // Axis coincidence (same as path.legZones): treat as crossing.
       if (d != null && d < 0.05 * w) return 'crossing (over/under by rule)';
       const P = segById.get(a), Q = segById.get(b);
@@ -942,13 +981,15 @@ export function runValidators(A, stage = '2b', ref = null) {
       + (s.exitKind === 'offRail' ? ` d_E=${f(s.exitDeMm, 4)} mm` : '')).join('; ') : '';
     const unexpected = badRest.length + naRest.length;
     add({ id: 'V8', name: 'No interpenetration except rule-allowed', crit: 'K14: axis distance ≥ w (tube Ø w); allowed: crossing, tipCross (6a.13), tip-zone/over-bite, through-row, uwagake wedge, climb/merge (6a.7), catch, join; tip contacts CLASSIFIED not excluded; δ>w/2 fail; rail contradiction (offRail / free exit into the tube, #36) fail',
-      status: unexpected || deltaFails || exitFails.length ? 'fail' : warnList.length ? 'warn' : 'pass',
+      status: unexpected || deltaFails || exitFails.length ? 'fail' : warnList.length || separateList.length ? 'warn' : 'pass',
       value: `near-zones < w: ${Object.entries(cnt).map(([k2, v]) => `${k2} — ${v}`).join('; ')}; unexpected ${unexpected}` +
         (badPromoted.length || naPromoted.length ? `; tip-classified ${badPromoted.length + naPromoted.length}` : '') +
         (deltaFails ? `; δ>w/2 fails ${deltaFails}` : '') + exitTxt + wedgeTxt +
         (badRest.length ? ': ' + badRest.slice(0, 6).map((b) => `${b.a}×${b.b} s=${f(b.s, 1)} d=${f(b.d, 3)}`).join('; ') : '') +
+        (separateList.length ? `; separate (U14 set collision, foreign channel pushes the leg aside at its hole, §5.3 (2)(3)) ${separateList.length}: max ${f(Math.max(...separateList.map((x) => x.dHoleMm)), 2)} mm from the hole, d ${f(Math.min(...separateList.map((x) => x.dW)), 2)}…${f(Math.max(...separateList.map((x) => x.dW)), 2)} w, in span ${separateList.filter((x) => x.inSpan).length}; `
+          + separateList.slice(0, 4).map((x) => `${x.legRound}/${x.leg}×${x.channelRound} ${f(x.dHoleMm, 2)} mm`).join(', ') + (separateList.length > 4 ? '…' : '') : '') +
         (warnList.length ? `; warnings (hidden wrap threads closer than w; radial compress not modelled): ${warnList.slice(0, 8).join('; ')}${warnList.length > 8 ? '…' : ''}` : ''),
-      details: { found, bad, badRest, badPromoted, notAllowed, naRest, naPromoted, warnList, exitFails: exitFails.map((s) => s.id) } });
+      details: { found, bad, badRest, badPromoted, notAllowed, naRest, naPromoted, warnList, separate: separateList, exitFails: exitFails.map((s) => s.id) } });
   }
 
   // K16 (6a.16 / 6a.17 / 6a.20) — tip coverage; K16b at λ=0 is two-sided Clairaut-window diagnostic

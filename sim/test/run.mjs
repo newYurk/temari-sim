@@ -2195,6 +2195,30 @@ if (G('8q'))
     check(v6.status === 'pass' && spread <= 1e-6 * w && Object.keys(by).length > 0,
       `V6 λ0.1 m${m}: pass (clean class and B = rot(A) ≤ 1.4e−6·w); free-exit point equal on rotation-equivalent stitches within 1e−6·w (${spread.toExponential(1)} mm)`);
   }
+  // #23: rail-parallel only for same-set line neighbours (Δrow 1, same stitch and line, later on a rail) at d ∈ [w(1−εc), w];
+  // a leg × later FOREIGN top channel inside the push-aside zone at the channel's hole (|s − s_hole| ≤ w/sin ψ + w/2) is
+  // class separate (U14 set collision, warn, printed, §5.3 (2)(3)); outside the zone it is unexpected (fail).
+  {
+    const { railParallelPair, separateZoneMm } = await import('../src/validators.js');
+    const w = 0.714, L = (o) => ({ type: 'leg', set: 'A', row: 3, stitch: 2, line: 2, layMode: 'rail', ...o });
+    const lo = L({ row: 2 }), hi = L({});
+    check(railParallelPair(lo, hi, 0.995 * w, w) && !railParallelPair(lo, L({ set: 'B' }), w, w) && !railParallelPair(lo, L({ row: 4 }), w, w)
+      && !railParallelPair(lo, L({ stitch: 3 }), w, w) && !railParallelPair(lo, L({ line: 3 }), w, w) && !railParallelPair(lo, L({ layMode: 'free' }), w, w)
+      && !railParallelPair(lo, hi, 0.6 * w, w) && !railParallelPair(lo, { ...hi, type: 'pickup' }, w, w),
+      '#23 railParallelPair: same-set line neighbour in the band only (foreign, Δrow 2, other stitch/line, not on rail, d = 0.6·w, pickup → false)');
+    check(Math.abs(separateZoneMm(1, w) - 1.5 * w) < 1e-12 && Math.abs(separateZoneMm(0.5, w) - 2.5 * w) < 1e-12, '#23 push-aside zone half-length w/sin ψ + w/2');
+    for (const [lam, m, nSep] of [[0.32, 1.0, 20], [0.4, 0.5, 10], [0, 1.0, 2]]) {
+      const A = computeAll(recipe, lam ? cfg(lam, m) : { ...cfg(0.32, m), shoulderForm: 'geodesic', bowLambda: undefined });
+      const v8 = runValidators(A, 'all', null).find((v) => v.id === 'V8'), d = v8.details, sep = d.separate;
+      const by = new Map(A.path.segs.map((x) => [x.id, x]));
+      const railBad = d.found.filter((r) => /rail parallel/.test(r.why) && !railParallelPair(by.get(r.a), by.get(r.b), r.d, A.params.w_mm)).length;
+      const zoneOk = sep.every((x) => x.dS <= x.zone && by.get(x.leg).set !== by.get(x.channel).set && by.get(x.channel).type === 'pickup');
+      const maxH = Math.max(...sep.map((x) => x.dHoleMm)), maxR = Math.max(...sep.map((x) => x.dS / x.zone));
+      console.log(`  #23 λ${lam} m${m}: V8 ${v8.status}, separate ${sep.length} (in span ${sep.filter((x) => x.inSpan).length}), max ${maxH.toFixed(3)} mm from the hole, max |s − s_hole|/zone ${maxR.toFixed(2)}, d ${Math.min(...sep.map((x) => x.dW)).toFixed(2)}…${Math.max(...sep.map((x) => x.dW)).toFixed(2)} w`);
+      check(v8.status === 'warn' && d.badRest.length + d.naRest.length === 0 && sep.length === nSep && zoneOk && railBad === 0 && /separate \(U14 set collision/.test(v8.value),
+        `#23 λ${lam} m${m}: V8 warn, 0 unexpected, ${sep.length} separate (expected ${nSep}) all foreign channel × leg inside the zone, printed; 0 rail-parallel labels outside the neighbour band`);
+    }
+  }
   // (10′) chord-only free entry (ec5be64 acceptance, stability matrix): a free / contradiction lower entry is the chord X_n → E_n⁰
   // and nothing else. Before, the rail from E's foot plus the tail back to E were appended (a 180° hairpin at E on closing top
   // legs at λ 0.1 / 0.2); at λ 0.2 m 1 (sTop 5 mm, pitch 2) under C×(1+1e−9) the return point equalled the previous vertex →
