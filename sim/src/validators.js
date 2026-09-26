@@ -307,6 +307,156 @@ function ptPolyDist(p, B) {
 const rotZ = (a) => (p) => [p[0] * Math.cos(a) - p[1] * Math.sin(a), p[0] * Math.sin(a) + p[1] * Math.cos(a), p[2]];
 
 /** stage: klyuch recipe.stages ('2a' | '2b' | 'B1' | 'A2') ili chislo (indeks operatsii). ref — calc_reference.json (ili null). */
+/**
+ * V6 by the classes of spec v3.2 §6.11 (#25). Leg i runs from stitch i−1 to stitch i (i = 1…N); i1 = L0→L1 (first leg,
+ * from the park after resume), i2 = L1→L2, iN = L(N−1)→L0 (closing leg). Clean legs i3…i(N−1) are built from clean legs
+ * of the previous row: under the rotation by 2·2π/N the pairs (i, i+2) coincide exactly (≤ 1.4e−6·w, a rule — class (i)),
+ * and so do the stitch points E/X of tops i2, i4, … and bottoms i3, i5, …. Set B = set A rotated by 2π/N (same row).
+ * Affected: the closing stitch (X from the own cluster on L0, §5.3 (1), (4) — '+w exactly' is the row-1 case), the
+ * transition step (bottom of i1 after resume vs the free root from the actual rail of the previous row, §3.2 (9а), (12)) and
+ * i2 (like i4, shifted by the step). Expectations are recomputed here, independently of path.js.
+ */
+export const V6_TOL = { cleanW: 1.4e-6, affW: 0.1, failW: 0.5, clearW: 0.9 };
+const polyDist = (p, pts) => { let d = Infinity; for (let i = 1; i < pts.length; i++) d = Math.min(d, segSegDist(p, p, pts[i - 1], pts[i]).d); return d; };
+const maxPtDev = (a, b, f) => { if (a.length !== b.length) return Infinity; let d = 0; for (let q = 0; q < a.length; q++) d = Math.max(d, dist(f(a[q]), b[q])); return d; };
+/** Point at arc offset d (mm) from the marking line at (s, φ) along the needle line (the great circle through the point
+ *  in the east direction) — the y coordinate of needleSides. */
+function needlePt(R, s, phi, d) {
+  const c = point(R, s, phi), u = unit(c), t = eEast(c);
+  return mul(vadd(mul(u, Math.cos(d / R)), mul(t, Math.sin(d / R))), R);
+}
+/** Own cluster edge on the X side (y < 0) of the needle line at (s, φ): marking [−m/2, m/2] grown by own threads (axis
+ *  closer than w/2) while the gap is < w (§5.3 (1)). threads: [{ pts, disk }] — polylines, or points (hidden-start holes).
+ *  Sampled every h mm; returns { lo, ids }. */
+export function ownClusterLo({ R, s, phi, m, w, threads, yMax, h = 0.0025 }) {
+  const C = point(R, s, phi), rad = (yMax || 10) + 2 * w;
+  // only links reaching the band |f| < w/2 around the needle plane can occupy it (speed only; the result is the same)
+  const nP = unit(cross(unit(C), eEast(C))), band = Math.sin(w / 2 / R) * 1.001;
+  const f0 = (p) => dot(p, nP) / norm(p);
+  const inBand = (a, b) => { const fa = f0(a), fb = f0(b); return !((fa > band && fb > band) || (fa < -band && fb < -band)); };
+  const near = [];
+  for (const T of threads) {
+    if (T.disk) { if (dist(T.disk, C) < rad && inBand(T.disk, T.disk)) near.push({ id: T.id, a: T.disk, b: T.disk }); continue; }
+    const P = T.pts;
+    for (let i = 1; i < P.length; i++) if (inBand(P[i - 1], P[i]) && Math.min(dist(P[i - 1], C), dist(P[i], C)) < rad + dist(P[i - 1], P[i])) near.push({ id: T.id, a: P[i - 1], b: P[i] });
+  }
+  let lo = -m / 2;
+  const ids = new Set();
+  for (let y = -m / 2 - h; y > -(yMax || 10); y -= h) {
+    const q = needlePt(R, s, phi, y);
+    let hit = null;
+    for (const g of near) if (segSegDist(q, q, g.a, g.b).d < w / 2) { hit = g.id; break; }
+    if (hit != null) { lo = y; ids.add(hit); } else if (lo - y >= w) break;
+  }
+  return { lo, ids, near };
+}
+/** Free root on the E-line: the first s > s0 where the E-line point (offset eOff from line φ) lies w from the previous
+ *  row's leg of this stitch, continued past its end along the great circle of its last link (§3.2 (9а), (12)). */
+export function eLineRoot({ R, phi, eOff, prevPts, s0, w, ds = 0.05, sMax = 12 }) {
+  const P = prevPts.slice(-24), a = unit(P[P.length - 2]), b = unit(P[P.length - 1]);   // the end of the leg is enough: the root lies within Δ of it
+  const ax = unit(cross(a, b));
+  const ext = [P[P.length - 1]];
+  const Lext = sMax / R;
+  for (let k = 1; k <= 120; k++) { const th = Lext * k / 120; const t = unit(cross(ax, b)); ext.push(mul(vadd(mul(b, Math.cos(th)), mul(t, Math.sin(th))), R)); }
+  const d = (sv) => Math.min(polyDist(needlePt(R, sv, phi, eOff), P), polyDist(needlePt(R, sv, phi, eOff), ext)) - w;
+  let lo = s0, flo = d(lo);
+  for (let sv = s0 + ds; sv < s0 + sMax; sv += ds) {
+    const fv = d(sv);
+    if (flo < 0 && fv >= 0) { let hi = sv; for (let it = 0; it < 60; it++) { const mid = 0.5 * (lo + hi); if (d(mid) < 0) lo = mid; else hi = mid; } return 0.5 * (lo + hi); }
+    lo = sv; flo = fv;
+  }
+  return NaN;
+}
+export function v6Metrics(A, rounds) {
+  const path = A.path, R = A.base.R, w = A.params.w_mm, m = A.params.m_mm, N = A.marking.N, phis = A.marking.phis;
+  const segById = new Map(path.segs.map((s) => [s.id, s]));
+  const order = new Map(path.segs.map((s, k) => [s.id, k]));
+  const r2 = rotZ(2 * (2 * Math.PI / N)), r1 = rotZ(2 * Math.PI / N);
+  const stOf = (r) => { const o = {}; for (const k of r.stitchIdx) o[path.stitches[k].i] = path.stitches[k]; return o; };
+  const legOf = (st) => segById.get(st.legId);
+  const out = [];
+  for (const r of rounds) {
+    const st = stOf(r);
+    if (Object.keys(st).length < N) continue;
+    // clean classes: legs i3…i(N−1), pairs (i, i+2); stitch points of tops i2, i4, … and bottoms i3, i5, … (not the closing)
+    let clean = 0, cleanAt = '';
+    for (let i = 3; i + 2 <= N - 1; i++) {
+      const d = maxPtDev(legOf(st[i]).pts, legOf(st[i + 2]).pts, r2);
+      if (d > clean) { clean = d; cleanAt = `leg ${i}→${i + 2}`; }
+    }
+    for (let i = 2; i + 2 <= N - 1; i++) {
+      const d = Math.max(dist(r2(st[i].E), st[i + 2].E), dist(r2(st[i].X), st[i + 2].X));
+      if (d > clean) { clean = d; cleanAt = `stitch ${i}→${i + 2}`; }
+    }
+    // B = A rotated by 2π/N, same row, all legs and stitch points (the hidden start chord is not a leg)
+    let bVsA = null;
+    if (r.set === 'B') {
+      const ra = rounds.find((q) => q.set === 'A' && q.row === r.row);
+      if (ra) {
+        const sa = stOf(ra);
+        bVsA = 0;
+        for (let i = 1; i <= N; i++) bVsA = Math.max(bVsA, maxPtDev(legOf(sa[i]).pts, legOf(st[i]).pts, r1), dist(r1(sa[i].E), st[i].E), dist(r1(sa[i].X), st[i].X));
+      }
+    }
+    // closing (§5.3 (1), (4)): X = own cluster edge on L0 − w/2; own = marking + own-set threads laid before the closing leg
+    const cl = st[N], reg = st[2], clLeg = legOf(cl);
+    const before = path.segs.filter((sg) => sg.set === r.set && order.get(sg.id) < order.get(clLeg.id) && true);
+    const threads = [];
+    for (const sg of before) {
+      if (sg.type === 'hidden-start') { threads.push({ id: sg.id, disk: sg.from }, { id: sg.id, disk: sg.to }); continue; }
+      if (sg.pts?.length > 1) threads.push({ id: sg.id, pts: sg.pts });
+    }
+    const spacing = R * Math.sin(cl.s / R) * 2 * Math.PI / N;
+    const cu = ownClusterLo({ R, s: cl.s, phi: phis[cl.line], m, w, threads, yMax: spacing });
+    const xExp = cu.lo - w / 2;
+    const Xpt = needlePt(R, cl.s, phis[cl.line], cl.xOff);
+    // clearance of the thread leaving X to the own cluster threads in the cluster's metric (§5.3: along the needle line,
+    // capsule half-width w/2): distance from X to the first occupied point toward the marking + w/2 (≥ w by the rule).
+    // clearPerp — the shortest 3D distance from X to those axes (diagnostic; < w for oblique threads by the same rule).
+    const own = cu.near.filter((g) => cu.ids.has(g.id));   // links of the cluster threads in the needle band
+    const dOwn = (q) => { let d = Infinity; for (const g of own) d = Math.min(d, segSegDist(q, q, g.a, g.b).d); return d; };
+    const clearPerp = dOwn(Xpt);
+    let yOcc = -m / 2;
+    for (let y = cl.xOff; y < -m / 2; y += 0.0025) if (dOwn(needlePt(R, cl.s, phis[cl.line], y)) < w / 2) { yOcc = y; break; }
+    const closing = { x: cl.xOff, xExp, dev: Math.abs(cl.xOff - xExp), extra: Math.abs(cl.xOff) - Math.abs(reg.xOff),
+      row1: r.begin !== 'resume', clear: yOcc - cl.xOff + w / 2, clearPerp, xRes: dist(Xpt, cl.X) };
+    // transition step (resume rounds): bottom of i1 vs the regular bottom i3, both against the free root on the E-line
+    let step = null, i2 = null;
+    if (r.begin === 'resume') {
+      const prev = rounds.find((q) => q.set === r.set && q.row === r.row - 1) || path.rounds.find((q) => q.set === r.set && q.row === r.row - 1);
+      if (prev) {
+        const sp = stOf(prev);
+        const root = (i) => eLineRoot({ R, phi: phis[st[i].line], eOff: st[i].eOff, prevPts: legOf(sp[i]).pts, s0: sp[i].s, w });
+        const e1 = root(1), e3 = root(3);
+        const actual = st[1].s - st[3].s, expected = e1 - e3;
+        step = { actual, expected, dev: Math.abs(actual - expected), root1: e1, root3: e3 };
+        i2 = { d: maxPtDev(legOf(st[2]).pts, legOf(st[4]).pts, r2), step: Math.abs(actual) };
+      }
+    }
+    out.push({ id: r.id, set: r.set, row: r.row, begin: r.begin, clean, cleanAt, bVsA, closing, step, i2 });
+  }
+  return { rounds: out };
+}
+/** Status of V6 from its metrics (pure; the tests feed mutated metrics to every branch). */
+export function v6Judge(M6, w) {
+  const T = V6_TOL, fails = [], warns = [];
+  const grade = (dev, what) => { if (dev > T.failW * w) fails.push(`${what}: unexplained ${f(dev / w, 3)}w > ${T.failW}w`); else if (dev > T.affW * w) warns.push(`${what}: ${f(dev / w, 3)}w > ${T.affW}w`); };
+  for (const q of M6.rounds) {
+    if (!(q.clean <= T.cleanW * w)) fails.push(`${q.id} clean class ${q.cleanAt} ${f(q.clean, 9)} mm > ${T.cleanW}·w`);
+    if (q.bVsA != null && !(q.bVsA <= T.cleanW * w)) fails.push(`${q.id} B ≠ rot(A) by ${f(q.bVsA, 9)} mm`);
+    const c = q.closing;
+    if (c.row1 && !(Math.abs(c.extra - w) <= T.cleanW * w)) fails.push(`${q.id} row-1 closing extra ${f(c.extra / w, 6)}w ≠ +w`);
+    grade(c.dev, `${q.id} closing X vs own cluster`);
+    if (!(c.extra >= -1e-6)) fails.push(`${q.id} closing X inside the regular (${f(c.extra, 6)} mm)`);
+    if (!(c.clear >= T.clearW * w)) fails.push(`${q.id} closing clearance ${f(c.clear / w, 3)}w < ${T.clearW}w`);
+    if (q.step) {
+      if (!Number.isFinite(q.step.expected)) fails.push(`${q.id} step: no free root on the E-line`);
+      else grade(q.step.dev, `${q.id} step`);
+      grade(Math.max(0, q.i2.d - q.i2.step), `${q.id} i2 vs i4 beyond the step`);
+    }
+  }
+  return { status: fails.length ? 'fail' : warns.length ? 'warn' : 'pass', reasons: [...fails, ...warns] };
+}
 export function runValidators(A, stage = '2b', ref = null) {
   const path = A.path;
   const kEnd = typeof stage === 'number' ? stage : path.stageEnd[stage];
@@ -456,37 +606,20 @@ export function runValidators(A, stage = '2b', ref = null) {
       value: `line/level errors ${wrongLine}; s spread by rounds: ${spreads.map((x) => `${x.r} bot ${f(x.b)}, top ${f(x.t)}`).join('; ')} mm; catch reaches neighbour marking: ${reach}` +
         (worstB.b > 1e-9 ? `. Bot spread — “transition step”: tip on the first bottom line of the round is below the others (sm. V6); maks. ${f(worstB.b)} mm v ${worstB.r}` : '') });
   }
-  // V6 — simmetriya lepestkov vnutri obkhoda: povorot na 2·(2π/N) perevodit leg i v leg i+2
+  // V6 — petal symmetry by the classes of spec v3.2 §6.11 (#25): clean classes exact, affected legs against expectations.
   {
     const done = roundsIn.filter(roundDone);
     if (!done.length) add({ id: 'V6', name: 'Petal symmetry within a round', crit: 'K1', status: 'n/a', value: 'full round only' });
     else {
-      const rot = rotZ(2 * (2 * Math.PI / N));
-      const parts = [];
-      let ok = true;
-      for (const r of done) {
-        const sts = r.stitchIdx.map((i) => path.stitches[i]);
-        let dLeg = 0, dPk = 0, nCmp = 0, worstPair = '';
-        for (let i = 0; i < N; i++) {
-          const j = (i + 2) % N;
-          const special = (q) => (r.begin === 'resume' && q === 0);   // first leg of a resumed thread starts from park Xki
-          if (special(i) || special(j)) continue;
-          const a = segById.get(sts[i].legId).pts.map(rot), b = segById.get(sts[j].legId).pts;
-          let dd = 0;
-          for (let q = 0; q < a.length; q++) dd = Math.max(dd, dist(a[q], b[q]));
-          if (dd > dLeg + 1e-12) worstPair = `leg ${i + 1} → ${j + 1}`;
-          dLeg = Math.max(dLeg, dd);
-          if (!sts[i].closing && !sts[j].closing) dPk = Math.max(dPk, dist(rot(sts[i].E), sts[j].E), dist(rot(sts[i].X), sts[j].X));
-          nCmp++;
-        }
-        const reg = sts.find((st) => st.level === 'top' && !st.closing), cl = sts.find((st) => st.closing);
-        const extra = reg.xOff - cl.xOff;
-        const tolLeg = Math.max(TOL_SYM, 5e-4); // rail/bow petal resampling
-        if (!(dLeg < tolLeg && dPk < tolLeg && extra > 0)) ok = false;
-        parts.push(`${r.id}: legs ${dLeg < TOL_SYM ? f(dLeg, 12) : `${f(dLeg, 3)} (worst ${worstPair})`} mm (${nCmp} pairs${r.begin === 'resume' ? ', excl. first leg from park' : ''}), E/X ${f(dPk, dPk < TOL_SYM ? 12 : 3)} mm; closing catch wider by ${f(extra, 4)} mm (covers round start)`);
-      }
-      add({ id: 'V6', name: 'Petal symmetry within a round', crit: 'K1; TK-KIKU', status: ok ? 'pass' : 'fail',
-        value: parts.join('; ') + (ok ? '' : '. Asymmetry — transition step: first resumed leg starts at park (prev-row top, w higher/narrower); row n+1 tip on L(start+1) packs flush and drops; TK-UWA fixes with deferred last stitch (variant, not modelled)') });
+      const M6 = v6Metrics(A, done);
+      const J = v6Judge(M6, w);
+      const rows = M6.rounds.map((q) => `${q.id}: clean ${f(q.clean, q.clean < 1e-3 ? 12 : 4)} mm` +
+        (q.bVsA != null ? `, B−rot(A) ${f(q.bVsA, 12)} mm` : '') +
+        `; closing extra ${f(q.closing.extra / w, 3)}w (X ${f(q.closing.x, 4)}, expected ${f(q.closing.xExp, 4)}, dev ${f(q.closing.dev / w, 3)}w, clearance ${f(q.closing.clear / w, 3)}w, perpendicular ${f(q.closing.clearPerp / w, 3)}w)` +
+        (q.step ? `; step ${f(q.step.actual / w, 3)}w (expected ${f(q.step.expected / w, 3)}w, dev ${f(q.step.dev / w, 3)}w); i2−i4 ${f(q.i2.d / w, 3)}w` : ''));
+      add({ id: 'V6', name: 'Petal symmetry within a round', crit: 'K1; TK-KIKU; spec v3.2 §6.11 (#25)', status: J.status,
+        value: rows.join('; ') + (J.reasons.length ? `. ${J.reasons.join('; ')}` : ''),
+        numbers: { rounds: M6.rounds, closingExtraW: M6.rounds.map((q) => ({ round: q.id, extraW: q.closing.extra / w })), reasons: J.reasons } });
     }
   }
   // V7 — visible legs on the surface (not through the ball); hidden inside

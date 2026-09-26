@@ -1800,6 +1800,78 @@ if (G('8m'))
   check(ru === 'этап A2: проверки считаются…' && en === 'stage A2: checks are running…', `#43 running note RU «${ru}» / EN «${en}»`);
 }
 
+// 8n. #25: V6 by the classes of spec v3.2 §6.11 — clean classes, B = rot(A), closing (own cluster, row-1 +w), transition
+// step (free root from the actual rail), i2 like i4 shifted by the step; every branch of v6Judge on mutated metrics.
+if (G('8n'))
+{
+  console.log('\n## #25 V6 by §6.11 classes');
+  const { v6Metrics, v6Judge, V6_TOL } = await import('../src/validators.js');
+  const expExtra = { '0/0.5': [1, 0.703, 0, 0, 0], '0.32/0.5': [1, 1.237, 0.822, 0.405, 0, 0, 0, 0, 0], '0.6/0.5': [1, 1.147, 1.165, 1.183, 1.191, 1.099, 0.917, 0.712, 0.484, 0.235, 0, 0, 0] };
+  let keep = null;
+  for (const m of [0.5, 1]) for (const lam of [0, 0.32, 0.6]) {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: m, rowsMode: 'untilEquator', shoulderForm: lam ? 'bow' : 'geodesic', bowLambda: lam, muWrap: Math.max(0.32, lam) });
+    const w = A.params.w_mm;
+    const V = runValidators(A, 'all', null), v6 = V.find((v) => v.id === 'V6'), v5 = V.find((v) => v.id === 'V5');
+    const Q = v6.numbers.rounds, mx = (g) => Math.max(0, ...Q.map(g));
+    const extra = Q.filter((q) => q.set === 'A').map((q) => q.closing.extra / w);
+    console.log(`  λ${lam} m${m}: V6 ${v6.status}; closing extra (A) ${extra.map((x) => fmt(x, 3)).join(' → ')} w; steps (A) ${Q.filter((q) => q.set === 'A' && q.step).map((q) => fmt(q.step.actual / w, 3)).join(' → ')} w`);
+    check(v6.status === 'pass', `#25 λ${lam} m${m}: V6 pass (${v6.numbers.reasons.join('; ') || 'no reasons'})`);
+    check(mx((q) => q.clean) <= V6_TOL.cleanW * w && Q.filter((q) => q.set === 'B').every((q) => q.bVsA != null && q.bVsA <= V6_TOL.cleanW * w),
+      `#25 λ${lam} m${m}: clean classes ≤ 1.4e−6·w (max ${mx((q) => q.clean).toExponential(2)} mm), B = rot(A, 2π/N) on every B round (max ${mx((q) => q.bVsA ?? 0).toExponential(2)} mm)`);
+    check(Q.filter((q) => q.closing.row1).every((q) => Math.abs(q.closing.extra - w) <= V6_TOL.cleanW * w)
+      && mx((q) => q.closing.dev) <= V6_TOL.affW * w && Q.every((q) => q.closing.extra >= -1e-6 && q.closing.clear >= V6_TOL.clearW * w),
+      `#25 λ${lam} m${m}: closing — row 1 exactly +w; X = own-cluster edge − w/2 within 0.1·w (max ${fmt(mx((q) => q.closing.dev) / w, 4)}w); never inside the regular X; clearance ≥ 0.9·w`);
+    check(Q.filter((q) => q.begin === 'resume').every((q) => q.step && Number.isFinite(q.step.expected) && q.step.dev <= V6_TOL.affW * w && q.i2.d <= q.i2.step + V6_TOL.affW * w),
+      `#25 λ${lam} m${m}: step = free root from the actual rail within 0.1·w (max ${fmt(mx((q) => q.step?.dev ?? 0) / w, 4)}w); i1 by its bottom only; i2 = i4 up to the step`);
+    const key = `${lam}/${m}`;
+    if (expExtra[key]) check(extra.length === expExtra[key].length && extra.every((x, j) => Math.abs(x - expExtra[key][j]) < 0.005),
+      `#25 λ${lam} m${m}: closing extra per row as the own cluster gives (${expExtra[key].join(' → ')} w)`);
+    if (lam === 0 && m === 0.5) {
+      const s5 = Q.find((q) => q.id === 'A5').step;
+      check(s5.actual / w > V6_TOL.failW && s5.dev <= V6_TOL.affW * w && v5.status === 'fail',
+        `#25 λ0: the A5 step ${fmt(s5.actual / w, 3)}w > 0.5w is explained (expected ${fmt(s5.expected / w, 3)}w) and passes V6; V5 keeps its bottom-spread fail (${v5.status})`);
+      keep = { A, w, M: v6Metrics(A, A.path.rounds) };
+    }
+  }
+  // v6Judge branches on mutated metrics (λ0 m0.5 as the base).
+  const { A, w, M } = keep;
+  const J = (mut) => { const c = structuredClone(M); mut(c.rounds); return v6Judge(c, w).status; };
+  const r = (id) => (q) => q.find((x) => x.id === id);
+  const cases = [
+    ['base', () => {}, 'pass'],
+    ['clean class +2e−6·w', (q) => { r('A3')(q).clean = 2e-6 * w; }, 'fail'],
+    ['B ≠ rot(A) +2e−6·w', (q) => { r('B3')(q).bVsA = 2e-6 * w; }, 'fail'],
+    ['row-1 closing extra w − 0.01w', (q) => { r('A1')(q).closing.extra = 0.99 * w; }, 'fail'],
+    ['closing dev 0.2w (explained band)', (q) => { r('A3')(q).closing.dev = 0.2 * w; }, 'warn'],
+    ['closing dev 0.6w (unexplained)', (q) => { r('A3')(q).closing.dev = 0.6 * w; }, 'fail'],
+    ['closing X inside the regular', (q) => { r('A3')(q).closing.extra = -1e-5; }, 'fail'],
+    ['closing clearance 0.85w', (q) => { r('A3')(q).closing.clear = 0.85 * w; }, 'fail'],
+    ['step dev 0.2w', (q) => { r('A4')(q).step.dev = 0.2 * w; }, 'warn'],
+    ['step dev 0.6w (unexplained)', (q) => { r('A4')(q).step.dev = 0.6 * w; }, 'fail'],
+    ['step: no free root', (q) => { r('A4')(q).step.expected = NaN; }, 'fail'],
+    ['explained step 2w (no 0.5w cap)', (q) => { const s = r('A5')(q); s.step.actual = 2 * w; s.step.expected = 2 * w; s.step.dev = 0; s.i2.step = 2 * w; s.i2.d = 2 * w; }, 'pass'],
+    ['i2 beyond the step by 0.6w', (q) => { const s = r('A4')(q); s.i2.d = s.i2.step + 0.6 * w; }, 'fail'],
+    ['i2 beyond the step by 0.05w', (q) => { const s = r('A4')(q); s.i2.d = s.i2.step + 0.05 * w; }, 'pass'],
+  ];
+  const got = cases.map(([name, mut, exp]) => [name, J(mut), exp]);
+  console.log(`  v6Judge: ${got.map(([n, g]) => `${n} → ${g}`).join('; ')}`);
+  check(got.every(([, g, e]) => g === e), `#25 v6Judge: every branch (${got.filter(([, g, e]) => g !== e).map(([n, g, e]) => `${n}: ${g} ≠ ${e}`).join(', ') || 'all as expected'})`);
+  // Mutations of the geometry itself reach v6Metrics (restored after): a clean leg vertex moved 1e−5 mm, the i1 bottom moved
+  // 0.6w along the line (s), the closing xOff moved 0.2w.
+  const P = A.path, seg = new Map(P.segs.map((s) => [s.id, s])), rd = P.rounds.find((x) => x.id === 'A3');
+  const stOf = (i) => P.stitches[rd.stitchIdx.find((k) => P.stitches[k].i === i)];
+  const leg5 = seg.get(stOf(5).legId), v0 = leg5.pts[40].slice();
+  leg5.pts[40] = [v0[0] + 1e-5, v0[1], v0[2]];
+  const g1 = v6Judge(v6Metrics(A, [rd]), w).status; leg5.pts[40] = v0;
+  const st1 = stOf(1), s0 = st1.s; st1.s = s0 + 0.6 * w;
+  const g2 = v6Judge(v6Metrics(A, P.rounds.filter((x) => x.set === 'A' && x.row <= 3)), w).status; st1.s = s0;
+  const st8 = stOf(8), x0 = st8.xOff; st8.xOff = x0 - 0.2 * w;
+  const g3 = v6Metrics(A, [rd]).rounds[0].closing; st8.xOff = x0;
+  const g4 = v6Judge(v6Metrics(A, [rd]), w).status;
+  check(g1 === 'fail' && g2 === 'fail' && g3.dev > 0.19 * w && g3.dev < 0.21 * w && g4 === 'pass',
+    `#25 v6Metrics on mutated geometry: clean vertex 1e−5 mm → ${g1}; i1 bottom +0.6w → ${g2}; closing xOff −0.2w → dev ${fmt(g3.dev / w, 3)}w; restored → ${g4}`);
+}
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');
