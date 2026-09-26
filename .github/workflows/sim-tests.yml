@@ -12,7 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 24]
+        # Single Node version (owner decision, #39): local runs and CI both use Node 24.
+        node: [24]
         # Shards of sim/test/run.mjs (#34): the split is in sim/test/harness.mjs; keep shards list = 1..count.
         shard: [1, 2, 3]
         shards: [3]
@@ -26,6 +27,6 @@ jobs:
         # Paths resolve via import.meta.url; CWD may be repo root. Each shard runs its groups in parallel workers.
         run: node sim/test/run.mjs --shard=${{ matrix.shard }}/${{ matrix.shards }} --jobs=4
       - name: JS type-check (pinned tsc, no build, no deps in repo)
-        # Once per Node version. checkJs is off globally; files opt in with `// @ts-check` (see tsconfig.json).
+        # Once (shard 1). checkJs is off globally; files opt in with `// @ts-check` (see tsconfig.json).
         if: matrix.shard == 1
         run: npx --yes -p typescript@5.9.3 tsc -p tsconfig.json
