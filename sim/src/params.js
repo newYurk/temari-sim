@@ -20,15 +20,15 @@ export const GROUPS = {
  * TemariKai, Suess, Fujix, Sanuki 地巻き用木綿糸. Top layer = thin sewing / overlock thread, not yarn; matte, slightly
  * hairy thread is preferred for grip; polished polyester, rayon, quilting thread are discouraged (too slippery). */
 export const WRAP_THREADS = {
-  'cotton-sewing': { label: 'cotton sewing thread (smooth)', surface: 'smooth', mu: 0.32, muBand: [0.32, 0.32], width_mm: 0.3, look: 'matte',
+  'cotton-sewing': { sheen: 0, hair: 0.15, label: 'cotton sewing thread (smooth)', surface: 'smooth', mu: 0.32, muBand: [0.32, 0.32], width_mm: 0.3, look: 'matte',
     source: 'TemariKai, Suess: top wrap of sewing thread; μ 0.32 = PHYS-COTTON-MU lower bound (cotton yarn vs wrap, order of magnitude)' },
-  'spun-poly-60-90': { label: 'spun polyester #60–90', surface: 'hairy spun', mu: 0.38, muBand: [0.35, 0.40], width_mm: 0.3, look: 'slight sheen, fine hair',
+  'spun-poly-60-90': { sheen: 0.5, hair: 0.35, label: 'spun polyester #60–90', surface: 'hairy spun', mu: 0.38, muBand: [0.35, 0.40], width_mm: 0.3, look: 'slight sheen, fine hair',
     source: 'Fujix: Japanese norm for the mari wrap is spun polyester #60–90; hairy spun types μ 0.35–0.40 (#41, estimate, midpoint)' },
-  overlock: { label: 'overlock thread (King Spun Lock / Fujix)', surface: 'hairy spun', mu: 0.38, muBand: [0.35, 0.40], width_mm: 0.3, look: 'matte, fine hair',
+  overlock: { sheen: 0, hair: 0.4, label: 'overlock thread (King Spun Lock / Fujix)', surface: 'hairy spun', mu: 0.38, muBand: [0.35, 0.40], width_mm: 0.3, look: 'matte, fine hair',
     source: 'Fujix / King Spun Lock overlock thread as the very top layer; hairy spun types μ 0.35–0.40 (#41, estimate, midpoint)' },
-  'jimaki-cotton': { label: 'jimaki cotton (地巻き用木綿糸)', surface: 'hairy spun', mu: 0.38, muBand: [0.35, 0.40], width_mm: 0.3, look: 'matte, hairy',
+  'jimaki-cotton': { sheen: 0, hair: 0.6, label: 'jimaki cotton (地巻き用木綿糸)', surface: 'hairy spun', mu: 0.38, muBand: [0.35, 0.40], width_mm: 0.3, look: 'matte, hairy',
     source: 'Sanuki 地巻き用木綿糸 / Fujix Cotton: matte cotton wrap thread; hairy spun types μ 0.35–0.40 (#41, estimate, midpoint)' },
-  custom: { label: 'custom', surface: 'user', mu: 0.32, muBand: [0.2, 0.6], width_mm: 0.3, look: 'matte',
+  custom: { sheen: 0, hair: 0.15, label: 'custom', surface: 'user', mu: 0.32, muBand: [0.2, 0.6], width_mm: 0.3, look: 'matte',
     source: 'user-defined: μWrap and colour set by hand; μ default = current 0.32' },
 };
 export const WRAP_THREAD_DEFAULT = 'cotton-sewing';

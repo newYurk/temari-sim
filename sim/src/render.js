@@ -9,6 +9,8 @@ import { point, eEast, unit, mul, add, sub, norm, dist } from './geom.js';
 import { tubeMesh } from './tube.js';
 import { displayGeometry } from './display.js';
 import { t } from './i18n.js';
+import { WrapBaker } from './wrap-bake.js';
+import { WRAP_THREADS, WRAP_THREAD_DEFAULT } from './params.js';
 
 const COLORS = { leg: 0x2f6bd6, pickup: 0xd6336c, 'hidden-start': 0x7a7a7a, current: 0xff8c00 };
 export const SET_COLORS = { A: 0x1f5fbf, B: 0xc2185b };   // set A blue, set B magenta (display defaults; recipe ribbon may override)
@@ -145,7 +147,18 @@ export class Renderer {
     const g = new THREE.Group();
     const R = A.base.R, Q = A.base.Q, m = A.params.m_mm;
     this.R = R;
-    const ballMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(A.params.wrapColor || '#fbf8f1'),  // #41 roughness: 0.9, metalness: 0,
+    // #42: the mari wrap is drawn as wound thread — a baked great-circle texture (colour #41 wrapColor, look by wrapThread)
+    // used as the albedo map of the lit ball material; baked once per colour / type / size, not per frame.
+    const wt = A.params.wrapThread in WRAP_THREADS ? A.params.wrapThread : WRAP_THREAD_DEFAULT;
+    const type = { id: wt, ...WRAP_THREADS[wt] };
+    let wrapMap = null;
+    try {
+      this.wrapBaker = this.wrapBaker || new WrapBaker();
+      wrapMap = this.wrapBaker.bake(this.renderer, { C_mm: A.base.C, color: A.params.wrapColor || '#fbf8f1', type });
+    } catch (e) { console.warn('[wrap] bake failed, plain ball', e); }
+    const ballMat = new THREE.MeshStandardMaterial({
+      color: wrapMap ? 0xffffff : new THREE.Color(A.params.wrapColor || '#fbf8f1'), map: wrapMap,
+      roughness: 0.9 - 0.35 * (type.sheen || 0), metalness: 0,
       polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 });
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(R, 160, 120), ballMat);
     this.ball.rotation.x = Math.PI / 2;   // полюса сферы three.js — по оси Y; в мире симулятора — по z

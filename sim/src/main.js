@@ -153,6 +153,7 @@ function recompute(first = false) {
   const errs = A.params._errors;
   $('perr').textContent = errs.length ? t('err.inputs', { errs: errs.join('; ') }) : '';
   R3.buildStatic(A);
+  window.__sim.wrapBake = R3.wrapBaker?.info || null;   // #42: bake size / time for headless checks
   if (first) {
     R3.view(state.view, A.base.R, q.has('dist') ? Number(q.get('dist')) : null, q.has('dir') ? q.get('dir').split(',').map(Number) : null);
     const fq = q.get('focus');

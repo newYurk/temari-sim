@@ -24,3 +24,12 @@ Thread types (`WRAP_THREADS` in `sim/src/params.js`):
 - The hairy-spun value 0.38 is the midpoint of the 0.35–0.40 band given in #41. It is an estimate, not a measurement.
 - The nominal width is 0.3 mm for every type. Only "sewing ≈ 0.3 mm" is sourced; per-type widths are not measured.
 - Geometry is unchanged. The default type keeps μWrap = 0.32, and μWrap never sets λ: λ comes from `bowLambda`, `bowSagMm` or the 0.32 default, and only the legacy `bowFrac` alias reads μWrap.
+
+## Rendering: wound-thread texture (#42)
+
+- Source, read-only, from the main Temari project: `measure.ts:10-76` (`wrapsToCover`, `sewCover`) → `sim/src/wrap.js`; `shader.ts:276-410` (`wrapAxis`, bake, `createWrapBaker`) → `sim/src/wrap-bake.js`. `craft.ts` and the `stitches.ts` tube helpers are not used.
+- Every strand is a great circle of half-width w/(2R) on the unit sphere. The count comes from `sewCover(C, width)`: 448 strands at C = 240 mm and 0.3 mm. The source comment says 449, but the same formula gives 448.
+- Axes: an even golden-angle spiral, each axis tilted by a seeded angle of 5–10° in a random direction (mulberry32, seed `0x7e3a1`), followed by a seeded shuffle of the draw order. Coverage over 20k samples: bare 16.3% → 17.1% and ≥4-strand clumps 9.6% → 10.1% against the even spiral. The suite gates both at ≤ 2 points.
+- Bake: 4096×2048 on desktop (32 MB) and 2048×1024 on phones (≤ 820 px or a coarse pointer, 8 MB). It uses three's `SphereGeometry` UV layout and runs once per (colour, type, C, size), never per frame. The bake time is logged as `[wrap] bake …` and exposed as `window.__sim.wrapBake`.
+- Thread type changes only the look: `hair` gives fibre noise and fuzzy edges, and `sheen` lowers roughness as 0.9 − 0.35·sheen. The width is 0.3 mm for every type.
+- The texture is the albedo `map` of the lit `MeshStandardMaterial`. Geometry, validators and the snapshot are unchanged.

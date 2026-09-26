@@ -192,6 +192,27 @@ if (G('4'))
   const xw = computeAll(recipe, { C_mm: 240, wrapColor: '#336699', wrapThread: WRAP_THREAD_DEFAULT });
   check(JSON.stringify(lens(x1)) === JSON.stringify(lens(xw)) && JSON.stringify(x1.path.stitches.map((st) => [st.eOff, st.xOff, st.s]))
     === JSON.stringify(xw.path.stitches.map((st) => [st.eOff, st.xOff, st.s])), '#41: wrap colour / default type do not change the geometry');
+  // #42: wound-thread wrap texture data (great circles, seeded jitter, phone-sized bake).
+  const { sewCover, wrapAxes, wrapAxis, wrapCoverage, WRAP_JITTER_DEG, WRAP_BAKE, WRAP_GPU_MAX } = await import('../src/wrap.js');
+  const sc = sewCover(240, 0.3);
+  check(sc.wraps === 448 && Math.abs(sc.halfWidth - 0.15 / (240 / (2 * Math.PI))) < 1e-15, `#42: 240 mm ball, 0.3 mm thread → 448 great-circle strands, half-width w/2R (got ${sc.wraps})`);
+  check(sewCover(450, 0.3).wraps <= WRAP_GPU_MAX, '#42: the GPU loop covers the largest ball (C = 450 mm) at 0.3 mm');
+  const ax1 = wrapAxes(sc.wraps), ax2 = wrapAxes(sc.wraps);
+  check(ax1.every((v, i) => v === ax2[i]), '#42: strand axes are deterministic (fixed seed)');
+  const axU = wrapAxes(sc.wraps, { shuffle: false });
+  let tiltMin = 90, tiltMax = 0, lenErr = 0;
+  for (let k = 0; k < sc.wraps; k++) {
+    const e = wrapAxis(k, sc.wraps), a = [axU[3 * k], axU[3 * k + 1], axU[3 * k + 2]];
+    const d = Math.acos(Math.min(1, e[0] * a[0] + e[1] * a[1] + e[2] * a[2])) * 180 / Math.PI;
+    tiltMin = Math.min(tiltMin, d); tiltMax = Math.max(tiltMax, d); lenErr = Math.max(lenErr, Math.abs(Math.hypot(...a) - 1));
+  }
+  check(tiltMin >= WRAP_JITTER_DEG[0] - 1e-4 && tiltMax <= WRAP_JITTER_DEG[1] + 1e-4 && lenErr < 1e-6,
+    `#42: every axis tilted ${WRAP_JITTER_DEG[0]}–${WRAP_JITTER_DEG[1]}° from the even golden-angle axis (got ${tiltMin.toFixed(2)}–${tiltMax.toFixed(2)}°), unit length`);
+  const cvEven = wrapCoverage(wrapAxes(sc.wraps, { jitterDeg: [0, 0] }), sc.halfWidth, 20000), cvJit = wrapCoverage(ax1, sc.halfWidth, 20000);
+  console.log(`  #42 coverage: even bare ${(cvEven.bare * 100).toFixed(1)}% clump≥4 ${(cvEven.clump * 100).toFixed(1)}%; jittered bare ${(cvJit.bare * 100).toFixed(1)}% clump≥4 ${(cvJit.clump * 100).toFixed(1)}%; mean ${cvJit.mean.toFixed(3)}`);
+  check(cvJit.bare <= cvEven.bare + 0.02 && cvJit.clump <= cvEven.clump + 0.02 && Math.abs(cvJit.mean - cvEven.mean) < 0.05,
+    '#42: jitter keeps coverage uniform (bare and ≥4-strand fractions within 2 points of the even spiral)');
+  check(WRAP_BAKE.phone.w <= 2048 && WRAP_BAKE.phone.h <= 1024 && WRAP_BAKE.desktop.w === 2 * WRAP_BAKE.desktop.h, '#42: phone bake ≤ 2048×1024; equirectangular 2:1');
 }
 
 // 5. В рецепте и параметрах нет «ширины захвата» (D16)
