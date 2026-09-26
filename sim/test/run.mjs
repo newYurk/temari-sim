@@ -2749,6 +2749,62 @@ if (G('8y'))
     'kiku.bottom: unknown mode, missing mm, a level outside (sTop, ℓ) and fraction with mm throw');
 }
 
+// 8y3. #54 (spec v3.3 §5.3, §6.10, §6.11): V5 by the marking graph (every hole ≥ (m+w)/2 from foreign lines, the region
+// boundary line of its half-line exempt), V17 start-line / last-closing asymmetries as diagnostics, V23 shoulder coverage
+// within the set, V24 fan a priori overrun (β_T at the hole, ρ_top printed without status).
+if (G('8y'))
+{
+  console.log('\n## #54: V5 by the graph, V17 diagnostics, V23 shoulder coverage, V24 fan a priori overrun');
+  const { normalizeRecipe } = await import('../src/recipe.js');
+  const { computeAll: fresh } = await import('../src/layers.js');
+  const base = await loadJSON('../data/recipe.kiku-s8.json');
+  const c8 = () => { const r = JSON.parse(JSON.stringify(base)); const mk = r.layers.find((l) => l.id === 'marking'); mk.generator = 'C8'; mk.inputs = ['m_mm'];
+    const c = 'P.v6[0]', sub = (x) => x.replaceAll('P.N', c); Object.assign(r.kiku, { center: c, halfLines: sub(r.kiku.halfLines), stop: 'region(P.v6[0], until=graph)', program: sub(r.kiku.program) }); for (const s of r.work.sets) s.start = sub(s.start); return normalizeRecipe(r); };
+  const byId = (A) => Object.fromEntries(runValidators(A, 'all', null).map((v) => [v.id, v]));
+  const cfg = (lam, x = {}) => ({ rowsMode: 'untilEquator', shoulderForm: lam ? 'bow' : 'geodesic', bowLambda: lam || undefined, muWrap: 0.32, ...x });
+  setLegSamples(96);
+  // S8: V5 by the graph passes (equator exempt), V17 / V23 pass, fan and braid
+  for (const tr of ['fan', 'braid']) {
+    const V = byId(computeAll(recipe, cfg(0.32, { topRule: tr })));
+    check(V.V5.status === 'pass' && V.V5.numbers.reach === 0 && V.V5.numbers.minClear > (0.5 + 0.714) / 2 && V.V17.status === 'pass' && V.V17.numbers.diag === 0 && V.V23.status === 'pass' && V.V23.numbers.pts > 0 && V.V23.numbers.dMaxW <= 1.01,
+      `S8 λ0.32 ${tr}: V5 graph clearance min ${fmt(V.V5.numbers.minClear, 3)} mm ≥ (m+w)/2, V17 pass (no diagnostics), V23 pass (${V.V23.numbers.pts} packed points, max ${fmt(V.V23.numbers.dMaxW, 3)} w)`);
+  }
+  // V23 catches a leg lying 2w off the leg it rails on (mutation: row-2 leg takes the row-3 leg's arcs)
+  {
+    const A = computeAll(recipe, cfg(0.32, { topRule: 'braid' }));
+    const b = A.path.segs.find((s) => s.type === 'leg' && s.round === 'A2' && s.stitch === 3), c = A.path.segs.find((s) => s.type === 'leg' && s.round === 'A3' && s.stitch === 3);
+    b.arcs = c.arcs;
+    const V = byId(A);
+    check(V.V23.status === 'fail' && V.V23.numbers.bad.some((x) => x.startsWith(b.id)), `V23 mutation: ${b.id} on the row-3 track fails (${V.V23.numbers.bad[0]})`);
+  }
+  // C8 face centre: V17 start-line asymmetry as a diagnostic, V5 names the foreign line at the vertex
+  {
+    const A = fresh(c8(), cfg(0, { topRule: 'braid' }));
+    const V = byId(A);
+    check(V.V17.status === 'pass' && V.V17.numbers.diag > 0 && V.V17.numbers.diagList.some((x) => /start line/.test(x)),
+      `C8 braid λ0: V17 pass, start-line legs without an arriving leg are diagnostics (${V.V17.numbers.diagList.join('; ')})`);
+    check(V.V5.status === 'fail' && V.V5.numbers.reachList.length > 0 && V.V5.numbers.reachList.every((x) => / → L[.[]/.test(x)),
+      `C8 braid λ0: V5 by the graph names the foreign line at the vertex end (${V.V5.numbers.reachList[0]})`);
+  }
+  // V24: β_T at the hole (grid-free), ρ_top printed without status, H_N; C8 fan overruns before laying, braid only prints
+  {
+    const b24 = (A) => byId(A).V24;
+    setLegSamples(96); const f96 = b24(computeAll(recipe, cfg(0, { topRule: 'fan' })));
+    setLegSamples(384); const f384 = b24(computeAll(recipe, cfg(0, { topRule: 'fan' })));
+    setLegSamples(96);
+    const bA = f96.numbers.sets.A;
+    check(f96.status === 'pass' && Math.abs(bA.betaDeg - 56.9) < 0.05 && Math.abs(bA.betaDeg - f384.numbers.sets.A.betaDeg) < 1e-6 && Math.abs(bA.rho - Math.tan(bA.betaDeg * Math.PI / 180) / 0.5) < 1e-9 && !bA.overrun,
+      `S8 fan λ0: β_T ${fmt(bA.betaDeg, 2)}° at X₁ (spec 56.9°), grid 96 = 384; ρ_top ${fmt(bA.rho, 2)} printed, V24 pass (no overrun in ${bA.last.nRows} rows)`);
+    const f32 = b24(computeAll(recipe, cfg(0.32, { topRule: 'fan' }))).numbers.sets.A;
+    check(!f32.overrun && f32.last.nRows === 9 && Math.abs(f32.last.H - 4.54) < 0.01,
+      `S8 fan λ0.32: 9 rows, fan half-width H_9 ${fmt(f32.last.H, 3)} mm (spec 4.54), clearance ${fmt(f32.last.clear, 3)} mm — no overrun`);
+    const cf = b24(fresh(c8(), cfg(0, { topRule: 'fan' }))), cb = b24(fresh(c8(), cfg(0, { topRule: 'braid' })));
+    const ov = cf.numbers.sets.B.overrun;
+    check(cf.status === 'fail' && ov && ov.n >= 3 && ov.n <= 4 && /configuration fail/.test(cf.value) && cb.status === 'pass' && /printed only/.test(cb.value),
+      `C8 face fan λ0: a priori overrun at row ${ov?.n} of ${ov?.nRows} (${ov?.st}, H ${fmt(ov?.H ?? NaN, 2)} mm, clearance ${fmt(ov?.clear ?? NaN, 3)} mm → ${ov?.line}) → V24 fail; braid: printed only`);
+  }
+}
+
 // 8z. #44: thread look by thread type — render only. Presets (sewing / pearl #8 / pearl #5 / metallic gold, silver) with
 // diameter, colour, sheen, twist; jiwari diameter / colour default from the jiwari type; no layer reads the look params
 // (stamps, path and validator outputs unchanged); the ply-shading formula (twistShade = TWIST_GLSL in render.js).

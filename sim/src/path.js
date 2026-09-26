@@ -805,6 +805,29 @@ export const TANGENCY_SIN_MAX = 0.01;
 export const TANGENCY_RES_W = 0.02;
 /** εc of (9д)/(10′): clearance ≥ w(1 − εc) (the same 1 % as the free-exit re-entry check). */
 export const EPS_C = 0.01;
+
+/** #54 (Fable §6 V5): surface distance (mm) from a point H to every marking line / circle of the graph, except the ids in
+ *  skip. Circles lying on a line (onLine) are covered by that line. Returns [{ id, d }]. */
+export function graphDistances(graph, R, H, skip = new Set()) {
+  const u = unit(H), out = [];
+  for (const [id, L] of Object.entries(graph.lines)) if (!skip.has(id)) out.push({ id, d: R * Math.asin(Math.min(1, Math.abs(dot(L.n, u)))) });
+  for (const [id, C] of Object.entries(graph.circles || {})) if (!C.onLine && !skip.has(id)) out.push({ id, d: R * Math.abs(angle(u, C.c) - C.rho) });
+  return out;
+}
+/** #54 (Fable §6 V5, K12; coordinator answer 3a): the marking lines of half-line k. own = the line of the half-line (through
+ *  the centre); at the half-line's end on the region boundary, exempt = the boundary line most perpendicular to it (S8: the
+ *  equator; C8 face: the edge through the end point) — the row bottom lies on it (K12 stays ℓ + m/2, spec v3.3 §3.2 (12));
+ *  checked = the other lines through the end point (a vertex: the 45° lines of v8) — V5 by the graph catches holes there. */
+export function halfLineGraph(graph, R, F, az, ell) {
+  const C = unit(fPoint(R, F, 0, az)), P = unit(fPoint(R, F, ell, az)), Pin = unit(fPoint(R, F, ell - 1e-3 * R, az));
+  const t = unit(sub(P, Pin));
+  const lines = Object.entries(graph.lines);
+  const own = lines.find(([, L]) => Math.abs(dot(L.n, C)) < 1e-9 && Math.abs(dot(L.n, P)) < 1e-7)?.[0] ?? null;
+  const through = lines.filter(([id, L]) => id !== own && Math.abs(dot(L.n, P)) < 1e-7);
+  let exempt = null, best = -1;
+  for (const [id, L] of through) { const c = Math.abs(dot(L.n, t)); if (c > best) { best = c; exempt = id; } }
+  return { own, exempt, checked: through.map(([id]) => id).filter((id) => id !== exempt) };
+}
 /** (9б′) largest |d_n| of a legal degenerate entry, in w. */
 export const DEG_MAX_W = 0.1;   // §2 class (iii): axis position budget 0.1·w (coordinator, #46)
 /** Test hook (#46): overrides DEG_MAX_W (null → the rule value) to drive the contradiction branch on real geometry. */

@@ -361,6 +361,8 @@ const ru = {
   'validator.V20.name': 'Конус трения Φ3 (λ ≤ μWrap)',
   'validator.V21.name': 'Нет прилипания плеча к меридиану',
   'validator.V22.name': 'Вид конца ноги по построению (9г)',
+  'validator.V23.name': 'Покрытие плеч внутри набора',
+  'validator.V24.name': 'Априорный заход веера на соседнюю разметку; β_T, ρ_top',
 };
 
 const en = {
@@ -689,6 +691,8 @@ const en = {
   'validator.V20.name': 'Friction cone Φ3 (λ ≤ μWrap)',
   'validator.V21.name': 'No stick-to-axis on shoulder',
   'validator.V22.name': 'Leg end kind by construction (9г)',
+  'validator.V23.name': 'Shoulder coverage within the set',
+  'validator.V24.name': 'Fan a priori overrun onto the neighbouring marking; β_T, ρ_top',
 };
 
 export const LOCALES = { ru, en };

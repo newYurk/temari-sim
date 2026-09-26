@@ -2,13 +2,14 @@
 // Validators — pure functions over the pipeline result (or its prefix up to operation k).
 // Each: id, name (English canonical; UI translates via i18n), criterion from criteria.md / basis,
 // status pass|fail|warn|info|n/a, numbers. Work may span several rounds and threads (A1, B1, A2 …).
-import { dist, norm, dot, unit, sub, mul, haversineLen, cross, segSegDist, angle, add as vadd, clamp, wrapPi, halfLineAt, FRAME_N, fPoint, fSAz, fS, fToward, fEast } from './geom.js';
+import { dist, norm, dot, unit, sub, mul, haversineLen, cross, segSegDist, angle, add as vadd, clamp, wrapPi, halfLineAt, FRAME_N, fPoint, fSAz, fS, fToward, fEast, offsetOnLine } from './geom.js';
 import { prefix } from './layers.js';
 import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
 import { tubeMesh } from './tube.js';
 import { resolveBowLambda } from './params.js';
 import { widthDecomposition, u14Onset } from './diag-width.js';
-import { EPS_C, DEG_MAX_W } from './path.js';
+import { EPS_C, DEG_MAX_W, graphDistances, halfLineGraph } from './path.js';
+import { arcEnd, arcTangent, arcPoint, Chain } from './arcs.js';
 import { rotAbout } from './program.js';
 
 /** #53 case 1: the kiku frame of the build under validation (polar coordinates about the kiku centre, geom.js frameAt).
@@ -636,6 +637,16 @@ function runValidatorsIn(A, stage, ref) {
     const stitchesDone = stOk, roundsIn = roundsOk;
     let wrongLine = 0, reach = 0;
     const tol = 0.1 * w;
+    // #54 (Fable §6 V5): every hole keeps ≥ (m+w)/2 from every marking line / circle except its own half-line's line and the
+    // region-boundary line at that half-line's end (coordinator 3a); a violation fails with the line address.
+    const clearNeed = (m + w) / 2, reachList = [];
+    const ellOf = (k) => (A.layout.region.sMaxK ? A.layout.region.sMaxK[k] : A.layout.region.sMax);
+    const hlG = new Map();
+    const skipOf = (k) => {
+      if (!hlG.has(k)) { const g = halfLineGraph(A.marking.graph, R, VF, A.layout.program.az[k], ellOf(k)); hlG.set(k, { g, skip: new Set([g.own, g.exempt].filter(Boolean)) }); }
+      return hlG.get(k);
+    };
+    let minClear = Infinity, minClearAt = '—';
     const botBy = new Map(), topBy = new Map();
     const push = (M, key, v) => { if (!M.has(key)) M.set(key, []); M.get(key).push(v); };
     const lastRow = {};
@@ -652,8 +663,13 @@ function runValidatorsIn(A, stage, ref) {
         if (st.level === 'bottom') push(botBy, `${r.set}${r.row}`, st.s);
         else if (st.i === N) { if (r.row < lastRow[r.set]) push(topBy, `${r.set}${r.row + 1}`, st.s); }
         else push(topBy, `${r.set}${r.row}`, st.s);
-        const spacing = R * Math.sin(st.s / R) * 2 * Math.PI / N;
-        if (Math.max(st.eOff, -st.xOff) + w / 2 >= spacing - m / 2) reach++;
+        const { skip } = skipOf(st.line);
+        for (const [side, H] of [['E', st.E], ['X', st.X]]) {
+          for (const { id, d } of graphDistances(A.marking.graph, R, H, skip)) {
+            if (d < minClear) { minClear = d; minClearAt = `${st.round}.i${st.i} ${side} → ${id}`; }
+            if (d < clearNeed - 1e-9) { reach++; if (reachList.length < 6) reachList.push(`${st.round}.i${st.i}/L${st.line} ${side} → ${id} ${f(d, 3)} mm`); }
+          }
+        }
       }
     }
     const spread = (a) => (a && a.length ? Math.max(...a) - Math.min(...a) : 0);
@@ -663,8 +679,8 @@ function runValidatorsIn(A, stage, ref) {
     const worst = spreads.reduce((acc, x) => (Math.max(x.b, x.t) > Math.max(acc.b, acc.t) ? x : acc), /** @type {any} */ ({ r: '—', b: 0, t: 0 }));
     add({ id: 'V5', name: 'Stitches on their lines and levels', crit: 'K1 (set A: top on even lines; B on odd); spec (12′) (#45): bottoms of a row and tops of a row (closing of round n = L0 top of row n+1) spread ≤ 0.1·w',
       status: stitchesDone.length ? (ok ? 'pass' : 'fail') : 'n/a',
-      value: `line/level errors ${wrongLine}; spread by rows (w): ${spreads.map((x) => `${x.r} bot ${f(x.b / w, 3)}, top ${f(x.t / w, 3)}`).join('; ')}; max ${f(Math.max(worst.b, worst.t) / w, 3)}w (${worst.r}); catch reaches neighbour marking: ${reach}` + invTxt,
-      numbers: { spreads, wrongLine, reach, tolW: 0.1 } });
+      value: `line/level errors ${wrongLine}; spread by rows (w): ${spreads.map((x) => `${x.r} bot ${f(x.b / w, 3)}, top ${f(x.t / w, 3)}`).join('; ')}; max ${f(Math.max(worst.b, worst.t) / w, 3)}w (${worst.r}); holes nearer than (m+w)/2 = ${f(clearNeed, 3)} mm to a foreign marking line: ${reach}${reachList.length ? ` (${reachList.join('; ')})` : ''}; min clearance ${f(minClear, 3)} mm (${minClearAt})` + invTxt,
+      numbers: { spreads, wrongLine, reach, reachList, minClear, tolW: 0.1 } });
   }
   // V6 — petal symmetry by the classes of spec v3.2 §6.11 (#25): clean classes exact, affected legs against expectations.
   {
@@ -1603,8 +1619,13 @@ function runValidatorsIn(A, stage, ref) {
     const tops = stitchesDone.filter((st) => st.row >= 2 && st.level === 'top');
     if (!tops.length) add({ id: 'V17', name: 'Needle under all previous rows at top (uwagake)', crit: 'TK-UWA «take a stitch around all of them»; SUESS «under and around all previous stitches»; prior #105', status: 'n/a', value: 'net topnikh stitches ryada ≥ 2' });
     else {
-      let missing = 0, total = 0;
-      const lines = [];
+      // #54 (Fable §6.11, coordinator 4a): the row-1 legs at the set's start line without an arriving leg (the first leg out of
+      // the start stitch and the row-1 closing leg) and the closing stitch of the set's last round are legitimate
+      // asymmetries — printed as diagnostics, not a fail.
+      let missing = 0, total = 0, diag = 0;
+      const lines = [], diagList = [];
+      const lastRow17 = {};
+      for (const r of path.rounds) lastRow17[r.set] = Math.max(lastRow17[r.set] || 0, r.row);
       for (const st of tops) {
         const under = new Set(st.sides.cluster.map((c) => c.seg));
         const incident = [];
@@ -1615,12 +1636,21 @@ function runValidatorsIn(A, stage, ref) {
           const nxt = sts.find((q) => q.i === p.i + 1);
           incident.push(nxt ? nxt.legId : r.firstLegId);                    // outgoing leg (at close — first leg)
         }
+        const rd = path.rounds.find((q) => q.id === st.round);
+        const lastClosing = st.closing && rd && rd.row === lastRow17[st.set];
+        const startLine = rd && st.line === rd.startLine;
+        const r1 = path.rounds.find((q) => q.set === st.set && q.row === 1);
+        const r1Close = r1 ? path.stitches[r1.stitchIdx[r1.stitchIdx.length - 1]]?.legId : null;
+        const isDiag = (id) => lastClosing || (startLine && r1 && (id === r1.firstLegId || id === r1Close));
         const miss = incident.filter((id) => !under.has(id));
-        total += incident.length; missing += miss.length;
-        lines.push(`${st.round}/L${st.line}: under ${incident.length - miss.length}/${incident.length}${miss.length ? ` (me okhvacheny ${miss.join(',')})` : ''}`);
+        const missFail = miss.filter((id) => !isDiag(id)), missDiag = miss.filter((id) => isDiag(id));
+        total += incident.length; missing += missFail.length; diag += missDiag.length;
+        if (missDiag.length) diagList.push(`${st.round}/L${st.line} ${missDiag.join(',')} (${[lastClosing ? 'closing of the last round' : '', startLine && missDiag.some((id) => r1 && (id === r1.firstLegId || id === r1Close)) ? 'start line, row 1 without an arriving leg' : ''].filter(Boolean).join('; ')})`);
+        lines.push(`${st.round}/L${st.line}: under ${incident.length - miss.length}/${incident.length}${missFail.length ? ` (not wrapped ${missFail.join(',')})` : ''}`);
       }
       add({ id: 'V17', name: 'Needle under all previous rows at top (uwagake)', crit: 'TK-UWA «take a stitch around all of them»; SUESS «under and around all previous stitches»; prior #105 (defect «third catch does not wrap»)',
-        status: missing ? 'fail' : 'pass', value: `covered ${total - missing} of ${total} prior-row shoulders; ${lines.join('; ')}` });
+        status: missing ? 'fail' : 'pass', value: `covered ${total - missing - diag} of ${total} prior-row shoulders${diag ? `; diagnostic (§6.11 legitimate asymmetries, not a fail) ${diag}: ${diagList.join('; ')}` : ''}; ${lines.join('; ')}`,
+        numbers: { missing, diag, diagList } });
     }
   }
   // V18 — over/under order derived from chronology and rules; set interweave (kousa) is a consequence
@@ -2177,6 +2207,122 @@ function runValidatorsIn(A, stage, ref) {
         badCrossings, badAngle, badStick, minAngleDeg, minAngleGeoDeg, angleRows, stickRows, worst } });
   }
 
+  // V23 — shoulder coverage (#54, Fable §6, coordinator 4a): every leg of row n+1 against the leg of the same stitch (petal,
+  // side) of row n of the SAME set (the one its rail was built on): on the packed part (arc classes rail and tail) the
+  // perpendicular axis distance ≤ w(1 + εc). Excluded: the braid / crossover zone at the top (s < s_T(n+1) + ℓ_braid,max;
+  // in fan mode the same top zone; fan (regression / stress mode) checks the rail class only — its tail leaves the rail for
+  // the G3 fan hole by construction, printed as a diagnostic), feet beyond the end of the row-n leg, the last row (nothing above it). Sets are compared only within
+  // themselves (different half-line lengths). The start-line side without an arriving row-1 leg (closing legs, the row-1
+  // first leg) and the last round's closing leg are legitimate asymmetries (§6.11): diagnostic, not a fail.
+  {
+    const braid23 = A.params?.topRule === 'braid';
+    const lBraid23 = (Number.isFinite(Number(A.params?.lBraidMaxW)) && A.params?.lBraidMaxW !== '' ? Number(A.params.lBraidMaxW) : 20) * w;
+    const lim = w * (1 + EPS_C);
+    const done = roundsOk.filter(roundDone);
+    const lastRow = {};
+    for (const r of done) lastRow[r.set] = Math.max(lastRow[r.set] || 0, r.row);
+    let pairs = 0, pts = 0, dMax = 0, dMaxAt = '—', tailFanMax = 0;
+    const bad = [], diag = [];
+    for (const rb of done) {
+      if (rb.row < 2) continue;
+      const ra = done.find((q) => q.set === rb.set && q.row === rb.row - 1);
+      if (!ra) continue;
+      const tops = stOk.filter((st) => st.round === rb.id && st.level === 'top').map((st) => st.s);
+      const sTop = tops.length ? Math.min(...tops) : 0;
+      const lastClosingLeg = rb.row === lastRow[rb.set] ? path.stitches[rb.stitchIdx[rb.stitchIdx.length - 1]]?.legId : null;
+      for (const b of segsOk.filter((s) => s.type === 'leg' && s.round === rb.id)) {
+        const a = segsOk.find((s) => s.type === 'leg' && s.round === ra.id && s.stitch === b.stitch);
+        if (!a || !a.arcs?.length || !b.arcs?.length) continue;
+        const ch = new Chain(R, a.arcs, 1);
+        let worst = 0;
+        for (const Ab of b.arcs) {
+          if (!(Ab.psi > 0) || (Ab.cls !== 'rail' && Ab.cls !== 'tail')) continue;
+          const fanTail = !braid23 && Ab.cls === 'tail';
+          for (let j = 0; j <= 8; j++) {
+            const q = arcPoint(Ab, (Ab.psi * j) / 8);
+            if (fS(R, VF, q) < sTop + lBraid23) continue;
+            const c = ch.closest(q);
+            if (c.clamped) continue;
+            if (fanTail) { tailFanMax = Math.max(tailFanMax, c.distMm); continue; }
+            pts++; worst = Math.max(worst, c.distMm);
+          }
+        }
+        pairs++;
+        if (worst > dMax) { dMax = worst; dMaxAt = `${b.id}/${rb.id}.i${b.stitch} vs ${a.id}`; }
+        if (worst > lim + 1e-12) {
+          const isDiag = b.stitch === N || (ra.row === 1 && b.stitch === 1) || b.id === lastClosingLeg;
+          (isDiag ? diag : bad).push(`${b.id}/${rb.id}.i${b.stitch} vs ${a.id} ${f(worst / w, 3)} w`);
+        }
+      }
+    }
+    add({ id: 'V23', name: 'Shoulder coverage within the set', crit: '#54 Fable §6: packed part (rail, tail) of leg n+1 within w(1 + εc) of the leg n it lies on, same set; braid zone, last row excluded; start-line / last-closing asymmetries diagnostic (§6.11)',
+      status: pairs ? (bad.length ? 'fail' : 'pass') : 'n/a',
+      value: pairs ? `pairs ${pairs}, packed points ${pts}; max axis distance ${f(dMax / w, 3)} w (${dMaxAt}), limit ${f(1 + EPS_C, 2)} w${!braid23 && tailFanMax > 0 ? `; fan: tails not checked (diagnostic, max ${f(tailFanMax / w, 3)} w)` : ''}; ${braid23 ? 'braid' : 'top'} zone s < s_T(n+1) + ${f(lBraid23 / w, 0)}·w excluded`
+        + (bad.length ? `; fail ${bad.length}: ${bad.slice(0, 6).join('; ')}` : '') + (diag.length ? `; diagnostic (§6.11) ${diag.length}: ${diag.slice(0, 6).join('; ')}` : '')
+        : 'needs rows n and n+1 of one set',
+      numbers: { pairs, pts, dMaxW: dMax / w, bad, diag } });
+  }
+  // V24 — fan a priori overrun onto the neighbouring marking (#54; spec v3.3 §5.3, 3.3.1). β_T = the angle of the analytic
+  // row-1 leg to the meridian at its top hole X₁ (arc (1) / great circle, grid-free); ρ_top = tan β_T / k_top — printed, no
+  // status. Configuration fail of fan (checked from row 1 only, before the rows it predicts): the fan edge of row n lies on
+  // the row-1 leg's trace, H_n = h₁ + Σ lateral drifts of the analytic row-1 leg over w along the half-line = its exact
+  // lateral offset y at s_T(n) = s_T(1) + (n−1)·w; the hole at ±H_n must keep (m+w)/2 from every foreign marking line (V5 in
+  // advance) for every planned row n. Braid: printed only.
+  {
+    const kTop = Number.isFinite(Number(A.params?.kTop)) && A.params?.kTop !== '' ? Number(A.params.kTop) : 0.5;
+    const fan = A.params?.topRule !== 'braid';
+    const need = (m + w) / 2;
+    const az = A.layout.program.az;
+    const ellOf = (k) => (A.layout.region.sMaxK ? A.layout.region.sMaxK[k] : A.layout.region.sMax);
+    const Cc = unit(fPoint(R, VF, 0, 0));
+    const rowsOf = {};
+    for (const r of path.rounds) rowsOf[r.set] = Math.max(rowsOf[r.set] || 0, r.row);
+    const beta = {}, over = {}, worst = {}, last = {};
+    const r1Tops = stOk.filter((st) => st.row === 1 && st.level === 'top' && !st.closing);
+    for (const st of r1Tops) {
+      const k = st.line, t0 = unit(sub(unit(fPoint(R, VF, 1e-3 * R, az[k])), Cc)), nL = unit(cross(Cc, t0));
+      const g = halfLineGraph(A.marking.graph, R, VF, az[k], ellOf(k)), skip = new Set([g.own, g.exempt].filter(Boolean));
+      const rd = path.rounds.find((q) => q.id === st.round);
+      const nx = rd ? rd.stitchIdx.map((i) => path.stitches[i]).find((q) => q.i === st.i + 1) : null;
+      for (const [role, id] of [['in', st.legId], ['out', nx?.legId]]) {
+        const leg = id ? segById.get(id) : null;
+        const arcs = leg?.arcs?.filter((q) => q.psi > 0);
+        if (!arcs?.length) continue;
+        // β_T at the hole: tangent of the analytic leg against the meridian (outward) there
+        const Aend = role === 'out' ? arcs[0] : arcs.at(-1), H0 = role === 'out' ? Aend.a : arcEnd(Aend);
+        const T = arcTangent(Aend, H0).map((x) => (role === 'out' ? x : -x));
+        const bt = Math.acos(clamp(dot(T, fToward(VF, H0).map((x) => -x))));
+        if (role === 'out' || !beta[st.set]) if (!beta[st.set] || bt > beta[st.set].beta || role === 'out' && beta[st.set].role !== 'out') beta[st.set] = { beta: bt, leg: leg.id, role };
+        // exact lateral offset y(s') of the analytic leg along the half-line (s' = along the line, y ⟂ it)
+        const smp = [];
+        for (const Ar of arcs) for (let j = 0; j <= 400; j++) { const u = arcPoint(Ar, (Ar.psi * j) / 400); smp.push([R * Math.atan2(dot(u, t0), dot(u, Cc)), R * Math.asin(clamp(dot(u, nL)))]); }
+        smp.sort((p, q) => p[0] - q[0]);
+        const yAt = (sq) => { for (let j = 1; j < smp.length; j++) if (smp[j][0] >= sq) { const [s0, y0] = smp[j - 1], [s1, y1] = smp[j]; return s1 > s0 ? y0 + (y1 - y0) * (sq - s0) / (s1 - s0) : y1; } return smp.at(-1)[1]; };
+        const nRows = rowsOf[st.set] || 1;
+        for (let n = 1; n <= nRows; n++) {
+          const sT = st.s + (n - 1) * w, y = yAt(sT);
+          const P = offsetOnLine(R, halfLineAt(VF.c, VF.z0, az[k]), sT, y);
+          const dd = graphDistances(A.marking.graph, R, P, skip).reduce((acc, x) => (x.d < acc.d ? x : acc), { d: Infinity, id: '—' });
+          const rec = { set: st.set, st: `${st.round}.i${st.i}/L${k}`, role, n, nRows, H: Math.abs(y), clear: dd.d, line: dd.id };
+          if (!worst[st.set] || rec.clear < worst[st.set].clear) worst[st.set] = rec;
+          if (n === nRows && (!last[st.set] || rec.H > last[st.set].H)) last[st.set] = rec;
+          if (dd.d < need - 1e-9) { if (!over[st.set] || n < over[st.set].n) over[st.set] = rec; break; }
+        }
+      }
+    }
+    const sets = Object.keys(beta).sort();
+    const overs = Object.values(over);
+    const status = !sets.length ? 'n/a' : fan && overs.length ? 'fail' : 'pass';
+    const rhoOf = (k) => (beta[k].beta >= Math.PI / 2 ? Infinity : Math.tan(beta[k].beta) / kTop);   // β_T ≥ 90°: the leg leaves backwards
+    add({ id: 'V24', name: 'Fan a priori overrun onto the neighbouring marking; β_T, ρ_top', crit: '#54, spec v3.3 §5.3 (3.3.1): fan fails before laying if the row-1 leg trace H_n = h₁ + Σ drifts puts a hole of a planned row within (m+w)/2 of a foreign marking line (V5 in advance); β_T at the hole, ρ_top = tan β_T / k_top printed without status; braid: printed',
+      status,
+      value: !sets.length ? 'needs a row-1 top stitch'
+        : `${fan ? 'fan' : 'braid (printed only)'}; ${sets.map((k) => { const o = over[k], q = worst[k]; return `set ${k}: β_T ${f(beta[k].beta * 180 / Math.PI, 1)}° (${beta[k].leg} at ${beta[k].role === 'out' ? 'X₁' : 'E₁'}), ρ_top ${Number.isFinite(rhoOf(k)) ? f(rhoOf(k), 2) : '∞ (β_T ≥ 90°)'} (k_top ${f(kTop, 2)}); `
+          + (o ? `overrun at row ${o.n} of ${o.nRows}: ${o.st} ${o.role}-leg H ${f(o.H, 3)} mm, clearance ${f(o.clear, 3)} < ${f(need, 3)} mm to ${o.line}`
+            : `no overrun in ${q?.nRows ?? '—'} rows (H_N ${f(last[k]?.H ?? NaN, 3)} mm, clearance ${f(last[k]?.clear ?? NaN, 3)} mm at row N; min clearance ${f(q?.clear ?? NaN, 3)} mm at row ${q?.n ?? '—'}, ${q?.st ?? ''} → ${q?.line ?? '—'})`); }).join('; ')}`
+          + (fan && overs.length ? '; configuration fail — fan runs onto a neighbouring marking line, use topRule braid' : ''),
+      numbers: { kTop, need, sets: Object.fromEntries(sets.map((k) => [k, { betaDeg: beta[k].beta * 180 / Math.PI, rho: rhoOf(k), leg: beta[k].leg, overrun: over[k] || null, worst: worst[k] || null, last: last[k] || null }])) } });
+  }
 
 return out;
 }
