@@ -3,7 +3,7 @@ import { loadRecipe, loadJSON } from './recipe.js';
 import { computeAll } from './layers.js';
 import { runValidators, summary, refKey } from './validators.js';
 import { runDiagnostics } from './diagnostics.js';
-import { PARAM_SCHEMA, defaults, paramsFromQuery, groupLabel, paramLabel, paramUsed, statusLabel, optionLabel, WRAP_THREADS, wrapMuDefault } from './params.js';
+import { PARAM_SCHEMA, uiDefaults, paramsFromQuery, groupLabel, paramLabel, paramUsed, statusLabel, optionLabel, WRAP_THREADS, wrapMuDefault } from './params.js';
 import { Renderer, viridis, warm, SET_COLORS, roundColor, applySetColors } from './render.js';
 import { t, fmtNum, applyDomI18n, getLocale, setLocale, onLocaleChange, validatorName } from './i18n.js';
 
@@ -14,7 +14,7 @@ window.addEventListener('error', (e) => window.__sim.errors.push(String(e.messag
 
 const q = new URLSearchParams(location.search);
 const state = {
-  raw: { ...defaults(paramsFromQuery(location.search)), ...paramsFromQuery(location.search) },
+  raw: { ...uiDefaults(paramsFromQuery(location.search)), ...paramsFromQuery(location.search) },   // #47: site default bow λ 0.32
   stage: ['2a', '2b', 'B1', 'A2', 'all'].includes(q.get('stage')) ? q.get('stage') : 'A2',   // 'all' = whole pattern (recipe stage, throughOp *)
   k: q.has('k') ? Number(q.get('k')) : null,
   view: q.get('view') || 'top',
@@ -139,7 +139,7 @@ function readForm() {
 }
 
 function syncURL() {
-  const d = defaults(state.raw), u = new URLSearchParams();
+  const d = uiDefaults(state.raw), u = new URLSearchParams();
   for (const p of PARAM_SCHEMA) if (String(state.raw[p.key]) !== String(d[p.key])) u.set(p.key, state.raw[p.key]);
   u.set('stage', state.stage); u.set('k', state.k); u.set('view', state.view);
   u.set('lang', getLocale());
@@ -549,7 +549,7 @@ for (const [id, key] of [['optTransparent', 'transparent'], ['optHidden', 'hidde
 $('optChord').addEventListener('change', (e) => { R3.opts.hidMode = e.target.checked ? 'chord' : 'surf'; update(); });
 document.querySelectorAll('input[name=color]').forEach((r) => r.addEventListener('change', (e) => { R3.opts.color = e.target.value; update(); }));
 $('recompute').addEventListener('click', (e) => { e.preventDefault(); state.raw = readForm(); recompute(); });
-$('reset').addEventListener('click', (e) => { e.preventDefault(); state.raw = defaults(); buildForm(); recompute(); });
+$('reset').addEventListener('click', (e) => { e.preventDefault(); state.raw = uiDefaults(); buildForm(); recompute(); });
 document.querySelectorAll('.lang-btn').forEach((b) => b.addEventListener('click', () => {
   if (b.dataset.lang === getLocale()) return;
   setLocale(b.dataset.lang);

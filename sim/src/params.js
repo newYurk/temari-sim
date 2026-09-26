@@ -117,8 +117,8 @@ export const PARAM_SCHEMA = [
   { key: 'shoulderForm', group: 'intent', label: 'Arm tip / shoulder form', type: 'select', def: 'geodesic',
     options: ['geodesic', 'bow'],
     optionLabels: {
-      geodesic: 'geodesic (idealization; GT14 default until sample)',
-      bow: 'small-circle bow (λ = bowLambda or from δ_mm via (5); pole-side center)',
+      geodesic: 'geodesic (idealization, λ = 0; GT14; engine/test default)',
+      bow: 'small-circle bow (λ = bowLambda or from δ_mm via (5); pole-side center; site default λ = 0.32, #47)',
     },
     basis: 'samples/kiku-s8/leg-shape-spec.md Fable v2 §4; model/spec.md Φ3 — intent is λ (or δ); tip Δ is derived. Alias bowToMarking→bow. Recipe: GT14→geodesic; Olympus→bow with λ from measure.',
     status: 'intent', used: 'path: small-circle or geodesic leg; packThenPierce uses Fable (8) for bowed arms' },
@@ -283,6 +283,14 @@ export function parseSequence(text, sets = ['A', 'B']) {
     for (let i = 0; i < n; i++) letters.push(m[1]);
   }
   return { letters, ok };
+}
+
+/** #47: site (UI/URL) defaults on top of the schema defaults — the page opens with the realistic bowed legs, bow λ = 0.32
+ *  (= default μWrap, the largest bow friction holds, tan β ≤ μ). The schema (engine) defaults stay geodesic, so tests,
+ *  reference data and tools pinned to defaults() keep their meaning. Geodesic: ?shoulderForm=geodesic or the panel. */
+export const UI_DEFAULTS = Object.freeze({ shoulderForm: 'bow', bowLambda: 0.32 });
+export function uiDefaults(raw = {}) {
+  return { ...defaults(raw), ...UI_DEFAULTS };
 }
 
 /** Params from query string (?C_mm=300&w_mm=1). */

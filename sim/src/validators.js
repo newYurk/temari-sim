@@ -6,6 +6,7 @@ import { dist, norm, toSPhi, dot, unit, sub, mul, ePole, eEast, haversineLen, po
 import { prefix } from './layers.js';
 import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
 import { tubeMesh } from './tube.js';
+import { resolveBowLambda } from './params.js';
 import { widthDecomposition, u14Onset } from './diag-width.js';
 
 const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : String(x));
@@ -545,10 +546,16 @@ export function runValidators(A, stage = '2b', ref = null) {
       if (full) refLen = e.row1_open;
       else for (const s of rowSegs) refLen += s.stitch === 0 ? e.start_channel : s.type === 'leg' ? e.arms[s.stitch - 1] : e.bites[s.stitch - 1];
       const hid = a1Segs.filter((s) => s.type === 'hidden-start').reduce((a, s) => a + s.length, 0);
-      const ok = Math.abs(rowLen - refLen) < TOL_REF && dXY < TOL_REF && Math.abs(hid - e.hidden_start) < TOL_REF;
+      // #47: calc.py (and refKey) model geodesic legs (λ = 0). For a bow build (λ > 0, now the site default) the row-1
+      // length is not comparable — it is printed, not compared; stitch E/X, E₀/X₀ and the hidden start (independent of
+      // the leg shape) are still compared. Geodesic builds: unchanged.
+      const form = A.params.shoulderForm;
+      const bowLam = form === 'bow' || form === 'bowToMarking' ? (resolveBowLambda(A.params, { R: A.base.R })?.lambda ?? NaN) : 0;
+      const bowRow1 = (form === 'bow' || form === 'bowToMarking') && (!(bowLam === 0) || +A.params.bowSagMm > 0);
+      const ok = (bowRow1 || Math.abs(rowLen - refLen) < TOL_REF) && dXY < TOL_REF && Math.abs(hid - e.hidden_start) < TOL_REF;
       add({ id: 'V3', name: 'A1 agrees with calc.py', crit: 'cross-check of two implementations of one geometry',
         status: ok ? 'pass' : 'fail',
-        value: `${full ? 'row 1 without the closing (legs + pickups + start channel; (12′))' : 'row-1 prefix'}: sim ${f(rowLen, 4)} mm, calc.py ${f(refLen, 4)} mm (Δ ${f(Math.abs(rowLen - refLen), 9)}); E/X Δmax ${f(dXY, 9)} mm; skrytyy start ${f(hid)} vs ${f(e.hidden_start)} mm`,
+        value: `${full ? 'row 1 without the closing (legs + pickups + start channel; (12′))' : 'row-1 prefix'}: sim ${f(rowLen, 4)} mm, calc.py ${f(refLen, 4)} mm (Δ ${f(Math.abs(rowLen - refLen), 9)}${bowRow1 ? `; bow λ ${f(bowLam, 3)}: calc.py legs are geodesic — length printed, not compared` : ''}); E/X Δmax ${f(dXY, 9)} mm; skrytyy start ${f(hid)} vs ${f(e.hidden_start)} mm`,
         numbers: { rowLen, refLen, dXY, hid, refHidden: e.hidden_start, refRow1: e.row1_open } });
     }
   }
