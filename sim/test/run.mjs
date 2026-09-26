@@ -2242,6 +2242,73 @@ if (G('8q'))
   }
 }
 
+// 8r. #50 stage A (topRule braid, flag; default fan): fan identity, T1/K17, V16 pushed aside, V22 top end off, n₀, braid joint
+// (tangency vs great circle ∩ rail with ≤ 20° turn, loud V22 fail above), crossover-first labelling within ℓ_braid,max.
+if (G('8r'))
+{
+  console.log('\n## #50 stage A (braid)');
+  setLegSamples(96);
+  const cfg = (lam, m, x = {}) => ({ C_mm: 240, w_mm: 0.714, m_mm: m, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: lam, muWrap: Math.max(0.32, lam), ...x });
+  const st = (A) => Object.fromEntries(runValidators(A, 'all', null).map((v) => [v.id, v]));
+  const w = 0.714;
+  // fan identity: explicit topRule=fan is the default, bit for bit, with no braid records
+  {
+    const A0 = computeAll(recipe, cfg(0.32, 1.0)), A1 = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'fan' }));
+    const legs = (A) => A.path.segs.filter((q) => q.type === 'leg');
+    const same = legs(A0).length === legs(A1).length && legs(A0).every((q, i) => q.pts.length === legs(A1)[i].pts.length && q.pts.every((p, k) => p.every((c, j) => c === legs(A1)[i].pts[k][j])));
+    const s0 = st(A0), s1 = st(A1), flips = Object.keys(s0).filter((k) => s0[k].status !== s1[k]?.status);
+    check(same && flips.length === 0 && !('K17' in s1) && A1.path.stitches.every((x) => !x.sides.braid),
+      `fan: topRule=fan ≡ default bit for bit (legs, statuses, no K17, no braid records); flips ${flips.join(',') || 'none'}`);
+  }
+  const B = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'braid' })), VB = st(B), F = st(computeAll(recipe, cfg(0.32, 1.0)));
+  // T1 / K17 / T4
+  {
+    const tops = B.path.stitches.filter((x) => x.level === 'top' && (x.row >= 2 || x.closing));
+    const ok = tops.every((x) => x.sides.braid && Math.abs(x.sides.braid.h - x.sides.braid.hPrev - 0.5 * w) < 1e-12 && Math.abs(x.s - x.sides.braid.prev.s - w) < 1e-9 && x.sides.braid.temporary);
+    const fromStart = tops.filter((x) => x.sides.braid?.prev.start).length;
+    const k = VB.K17.numbers;
+    console.log(`  T1: ${tops.length} braid top stitches, ${fromStart} placed from the start stitch (L0); K17 max |Δh| ${k.dhMax.toFixed(3)} mm, T4 dev ${k.t4Dev.toExponential(1)} mm`);
+    check(ok && fromStart === 2 && k.over === 0 && Math.abs(k.dhMax - 0.5 * w) < 1e-12 && k.t4Dev < 1e-9 && VB.K17.status === 'info' && VB.V13.status === 'pass',
+      'T1: h_n = h_{n−1} + k_top·w, s_T(n) = s_T(n−1) + w, L0 from the start stitch; K17 |Δh| = w/2, 0 over; T4 2h_n = (m+w) + 2k_top·w(n−1); marked temporary');
+  }
+  // V16 pushed aside, V22 top end off, n₀
+  {
+    const n0 = (V) => (V.D4.numbers.u14 || []).map((u) => u.observed?.any ?? null);
+    console.log(`  V16 braid: own pushed aside ${VB.V16.numbers.sepOwn}, fail own ${VB.V16.numbers.failOwn}; n₀ fan ${n0(F).join('/')} → braid ${n0(VB).join('/')}`);
+    check(VB.V16.status !== 'fail' && VB.V16.numbers.failOwn === 0 && VB.V16.numbers.sepOwn > 0 && /pushed aside/.test(VB.V16.value) && F.V16.numbers.sepOwn === 0,
+      'V16 braid: own-set pierce = «thread pushed aside» (separate, diagnostic), not a fail; fan unchanged');
+    check(VB.V22.status === 'pass' && /top end not checked/.test(VB.V22.value) && !/top end not checked/.test(F.V22.value), 'V22 braid: top end not checked (printed); fan unchanged');
+    check(n0(VB).every((x) => x === 9) && n0(F).every((x) => x != null && x < 9), `n₀ from the braid: 9/9 at λ0.32 m1 (fan ${n0(F).join('/')})`);
+  }
+  // crossover first, within ℓ_braid,max
+  {
+    const cr = VB.V8.details.crossover, by = new Map(B.path.segs.map((q) => [q.id, q]));
+    const okPairs = cr.every((c) => { const a = by.get(c.a), b = by.get(c.b); return a.set === b.set && Math.abs(a.row - b.row) === 1 && c.belowTopMm <= 20 * w; });
+    const labelled = VB.V8.details.found.filter((r) => /^crossover/.test(r.why)).length;
+    const B1 = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'braid', lBraidMaxW: 1 })), cr1 = st(B1).V8.details.crossover;
+    console.log(`  crossover: ${cr.length} (max ${Math.max(...cr.map((c) => c.belowTopMm)).toFixed(2)} mm below s_T(n)); ℓ_braid,max = 1·w → ${cr1.length}`);
+    check(cr.length > 0 && labelled > 0 && okPairs && F.V8.details.crossover.length === 0 && cr1.length < cr.length && cr1.every((c) => c.belowTopMm <= w),
+      'V8 braid: crossover checked first (consecutive own rows, ≤ s_T(n) + ℓ_braid,max); ℓ_braid,max = w shrinks it; fan none');
+  }
+  // braid joint: interior holes (m1 λ0.52): great circle ∩ rail (no tangency exists), turn ≤ 20°, V22 pass; m0.5 λ0.6: > 20° → loud V22 fail
+  {
+    const J = computeAll(recipe, cfg(0.52, 1.0, { topRule: 'braid' })), VJ = st(J);
+    const ent = J.path.segs.filter((q) => q.entryKind === 'braidCross'), ex = J.path.segs.filter((q) => q.exitKind === 'braidCross');
+    const noTan = ent.every((q) => (q.entryRoots || []).every((r) => !r.ok));
+    const turns = [...ent.map((q) => q.braidJoinTurnDeg), ...ex.map((q) => q.braidExitTurnDeg)];
+    const noClimb = J.path.segs.every((q) => q.joinMode !== 'climb' && q.exitKind !== 'drain');
+    console.log(`  braid joints m1 λ0.52: entries ${ent.length}, top-hole ${ex.length}, max turn ${Math.max(...turns).toFixed(2)}°; tangency roots accepted 0`);
+    check(ent.length > 0 && ex.length > 0 && noTan && noClimb && turns.every((t) => t <= 20) && VJ.V22.status === 'pass' && /braid joints/.test(VJ.V22.value),
+      'braid joint (decision 1b): no climb / drain; no tangency → great circle ∩ rail, turn ≤ 20° printed; V22 pass');
+    const K = computeAll(recipe, cfg(0.6, 0.5, { topRule: 'braid' })), VK = st(K);
+    const over = K.path.segs.filter((q) => (q.braidExitTurnDeg ?? 0) > 20 || (q.braidJoinTurnDeg ?? 0) > 20);
+    check(over.length > 0 && VK.V22.status === 'fail' && /joint turn [\d,]+° > 20°/.test(VK.V22.value) && over.every((q) => q.exitFail || q.entryFail),
+      `braid joint > 20° (m0.5 λ0.6: ${over.length} legs) → V22 fail naming the joint (loud), exitFail set`);
+    const Fk = st(computeAll(recipe, cfg(0.6, 0.5)));
+    check(Fk.V22.status === 'pass', 'fan at m0.5 λ0.6 unchanged (drain, V22 pass)');
+  }
+}
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');

@@ -781,9 +781,27 @@ export function runValidators(A, stage = '2b', ref = null) {
     const axis = segs.map((s) => (s.type === 'leg' ? s.pts.map((p) => [p[0] * lift, p[1] * lift, p[2] * lift]) : s.pts));
     const boxes = axis.map(bbox);
     const found = [], bad = [], separateList = [];
+    // #50 stage A (braid): crossover — consecutive own rows overlap under a small angle near the top (the stack of the braid,
+    // new thread on top). Accepted only between rows n−1 and n of one set and only from the top down to s_T(n) + ℓ_braid,max
+    // (s_T(n) = the later leg's top-hole level; ℓ_braid,max = 20·w TEMPORARY until the #51 coordinates). Fan mode: never.
+    const braid8 = A.params?.topRule === 'braid';
+    const lBraidW = Number.isFinite(Number(A.params?.lBraidMaxW)) && A.params?.lBraidMaxW !== '' ? Number(A.params.lBraidMaxW) : 20;
+    const crossoverList = [];
+    const crossoverOk = (P, Q, cp) => {
+      if (!braid8 || !cp || P?.type !== 'leg' || Q?.type !== 'leg' || P.set !== Q.set || Math.abs(P.row - Q.row) !== 1) return false;
+      const hi = P.row > Q.row ? P : Q;
+      const sT = Math.min(toSPhi(R, hi.from).s, toSPhi(R, hi.to).s), sc = toSPhi(R, cp).s;
+      if (sc > sT + lBraidW * w) return false;
+      crossoverList.push({ a: P.id, b: Q.id, s: sc, belowTopMm: sc - sT });
+      return true;
+    };
+    const CROSSOVER = 'crossover (braid, #50: consecutive own rows, new thread on top, within ℓ_braid,max of the top)';
     const nextOf = (h) => path.segs.find((x) => x.thread === h.thread && Math.abs(x.u0 - h.u1) < 1e-12);
     const classify = (P, Q, md) => {
       const k = pairKey(P.id, Q.id);
+      // #50 decision 2(a): in braid, crossover is checked FIRST (before uwagake wedge / tipCross / pair-level expected), so
+      // ℓ_braid,max is actually enforced; outside it the previous rules apply.
+      if (crossoverOk(P, Q, md.cp)) return CROSSOVER;
       // Same-line k=1,2: location-specific 6a.13 — do not return pair-level expected early.
       const sameLineK12Early = P.type === 'leg' && Q.type === 'leg' && P.set === Q.set && P.line === Q.line
         && P.row !== Q.row && Math.abs(P.row - Q.row) <= 2;
@@ -897,6 +915,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     }
     // Seed tipCross from path.crossings at c.at (global minDist often sits mid-leg, missing the tip diamond).
     for (const hit of tipCrossHits) {
+      if (braid8 && found.some((r) => r.a === hit.a && r.b === hit.b && r.why === CROSSOVER)) continue;   // #50: crossover first
       if (!found.some((r) => r.a === hit.a && r.b === hit.b && /tipCross/.test(r.why))) found.push(hit);
     }
     const cnt = {};
@@ -911,6 +930,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     // Re-classify residual bad / notAllowed that classify() missed but tipCrossAt / tip-zone cover.
     const promote = (a, b, cpOrS, d, atPt = null) => {
       if (railParallelPair(segById.get(a), segById.get(b), d, w)) return 'rail parallel of prev row at distance w (6a.11)';
+      if (crossoverOk(segById.get(a), segById.get(b), Array.isArray(atPt) ? atPt : Array.isArray(cpOrS) ? cpOrS : null)) return CROSSOVER;
       // Axis coincidence (same as path.legZones): treat as crossing.
       if (d != null && d < 0.05 * w) return 'crossing (over/under by rule)';
       const P = segById.get(a), Q = segById.get(b);
@@ -986,10 +1006,11 @@ export function runValidators(A, stage = '2b', ref = null) {
         (badPromoted.length || naPromoted.length ? `; tip-classified ${badPromoted.length + naPromoted.length}` : '') +
         (deltaFails ? `; δ>w/2 fails ${deltaFails}` : '') + exitTxt + wedgeTxt +
         (badRest.length ? ': ' + badRest.slice(0, 6).map((b) => `${b.a}×${b.b} s=${f(b.s, 1)} d=${f(b.d, 3)}`).join('; ') : '') +
+        (braid8 ? `; braid (#50 stage A, ℓ_braid,max = ${lBraidW}·w TEMPORARY): crossover ${crossoverList.length}${crossoverList.length ? `, deepest ${f(Math.max(...crossoverList.map((x) => x.belowTopMm)), 2)} mm below s_T(n)` : ''}` : '') +
         (separateList.length ? `; separate (U14 set collision, foreign channel pushes the leg aside at its hole, §5.3 (2)(3)) ${separateList.length}: max ${f(Math.max(...separateList.map((x) => x.dHoleMm)), 2)} mm from the hole, d ${f(Math.min(...separateList.map((x) => x.dW)), 2)}…${f(Math.max(...separateList.map((x) => x.dW)), 2)} w, in span ${separateList.filter((x) => x.inSpan).length}; `
           + separateList.slice(0, 4).map((x) => `${x.legRound}/${x.leg}×${x.channelRound} ${f(x.dHoleMm, 2)} mm`).join(', ') + (separateList.length > 4 ? '…' : '') : '') +
         (warnList.length ? `; warnings (hidden wrap threads closer than w; radial compress not modelled): ${warnList.slice(0, 8).join('; ')}${warnList.length > 8 ? '…' : ''}` : ''),
-      details: { found, bad, badRest, badPromoted, notAllowed, naRest, naPromoted, warnList, separate: separateList, exitFails: exitFails.map((s) => s.id) } });
+      details: { found, bad, badRest, badPromoted, notAllowed, naRest, naPromoted, warnList, separate: separateList, crossover: crossoverList, exitFails: exitFails.map((s) => s.id) } });
   }
 
   // K16 (6a.16 / 6a.17 / 6a.20) — tip coverage; K16b at λ=0 is two-sided Clairaut-window diagnostic
@@ -1327,6 +1348,33 @@ export function runValidators(A, stage = '2b', ref = null) {
       status: 'info', value: [...new Set(dec.map((x) => x.set))].map((set) => `${set} ${byRow(set)}`).join(' | ') + (onset ? ` | ${onset}` : ''),
       numbers: { decomposition: dec, u14 } });
   }
+  // K17 (#50 stage A, braid only): the chevron of row n+1 covers the holes of row n — |h_{n+1} − h_n| ≤ w/2 with level step w,
+  // per set and line (by construction from T1: h_{n+1} − h_n = k_top·w). Diagnostic, info. Also V13 by T4: 2h_n = (m+w) + 2k_top·w(n−1).
+  if (A.params?.topRule === 'braid') {
+    const tops = stitchesDone.filter((x) => x.level === 'top');
+    const byLine = {};
+    for (const st of tops) (byLine[`${st.set}:${st.line}`] ||= []).push(st);
+    let dhMax = 0, dsDev = 0, pairs = 0, over = 0, t4Dev = 0;
+    const kTop = Number(A.params?.kTop ?? 0.5), mMm = A.params.m_mm;
+    for (const arr of Object.values(byLine)) {
+      arr.sort((a, b) => a.s - b.s);
+      for (let i = 1; i < arr.length; i++) {
+        const h0 = Math.abs(arr[i - 1].eOff - arr[i - 1].xOff) / 2, h1 = Math.abs(arr[i].eOff - arr[i].xOff) / 2;
+        const dh = Math.abs(h1 - h0); dhMax = Math.max(dhMax, dh); dsDev = Math.max(dsDev, Math.abs(arr[i].s - arr[i - 1].s - w)); pairs++;
+        if (dh > w / 2 + 1e-9 * w) over++;
+      }
+    }
+    for (const st of tops.filter((x) => !x.closing && x.row >= 1)) {
+      const h = Math.abs(st.eOff - st.xOff) / 2;
+      t4Dev = Math.max(t4Dev, Math.abs(2 * h - ((mMm + w) + 2 * kTop * w * (st.row - 1))));
+    }
+    add({ id: 'K17', name: 'Braid: chevron n+1 covers the holes of row n (#50 stage A, diagnostic)',
+      crit: '#50 T4: |h_{n+1} − h_n| ≤ w/2, level step w (by construction); V13 = 2h_n = (m+w) + 2k_top·w(n−1); k_top TEMPORARY until #51',
+      status: 'info',
+      value: `${pairs} consecutive top stitches per line: max |Δh| ${f(dhMax, 3)} mm (w/2 = ${f(w / 2, 3)}), over w/2: ${over}; max |Δs − w| ${dsDev.toExponential(1)} mm; `
+        + `T4 width 2h_n vs (m+w) + 2k_top·w(n−1): max dev ${dhMax > 0 ? t4Dev.toExponential(1) : '—'} mm (k_top ${f(kTop, 2)}, TEMPORARY)`,
+      numbers: { pairs, dhMax, over, dsDev, t4Dev, kTop } });
+  }
   // V14 — visible thread lies on the ball, does not float (model and displayed mesh)
   {
     let legDev = 0, legMax = -Infinity, hidOut = -Infinity, hidDepth = 0;
@@ -1424,7 +1472,8 @@ export function runValidators(A, stage = '2b', ref = null) {
   // observed earlier → printed.
   {
     let minMargin = Infinity, worst = null, nHoles = 0;
-    let failOwn = 0, failForeign = 0, warnU14 = 0, badNoRoom = 0;
+    let failOwn = 0, failForeign = 0, warnU14 = 0, badNoRoom = 0, sepOwn = 0;
+    const braid16 = A.params?.topRule === 'braid';
     const noRoomHoles = stitchesDone.flatMap((st) => (st.sides.squeeze || []).filter((q) => q.noRoom).map((q) => (q.side === 'E' ? st.E : st.X)));
     const order = new Map(path.segs.map((x, i) => [x.id, i]));
     const surf = new Map(segs.filter((x) => x.type === 'pickup').map((x) => [x.id, x.pts.map((q) => { const n0 = norm(q); return q.map((v) => v * R / n0); })]));
@@ -1473,6 +1522,9 @@ export function runValidators(A, stage = '2b', ref = null) {
         // Non-upper / start holes: any pierce is a fail (unchanged).
         if (!st || st.level !== 'top') { failForeign++; hitDetails.push({ side, st, L, kind: 'fail', margin }); continue; }
         // §6.9: classify by whose thread is under the upper hole; other set → U14 warn, own set → fail.
+        // #50 stage A (braid): the needle goes into the mari between the own threads, pushing them aside (GT16) — class
+        // separate «thread pushed aside», diagnostics only (§5.3 (2)(3)); in fan mode an own-set pierce stays a fail.
+        if (L.set === st.set && braid16) { sepOwn++; hitDetails.push({ side, st, L, kind: 'separate-own', margin }); continue; }
         if (L.set === st.set) { failOwn++; hitDetails.push({ side, st, L, kind: 'own', margin }); continue; }
         warnU14++; hitDetails.push({ side, st, L, kind: 'U14', margin });
       }
@@ -1517,10 +1569,11 @@ export function runValidators(A, stage = '2b', ref = null) {
       status,
       value: `pierces ${nHoles}; min margin ${f(minMargin, 3)} mm (${worst || '—'}); `
         + `fail own set ${failOwn}, fail other holes ${failForeign}, U14 set collision warn ${warnU14}`
+        + (braid16 ? `; braid (#50 stage A): own thread pushed aside (separate, diagnostic) ${sepOwn}` : '')
         + (earlyObs ? `; observed collision earlier than causal geometric start: ${earlyList.join(', ')}` : '')
         + (badNoRoom ? `; noRoom∩V16 ${badNoRoom}` : '')
         + (geoBmin != null ? `; geo fan-start B min row ${geoBmin}` : ''),
-      numbers: { failOwn, failForeign, warnU14, earlyObs, earlyList, geoFirst, obsFirst, minMargin, badNoRoom } });
+      numbers: { failOwn, failForeign, warnU14, sepOwn, earlyObs, earlyList, geoFirst, obsFirst, minMargin, badNoRoom } });
   }
   // V17 — uwagake: at top points of row n ≥ 2 the needle passes UNDER ALL threads of prior rows at that point
   {
@@ -1743,9 +1796,15 @@ export function runValidators(A, stage = '2b', ref = null) {
     const entryBad = [];
     const entryKinds = {};
     let freeGapMin = Infinity, degDMax = 0;
+    // #50 stage A (braid): V22 and the drain (11) toward the top do not apply — the top end (upper legs' exit at the top
+    // hole, lower legs' entry from X_n) is printed as a diagnostic, not a fail. The bottom end (9а), (12) is unchanged.
+    const braid22 = A.params?.topRule === 'braid';
+    const braidTop = [], braidJoints = [];
+    let braidTangents = 0;
     for (const s of legs) {
       const role = s.level === 'bottom' ? 'lower' : 'upper';
       const lam0 = !!s.lam0;
+      const entryBad0 = entryBad.length;
       // (10′) (#46): a lower λ > 0 leg with no tangency on any rail piece is free when its chord X_n → E_n⁰ clears row n−1
       // (≥ w(1 − εc)): the only lawful lower free at λ > 0. No tangency and a chord closer than that — fail (printed below).
       const lowerFree = role === 'lower' && !lam0 && s.entryKind === 'free' && (s.entryMinGapW ?? 0) >= 1 - EPS_C;
@@ -1773,7 +1832,15 @@ export function runValidators(A, stage = '2b', ref = null) {
         if (!lam0 && s.entryKind === 'free') freeGapMin = Math.min(freeGapMin, s.entryMinGapW ?? Infinity);
         if (!lam0 && s.entryKind === 'degenerate') degDMax = Math.max(degDMax, d / wMm);
       }
-      if (!ok.includes(s.exitKind)) bad.push({ id: s.id, round: s.round, role, lam0, lambda: s.lambda ?? 0, exitKind: s.exitKind, joinMode: s.joinMode, dW: (s.lateralMm ?? 0) / wMm });
+      if (braid22) braidTop.push(...entryBad.splice(entryBad0));
+      // #50 decision 1(b): the braid joint (great circle ∩ rail, no tangency) turns ≤ 20° — exceeding it is a V22 fail.
+      if (braid22 && s.braidJoinTurnDeg != null) { braidJoints.push(s.braidJoinTurnDeg); if (!(s.braidJoinTurnDeg <= 20)) entryBad.push(`${s.id}/${s.round} braid entry joint turn ${f(s.braidJoinTurnDeg, 2)}° > 20°`); }
+      if (braid22 && s.braidExitTurnDeg != null) { braidJoints.push(s.braidExitTurnDeg); if (!(s.braidExitTurnDeg <= 20)) entryBad.push(`${s.id}/${s.round} braid top-hole joint turn ${f(s.braidExitTurnDeg, 2)}° > 20°`); }
+      if (braid22 && s.entryKind === 'braidTangent') braidTangents++;
+      if (!ok.includes(s.exitKind)) {
+        const b = { id: s.id, round: s.round, role, lam0, lambda: s.lambda ?? 0, exitKind: s.exitKind, joinMode: s.joinMode, dW: (s.lateralMm ?? 0) / wMm };
+        if (braid22 && role === 'upper') braidTop.push(`${b.id}/${b.round} upper exitKind ${b.exitKind}`); else bad.push(b);
+      }
     }
     add({ id: 'V22', name: 'Leg end kind by construction (9г)',
       crit: 'spec v3.2 §3.2(9г): lower λ>0 root (code atE), lower λ=0 free; upper tangent (code root, λ>0) / drain / free; anything else fail',
@@ -1784,8 +1851,10 @@ export function runValidators(A, stage = '2b', ref = null) {
         + (Number.isFinite(freeGapMin) ? `; free legs min chord clearance ${f(freeGapMin, 3)} w` : '')
         + (degDMax > 0 ? `; degenerate max |d| ${f(degDMax, 3)} w` : '')
         + (path.invalidFrom ? `; BUILD INVALID from row ${path.invalidFrom.row} (${path.invalidFrom.leg}/${path.invalidFrom.round}.i${path.invalidFrom.stitch}, d ${f(path.invalidFrom.dW, 3)} w, min clearance ${f(path.invalidFrom.gapW, 3)} w)` : '')
-        + (joinDiag.length ? `; (9б) join vs d_n band, diagnostic ${joinDiag.length}: ${joinDiag.slice(0, 4).join('; ')}` : ''),
-      numbers: { bad, counts, joinDiag, entryBad, entryKinds, freeGapMinW: Number.isFinite(freeGapMin) ? freeGapMin : null, degDMaxW: degDMax, invalidFrom: path.invalidFrom || null } });
+        + (joinDiag.length ? `; (9б) join vs d_n band, diagnostic ${joinDiag.length}: ${joinDiag.slice(0, 4).join('; ')}` : '')
+        + (braid22 ? `; braid joints (great circle ∩ rail, ≤ 20°): ${braidJoints.length}${braidJoints.length ? `, max turn ${f(Math.max(...braidJoints), 2)}°` : ''}; braid tangency entries ${braidTangents}` : '')
+        + (braid22 ? `; braid (#50 stage A): top end not checked (V22/(11) at the top off), diagnostic ${braidTop.length}${braidTop.length ? ': ' + braidTop.slice(0, 4).join('; ') : ''}` : ''),
+      numbers: { bad, counts, joinDiag, entryBad, entryKinds, braidJoints, braidTangents, braidTop, freeGapMinW: Number.isFinite(freeGapMin) ? freeGapMin : null, degDMaxW: degDMax, invalidFrom: path.invalidFrom || null } });
   }
 
   // V21 — transversality (Fable v2 / Errata §6a / 6a.9.2 / 6a.19 / 6a.20). Criteria:

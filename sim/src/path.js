@@ -833,7 +833,8 @@ export function entryTangencyRoots(R, rail, X, s0, sE) {
 
 /** Row n ≥ 2 leg along the rail of the previous arm. endLevel = level of the hole the leg ends at:
  *  'bottom' (E_n is the packing root on the rail, spec v3 §3.2(12)) or 'top' (E_n given, §3.2(13)). */
-export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
+export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}) {
+  const braid = !!opts.braid;   // #50 stage A: top rule braid — interior holes join the rail by a great circle (no climb, no drain)
   const n = getLegSamples();
   const prevPts = prevArm?.pts;
   if (!prevPts || prevPts.length < 2) {
@@ -876,6 +877,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   let Tpt, sT, splice, joinMode;
   // (10′) entry diagnostics (#46): entryKind tangent | free | noTangency (V22 fail) | onRail | climb (interior only)
   let entryRoots = null, entrySkipped = 0, entryKind = null, entryPiece = null, entryMinGapW = null, entryGapAtMm = null, entryFail = false, entryBest = null, entryScan = null, entryBackward = false;
+  let braidJoinTurnDeg = null, braidExitTurnDeg = null;   // #50: turn at the great-circle ∩ rail joint (entry / top-hole end)
   // Scale with w so xk similarity does not flip onRail/climb (absolute 1e-6 mm thresh).
   // v3.2 §3.2(9б), §6.4 (#39, #22): |d_n| ≤ 0.02·w is the degenerate entry — X_n is on the rail within the band, no
   // tangency search. The leg starts at X_n itself (as at λ = 0): a jog X_n → foot, or X_n replacing the foot as vertex 0,
@@ -898,6 +900,34 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     // row), never a collapsed or reversed search window. Measured: 0 of 2076 entries (grids 96/384, 7λ×2m, ×1.25, S16).
     entryKind = 'contradiction'; entryFail = true; entryBackward = true; sT = hitE.s; Tpt = E; splice = R * angle(X, E);
     joinMode = entryKind;
+  } else if (dLat < 0 && braid) {
+    // #50 stage A (braid, coordinator decision 1(b)): X_n lies inside the rail (pole side of row n−1: the braid). The leg
+    // from the hole is a great circle to the rail — no climb. Joint: a tangency if one exists (closed form (10′), (13б),
+    // no clearance requirement: crossing row n−1 near the top is the crossover of the braid); otherwise the great circle
+    // meets the rail at the #22 point ℓ_m = max(w, 3δ) from the foot toward E (turn atan(δ/ℓ_m), printed; > 20° → V22 fail).
+    const s0 = lat.s, sE = hitE.s, wE = Math.max(w || W0_MM, 1e-9), cos1 = Math.cos(Math.PI / 180);
+    const info = [];
+    let tb = null;
+    for (const r of entryTangencyRoots(R, rail, X, s0, sE)) {
+      const P = rail.at(r.s), arrive = mul(tangentTo(P.q, X), -1), score = dot(arrive, P.T);
+      const sinA = Math.sqrt(Math.max(0, 1 - score * score)), resMm = R * Math.asin(Math.min(1, Math.abs(dot(X, cross(P.q, P.T)))));
+      const ok = score > cos1 && tangencyOk(sinA, resMm, wE);
+      info.push({ s: r.s, cls: r.cls, score, sin: sinA, resMm, ok });
+      if (ok && !tb) tb = r;
+    }
+    entryRoots = info;
+    if (tb) {
+      sT = rail.at(tb.s).s; Tpt = rail.at(sT).q; splice = R * angle(X, Tpt);
+      joinMode = 'tangent'; entryKind = 'braidTangent'; entryPiece = tb.cls;
+    } else {
+      const Lm = Math.max(w || 0, 3 * delta);
+      sT = Math.min(s0 + Lm, Math.max(s0 + 1e-9, sE * 0.999));
+      Tpt = rail.at(sT).q; splice = R * angle(X, Tpt);
+      const arrive = mul(tangentTo(Tpt, X), -1);
+      braidJoinTurnDeg = Math.acos(Math.max(-1, Math.min(1, dot(arrive, rail.at(sT).T)))) * 180 / Math.PI;
+      joinMode = 'braidCross'; entryKind = 'braidCross';
+      if (braidJoinTurnDeg > 20) entryFail = true;
+    }
   } else if (dLat < 0) {
     // 6a.7(3) climb/merge: M at ℓ_m = max(w, 3δ) forward toward E
     const Lm = Math.max(w || 0, 3 * delta);
@@ -1140,6 +1170,14 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       const sDrain = forward ? Math.max(sT0, sE0 - Lm) : Math.min(sT0, sE0 + Lm);
       best = exitRes(sDrain);
       exitKind = 'drain';
+      if (braid) {
+        // #50 stage A (braid, decision 1(b)): no drain — the leg leaves the rail by a great circle to the hole, meeting the
+        // rail at the (#22-mirror) point ℓ_m before E's foot (no tangency exists: the (13) search above found none).
+        // Turn there printed; > 20° → V22 fail.
+        exitKind = 'braidCross';
+        braidExitTurnDeg = Math.acos(Math.max(-1, Math.min(1, best.score))) * 180 / Math.PI;
+        if (braidExitTurnDeg > 20) exitFail = true;
+      }
     } else {
       // E_n outside with no tangency: the rail ends where contact ends (6a.15) — the point of
       // maximum co-directionality toward E_n — and the exit is a free geodesic from there.
@@ -1318,7 +1356,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     interiorXn: dLat < -onRailEps, lam0: false,
     // Diagnostic: X_n's lateral to the laying rail (core + continuation) — differs from d_n (8′) before the core start of a drain entry.
     railLateralMm: lat.signedMm ?? null, railFootClamped: lat.clamped || null,
-    joinMode,
+    joinMode, braidJoinTurnDeg, braidExitTurnDeg,
     climbMm: joinMode === 'climb' ? splice : 0,
     deltaMm: delta,
     deltaFail: delta > (w || 0) / 2,
@@ -1475,12 +1513,15 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   const shoulderForm = resolveShoulderForm(P.shoulderForm || conv.shoulderForm?.value || conv.lay?.value || 'geodesic');
   const muWrap = P.muWrap ?? P.mu ?? 0;
   const bowSide = P.bowSide === 'equator' ? 'equator' : 'pole';
+  // #50 stage A: top rule flag (default fan = G3). k_top, ℓ_braid,max TEMPORARY until the §7a coordinates (#51).
+  const BRAID = P.topRule === 'braid';
+  const K_TOP = Number.isFinite(Number(P.kTop)) && P.kTop !== '' ? Number(P.kTop) : 0.5;
   // Commanded λ resolved per-leg once γ known; keep a preview using pin chord for tipDrop report.
   const mu = muWrap; // tipDrop report field (compat); Φ3 uses muWrap
   // Spec v3.2 §3.2(12) stop K12: at the equator the last row is allowed while its bottom ≤ s_eq + m/2 (the hole no farther
   // than the equator thread's half-width past its axis; class (iii), from m).
   const limit = (rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? Q - 7 : Q)) + (P.rowsMode === 'untilEquator' ? m / 2 : 0);
-  const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [], setCollisions: [], virtualArrive: {},
+  const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [], setCollisions: [], virtualArrive: {}, startTop: {},
     shoulderForm, tipDrop: null };
   const lineIdx = (k) => ((k % N) + N) % N;
   const phiOf = (k) => marking.phis[lineIdx(k)];
@@ -1581,6 +1622,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         source: `spec (12″) #45: hidden start = row-1 top stitch (holes ±(m+w)/2, channel), no arriving leg; ${conv.channel.basis}`, tag: conv.sides.tag,
         depthMax: R - Math.sqrt(R * R - (dist(E0, X0) / 2) ** 2) });
       RD.start = { X0, E0, holes, tail: holes[0], exitSides: side0, runs, Lrun, theta, channelId: pk0.id };
+      // #50 T1: the start stitch is the previous stitch of L0 for the first braid placement on L0 (L0 ≡ L2 by construction).
+      if (!W.startTop[spec.set]) W.startTop[spec.set] = { set: spec.set, line: L0, s: sT, eOff: side0.eOff, xOff: side0.xOff, startStitch: true };
       // the channel belongs to the last start op (surfacing at E₀, then E₀ → X₀): stage prefixes keep u continuous
       W.ops[W.ops.length - 1].segIds.push(pk0.id);
       cur = X0;
@@ -1627,7 +1670,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       // (б) needle placement from occupancy on line k at level s (causal prefix)
       // (12‴) (#45): on the set's start line the clusters also see the VIRTUAL arriving leg of the row-1 start stitch (G3
       // modelling device, not a thread: hole placement only — not in W.segs, length, rendering, V8, V16, K16, clearance).
-      const virt = lineIdx(k) === lineIdx(spec.startLine) ? W.virtualArrive[spec.set] : null;
+      // #50 (12‴) in braid mode: removed (the L0 ≡ L2 symmetry follows from T1); in fan mode it stays.
+      const virt = !BRAID && lineIdx(k) === lineIdx(spec.startLine) ? W.virtualArrive[spec.set] : null;
       const sides = needleSides({
         R, s, phi: phiOf(k), m, w, N, laid: virt ? laid().concat([virt]) : laid(),
         // (12′): the closing stitch is a row-(n+1) top — its cluster covers every earlier row of the set (all of round n)
@@ -1641,6 +1685,23 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         sides.cluster = sides.cluster.filter((c) => c.seg !== virt.id);
         sides.ignored = (sides.ignored || []).filter((c) => c.seg !== virt.id);
         sides.squeeze = sides.squeeze.map((q) => (q.seg === virt.id ? { ...q, virtual: true } : q));
+      }
+      // #50 stage A, T1 (braid): a top stitch of row n ≥ 2 (and the closing = row n+1 top on L0) is placed from the previous
+      // top stitch of its own line: s_T(n) = s_T(n−1) + w (above), each hole k_top·w further out than the previous one's
+      // (h_n = h_{n−1} + k_top·w). k_top = 0.5 is TEMPORARY (TemariKai «about 1 thread-width wider»), calibrated by #51.
+      // The G3 holes from the cluster stay recorded (sides.braid.g3) for comparison; the cluster/under records are kept.
+      if (BRAID && level === 'top' && (spec.row >= 2 || closing)) {
+        const own = W.stitches.filter((st) => st.set === spec.set && st.level === 'top' && lineIdx(st.line) === lineIdx(k));
+        const prevTop = own.length ? own.reduce((a, b) => (b.s > a.s ? b : a))
+          : (W.startTop[spec.set] && lineIdx(W.startTop[spec.set].line) === lineIdx(k) ? W.startTop[spec.set] : null);
+        if (prevTop) {
+          const sg = Math.sign(prevTop.eOff - prevTop.xOff) || 1, step = K_TOP * w;
+          sides.braid = { g3: { eOff: sides.eOff, xOff: sides.xOff }, prev: { s: prevTop.s, eOff: prevTop.eOff, xOff: prevTop.xOff, start: !!prevTop.startStitch, round: prevTop.round ?? null },
+            kTop: K_TOP, temporary: true, hPrev: Math.abs(prevTop.eOff - prevTop.xOff) / 2 };
+          sides.eOff = prevTop.eOff + sg * step;
+          sides.xOff = prevTop.xOff - sg * step;
+          sides.braid.h = Math.abs(sides.eOff - sides.xOff) / 2;
+        }
       }
       const E = perpPt(R, s, phiOf(k), sides.eOff);
       const X = perpPt(R, s, phiOf(k), sides.xOff);
@@ -1663,7 +1724,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           ? W.segs.find((x) => x.round === prevRound.id && x.type === 'leg' && x.stitch === i)
           : null;
         legShape = prevLeg
-          ? railLeg(R, cur, E, prevLeg, w, level)
+          ? railLeg(R, cur, E, prevLeg, w, level, { braid: BRAID })
           : layLeg(R, cur, E, phiOf(k), 'geodesic', 0, 'pole');
       }
       const legPts = legShape.pts;
@@ -1687,9 +1748,10 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         clearFreeW: legShape.clearFreeW ?? null, clearChordW: legShape.clearChordW ?? null, footS: legShape.footS ?? null, mS: legShape.mS ?? null,
         entrySkipped: legShape.entrySkipped ?? 0, entryChordGapW: legShape.entryChordGapW ?? null, entryKind: legShape.entryKind ?? null, entryPiece: legShape.entryPiece ?? null, entryMinGapW: legShape.entryMinGapW ?? null, entryGapAtMm: legShape.entryGapAtMm ?? null,
         entryFail: !!legShape.entryFail, entryBackward: !!legShape.entryBackward, entryBest: legShape.entryBest ?? null, entryScan: legShape.entryScan ?? null,
+        braidJoinTurnDeg: legShape.braidJoinTurnDeg ?? null, braidExitTurnDeg: legShape.braidExitTurnDeg ?? null,
         lam0: legShape.lam0 ?? null, railLateralMm: legShape.railLateralMm ?? null, exitTurnDeg: legShape.exitTurnDeg ?? null, minGapMm: legShape.minGapMm ?? null });
       if (i === 1) RD.firstLegId = leg.id;
-      if (i === 1 && spec.begin === 'hiddenStart' && !W.virtualArrive[spec.set]) {
+      if (!BRAID && i === 1 && spec.begin === 'hiddenStart' && !W.virtualArrive[spec.set]) {
         // (12‴): the virtual arriving leg of the start stitch = the mirror of this first leg about the start line's meridian,
         // traversed toward the start stitch (for the geodesic row 1 the same as leg i2 rotated back two lines).
         const ph = phiOf(spec.startLine), nM = [-Math.sin(ph), Math.cos(ph), 0];
