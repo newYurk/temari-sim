@@ -230,6 +230,23 @@ if (G('4'))
   check(cvJit.bare <= cvEven.bare + 0.02 && cvJit.clump <= cvEven.clump + 0.02 && Math.abs(cvJit.mean - cvEven.mean) < 0.05,
     '#42: jitter keeps coverage uniform (bare and ≥4-strand fractions within 2 points of the even spiral)');
   check(WRAP_BAKE.phone.w <= 2048 && WRAP_BAKE.phone.h <= 1024 && WRAP_BAKE.desktop.w === 2 * WRAP_BAKE.desktop.h, '#42: phone bake ≤ 2048×1024; equirectangular 2:1');
+  // #42 rework (owner: "all visible winding layers must be thread"): where the top layer leaves gaps, the lower layers
+  // of the same thread show (other great circles at other angles, darker); the core colour is never seen.
+  const { wrapLayerAxes, wrapLayerShare, WRAP_LAYERS } = await import('../src/wrap.js');
+  const topAx = wrapLayerAxes(sc.wraps, 0), l2 = wrapLayerAxes(sc.wraps, 1), l3 = wrapLayerAxes(sc.wraps, 2);
+  check(topAx.every((v, i) => v === ax1[i]), '#42 rework: the top layer is the former single layer (same axes, unchanged look)');
+  let minSep = 90;
+  for (let k = 0; k < sc.wraps; k++) for (const L of [l2, l3]) {
+    const c = Math.abs(topAx[3 * k] * L[3 * k] + topAx[3 * k + 1] * L[3 * k + 1] + topAx[3 * k + 2] * L[3 * k + 2]);
+    minSep = Math.min(minSep, Math.acos(Math.min(1, c)) * 180 / Math.PI);
+  }
+  const cvL2 = wrapCoverage(l2, sc.halfWidth, 20000);
+  check(minSep > 0.5 && Math.abs(cvL2.bare - cvJit.bare) < 0.02 && WRAP_LAYERS[1].shade < 1 && WRAP_LAYERS[2].shade < WRAP_LAYERS[1].shade,
+    `#42 rework: lower layers are other great circles (strand k ≥ ${minSep.toFixed(2)}° from its top-layer twin, same coverage statistics), progressively darker`);
+  const ls = wrapLayerShare(sc.wraps, sc.halfWidth, 20000);
+  console.log(`  #42 rework layers seen: top ${(ls.top * 100).toFixed(1)}% second ${(ls.second * 100).toFixed(1)}% fill ${(ls.fill * 100).toFixed(1)}% core ${(ls.base * 100).toFixed(1)}% (former bare ${(cvJit.bare * 100).toFixed(1)}%)`);
+  check(ls.base === 0 && Math.abs(ls.second + ls.fill - cvJit.bare) < 1e-12 && Math.abs(ls.top - (1 - cvJit.bare)) < 1e-12,
+    '#42 rework: no core colour seen; the lower layers fill exactly the former bare share');
 }
 
 // 5. В рецепте и параметрах нет «ширины захвата» (D16)

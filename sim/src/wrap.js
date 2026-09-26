@@ -82,6 +82,65 @@ export function wrapAxes(n, { seed = WRAP_SEED, jitterDeg = WRAP_JITTER_DEG, shu
 }
 
 /**
+ * Wound layers (#42 rework, owner: every visible layer of the wrap is thread). The top layer is the visible wound
+ * cover (unchanged: seed WRAP_SEED, golden spiral + jitter). Where it leaves gaps (≈ 17 % at 0.3 mm on a 240 mm ball)
+ * the viewer sees the layers wound before it: the same thread on other great circles — each lower layer is the same
+ * spiral construction with its own seed, turned as a whole by a seeded random rotation, and darker (it lies in the
+ * shadow of the layers above). The deepest layer is a fill: every point shows its nearest strand, so no base-colour
+ * core can show anywhere. shade = brightness factor of the layer's thread.
+ */
+export const WRAP_LAYERS = [
+  { seed: WRAP_SEED, shade: 1.0, rotate: false, fill: false },
+  { seed: WRAP_SEED ^ 0x2b1d5, shade: 0.84, rotate: true, fill: false },
+  { seed: WRAP_SEED ^ 0x9e377, shade: 0.72, rotate: true, fill: true },
+];
+
+/** Seeded uniform random rotation (3×3, row-major) from a unit quaternion. */
+export function seededRotation(seed) {
+  const r = mulberry32(seed);
+  const u1 = r(), u2 = r(), u3 = r();
+  const a = Math.sqrt(1 - u1), b = Math.sqrt(u1);
+  const x = a * Math.sin(2 * Math.PI * u2), y = a * Math.cos(2 * Math.PI * u2), z = b * Math.sin(2 * Math.PI * u3), w = b * Math.cos(2 * Math.PI * u3);
+  return [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
+    2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
+    2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)];
+}
+
+/** Axes of wound layer `layer` (index into WRAP_LAYERS), n strands, in draw order (Float32Array of 3n). */
+export function wrapLayerAxes(n, layer = 0) {
+  const L = WRAP_LAYERS[layer];
+  const ax = wrapAxes(n, { seed: L.seed });
+  if (!L.rotate) return ax;
+  const M = seededRotation(L.seed ^ 0x51ed27);
+  for (let i = 0; i < n; i++) {
+    const x = ax[3 * i], y = ax[3 * i + 1], z = ax[3 * i + 2];
+    ax[3 * i] = M[0] * x + M[1] * y + M[2] * z;
+    ax[3 * i + 1] = M[3] * x + M[4] * y + M[5] * z;
+    ax[3 * i + 2] = M[6] * x + M[7] * y + M[8] * z;
+  }
+  return ax;
+}
+
+/**
+ * Which wound layer is seen at m even points of the sphere (the bake's rule, band edges hard): the top layer where one
+ * of its strands covers the point, else the second layer, else the fill layer. base = points that show the core colour
+ * (0 by construction: the fill layer always has a nearest strand). Fractions of the sphere's area.
+ */
+export function wrapLayerShare(n, halfWidth, m = 20000) {
+  const L = WRAP_LAYERS.map((_, k) => wrapLayerAxes(n, k));
+  const hit = (ax, p) => { for (let i = 0; i < n; i++) if (Math.abs(p[0] * ax[3 * i] + p[1] * ax[3 * i + 1] + p[2] * ax[3 * i + 2]) < halfWidth) return true; return false; };
+  let top = 0, second = 0, fill = 0, base = 0;
+  for (let j = 0; j < m; j++) {
+    const p = wrapAxis(j, m);
+    if (hit(L[0], p)) top++;
+    else if (hit(L[1], p)) second++;
+    else if (L[2].length >= 3) fill++;
+    else base++;
+  }
+  return { top: top / m, second: second / m, fill: fill / m, base: base / m };
+}
+
+/**
  * Coverage of the sphere by the strand bands |p·a| < halfWidth, sampled at m even points:
  * bare fraction (no strand), mean and max strand count, fraction with ≥ 4 strands (clumps).
  */

@@ -190,6 +190,7 @@ function scheduleWrapBake() {
     if (id !== bakeRun) return;
     const ok = R3.bakeWrap();
     window.__sim.wrapBake = R3.wrapBaker?.info || null;   // #42: bake size / time for headless checks
+    window.__sim.wrapStats = (w) => R3.wrapBaker?.stats(R3.renderer, w) ?? null;   // #42 rework: seen layer shares
     window.__sim.wrapBaked = ok;
     window.__sim.tBaked = performance.now();
   }, 0)));
