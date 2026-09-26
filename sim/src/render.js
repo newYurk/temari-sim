@@ -369,36 +369,52 @@ export class Renderer {
   }
 
   /** #33: on narrow views (phone, ≤ 700 px) labels must not overlap or be clipped. Screen-space pass after each CSS2D
-   *  render: short texts (hidden start / thread end, wrapped), then greedy placement by priority — current operation >
-   *  pole > line (L0…, equator) > stitch > over/under > small — a label overlapping an already placed one (with a
-   *  minimum gap) or leaving the view is hidden. CSS2DRenderer owns style.display, so this uses visibility only.
-   *  Wide views (desktop) are untouched: nothing is changed there. */
+   *  render: short texts (hidden start / thread end, wrapped); line labels L0…Ln are placed first and always shown
+   *  (when inside the view); then pole > current operation > equator > stitch > over/under > small, each slid
+   *  horizontally into the view and tried in place or nudged up/down (stitch/over-under ±1 label height, others ±2);
+   *  a label that still overlaps a placed one (min gap) or leaves the view is hidden. CSS2DRenderer owns
+   *  style.display, so this uses visibility and margins only. Wide views (desktop) are untouched. */
   declutter() {
     const root = this.labels.domElement, W = root.clientWidth, H = root.clientHeight;
     const narrow = W > 0 && W <= LABEL_NARROW_PX;
     if (!narrow && !this._declutterOn) return;
     const els = /** @type {HTMLElement[]} */ ([...root.children]);
     if (!narrow) {   // back to wide: restore everything once
-      for (const el of els) { el.style.visibility = ''; if (el.dataset.full) el.textContent = el.dataset.full; }
+      for (const el of els) { el.style.visibility = ''; el.style.marginTop = ''; el.style.marginLeft = ''; if (el.dataset.full) el.textContent = el.dataset.full; }
       root.classList.remove('labels-narrow'); this._declutterOn = false; return;
     }
     this._declutterOn = true; root.classList.add('labels-narrow');
-    const pri = (el) => { const c = el.classList; return c.contains('current') ? 0 : c.contains('pole') ? 1 : c.contains('line') ? 2 : c.contains('stitch') ? 3 : c.contains('cross') ? 4 : 5; };
+    // line labels L0…Ln first and never displaced by another label (#33 feedback: L0 was hidden by the current-op
+    // label); then pole, current operation, equator, stitch, over/under, small.
+    const pri = (el) => { const c = el.classList; return c.contains('line') && /^L\d+$/.test(el.textContent || '') ? 0 : c.contains('pole') ? 1 : c.contains('current') ? 2
+      : c.contains('line') ? 3 : c.contains('stitch') ? 4 : c.contains('cross') ? 5 : 6; };
     const items = [];
     els.forEach((el, k) => {
       if (el.dataset.short && el.textContent !== el.dataset.short) el.textContent = el.dataset.short;
-      el.style.visibility = '';
+      el.style.visibility = ''; el.style.marginTop = ''; el.style.marginLeft = '';
       if (el.style.display !== 'none') items.push({ el, p: pri(el), k });
     });
     items.sort((a, b) => a.p - b.p || a.k - b.k);
     const vr = root.getBoundingClientRect(), G = LABEL_GAP_PX, placed = [];
+    const hits = (b) => placed.some((q) => b.x0 < q.x1 + G && q.x0 < b.x1 + G && b.y0 < q.y1 + G && q.y0 < b.y1 + G);
     for (const it of items) {
-      const r = it.el.getBoundingClientRect();
-      const b = { x0: r.left - vr.left, y0: r.top - vr.top, x1: r.right - vr.left, y1: r.bottom - vr.top };
-      const out = b.x0 < 0 || b.y0 < 0 || b.x1 > W || b.y1 > H;
-      const hit = placed.some((q) => b.x0 < q.x1 + G && q.x0 < b.x1 + G && b.y0 < q.y1 + G && q.y0 < b.y1 + G);
-      if ((out && it.p > 0) || hit) { it.el.style.visibility = 'hidden'; continue; }
-      placed.push(b);
+      const r = it.el.getBoundingClientRect(), h = r.height + G;
+      // horizontal clamp into the view (a label clipped at the right/left edge slides in by its overflow)
+      const x0 = r.left - vr.left, x1 = r.right - vr.left;
+      const dx = it.p === 0 || x1 - x0 > W ? 0 : x1 > W ? W - x1 : x0 < 0 ? -x0 : 0;
+      const at = (dy) => ({ x0: x0 + dx, y0: r.top - vr.top + dy, x1: x1 + dx, y1: r.bottom - vr.top + dy });
+      const inside = (b) => b.x0 >= 0 && b.y0 >= 0 && b.x1 <= W && b.y1 <= H;
+      if (it.p === 0) { if (inside(at(0))) placed.push(at(0)); else it.el.style.visibility = 'hidden'; continue; }
+      // then in place or nudged up/down (stitch / over-under labels by one label height so they stay at their point;
+      // current operation / small labels by up to two); hide if nothing fits
+      const dys = it.p === 4 || it.p === 5 ? [0, -h, h] : [0, -h, h, -2 * h, 2 * h];
+      const put = (dy, b) => { if (dy) it.el.style.marginTop = `${dy}px`; if (dx) it.el.style.marginLeft = `${dx}px`; placed.push(b); };
+      let done = false;
+      for (const dy of dys) { const b = at(dy); if (!inside(b) || hits(b)) continue; put(dy, b); done = true; break; }
+      if (!done && it.p === 2) {   // the current operation may stay partly outside the view rather than vanish (never over another label)
+        for (const dy of dys) { const b = at(dy); if (hits(b)) continue; put(dy, b); done = true; break; }
+      }
+      if (!done) it.el.style.visibility = 'hidden';
     }
   }
 }
