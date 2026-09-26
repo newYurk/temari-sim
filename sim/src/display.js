@@ -9,7 +9,8 @@
 //  • pickup E→X: model is a sub-surface chord (depth ≤ 0.02 mm); drawn dashed with axis at R − w/2.
 //  • hidden start: model is a straight needle chord (35 mm ⇒ up to 4.24 mm deep). Default display is SCHEMATIC —
 //    an arc just under the surface (R − HID_DEPTH_W·w) so it does not cut through the ball; mode 'chord' = model.
-import { unit, mul, dist, angle, segSegDist } from './geom.js';
+import { unit, mul, dist, angle, segSegDist, alongPolylineMm } from './geom.js';
+import { liftFnFor } from './mechanics.js';
 
 export const HID_DEPTH_W = 1.0;      // depth of schematic hidden-start arc, in thread widths (display convention, not model)
 //  • stack (6a.17): lift(d) = DISPLAY_STACK_LIFT_W·√(w²−d²) when d < w·(1−ε), else 0 (ε = LIFT_DIST_EPS = 0.01).
@@ -69,24 +70,7 @@ export function stackProfile(A, seg) {
  * leg polyline when available (not the nearest vertex — vertices are ≈ 0.4 mm apart, a tent is
  * ±w/sinψ, so snapping the centre to a vertex under-lifts samples near holes; #31), else the vertex index.
  */
-function crossingPosMm(seg, c, ic, step) {
-  const pts = seg.pts;
-  if (!c.at || !pts || pts.length < 2) return ic * step;
-  let best = Infinity, pos = ic * step;
-  const cumArr = [0];
-  for (let j = 1; j < pts.length; j++) cumArr.push(cumArr[j - 1] + dist(pts[j - 1], pts[j]));
-  const Lc = cumArr[cumArr.length - 1] || 1, scale = seg.length / Lc;
-  for (let j = 1; j < pts.length; j++) {
-    const a = pts[j - 1], b = pts[j];
-    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ap = [c.at[0] - a[0], c.at[1] - a[1], c.at[2] - a[2]];
-    const ll = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2] || 1;
-    const t = Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ll));
-    const q = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
-    const d = dist(q, c.at);
-    if (d < best) { best = d; pos = (cumArr[j - 1] + t * (cumArr[j] - cumArr[j - 1])) * scale; }
-  }
-  return pos;
-}
+function crossingPosMm(seg, c, ic, step) { return alongPolylineMm(seg.pts, c.at, seg.length, ic * step); }
 
 /**
  * Stack lift as a function of the along-leg position x (mm, 0 … seg.length), 6a.17.
@@ -217,9 +201,12 @@ export function displayGeometry(A, segIds = null, opts = {}) {
   for (const s of A.path.segs) {
     if (segIds && !segIds.has(s.id)) continue;
     if (s.type === 'leg') {
-      const mech = A.mechanics && A.mechanics.liftAt ? (i) => A.mechanics.liftAt(s.id, i) : null;
+      // #5: liftMode ideal / measured — the lift is the mechanics profile (plain data in A.mechanics, lift-spec v1 §3.1);
+      // display — the former tent (stackProfileFn, display only).
+      const mech = A.mechanics && !A.mechanics.displayOnly && A.mechanics.legs ? liftFnFor(A.mechanics, s.id) : null;
+      const stepV = s.length / Math.max(1, s.pts.length - 1);
       // stackProfile returns mm lift (6a.17); includes upper-tip wedge / flush lift(d).
-      const prof0 = mech ? s.pts.map((_, i) => mech(i)) : Array.from(stackProfile(A, s));
+      const prof0 = mech ? s.pts.map((_, i) => mech(i * stepV)) : Array.from(stackProfile(A, s));
       // 6a.18: dive only after clearing outer edge of last underlying thread.
       const clear0 = clearDistFromEnd(A, s, true);
       const clear1 = clearDistFromEnd(A, s, false);
@@ -229,7 +216,7 @@ export function displayGeometry(A, segIds = null, opts = {}) {
       const { P, V: V0, X, L } = densifyEnds(s.pts, prof0, zone, 0.08);
       // #31: evaluate the display lift at the densified samples (tent centre at the true crossing point),
       // not a linear interpolation of vertex values.
-      const fProf = mech ? null : stackProfileFn(A, s);
+      const fProf = mech || stackProfileFn(A, s);
       const V = fProf ? X.map((x) => fProf(x * (s.length / (L || 1)))) : V0;
       let liftMax = 0;
       const pts = P.map((p, i) => {

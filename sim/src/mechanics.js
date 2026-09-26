@@ -4,6 +4,7 @@
 // height u(x) of the thread axis above its «on-site» level (R + h/2) along the already built path, and the lengths and
 // contact checks that follow. Units: mm, N, N/mm² (Winkler stiffness k per unit thread length), N·mm² (bending B).
 // Labels as in model/spec.md: (a) source, (b) analogue, (c) estimate, (d) assumed, (=) computed here.
+import { alongPolylineMm, dist as dist3 } from './geom.js';
 
 /** gram-force per newton (t_c law is written in gf). */
 export const GF_PER_N = 1 / 0.00980665;
@@ -151,3 +152,126 @@ export function dentAt(dn, x, lamT) {
   return ax - dn.half > 12 * lam ? 0 : -dn.d * Math.exp(-(ax - dn.half) / lam);
 }
 export const dentProfile = (dents, lamT) => (x) => dents.reduce((v, dn) => Math.min(v, dentAt(dn, x, lamT)), 0);
+
+// ---- the mechanics layer (lift-spec v1 §3) — plain data (structured-clone safe: tests copy A, the worker gets it by
+// postMessage), so the profile functions are rebuilt from it by liftFnFor / dentFnFor below (#5 Q4).
+
+/** Crossing kinds that carry an apex (§3.2); rail-parallel → 0, contact → not allowed (V8), no lift. */
+export const APEX_KINDS = new Set(['crossing', 'tipCross', 'squeeze', 'climb', 'wedge']);
+/** #5 Q1 (provisional, answer (b)): the local stack under the upper thread — 1 + the local stack of an earlier crossing where
+ *  the lower thread lies over a third thread within this distance (× w) of the point; c.stack (the chronological level of
+ *  path.stackLevels, window ±w/sin ψ) is printed alongside. */
+export const LOCAL_STACK_WINDOW_W = 0.5;
+/** #5 Q1/Q2 switches (one place; pending Fable): which m the stack rise uses — 'local' (Q1 b, provisional), 'ordinal'
+ *  (Q1 a: c.stack as is), 'one' (Q1 c: m = 1 everywhere); and the plateau cap for ψ < ψ* and wedges — 'contact' (Q2,
+ *  provisional: ℓ_p ≤ max(w_c/2, the path contact length / 2)) or 'none' (ℓ_p(ψ) of §1.5 as is). */
+/** @type {{ stackM: string, plateauCap: string }} */
+export const LIFT_CHOICES = Object.freeze({ stackM: 'local', plateauCap: 'contact' });
+
+/** Resolved mode: display | ideal | measured (lift1_w given → measured, §5.2). */
+export function liftModeOf(P) {
+  if (P.liftMode === 'display') return 'display';
+  if (P.liftMode === 'measured' || P.lift1_w != null) return 'measured';
+  return 'ideal';
+}
+
+/** Build the mechanics data over a finished path. Returns the fields of the layer (layers.js adds id, inputs, stamp). */
+export function buildMechanics(P, path, base) {
+  const mode = liftModeOf(P);
+  if (mode === 'display') return { mode, displayOnly: true, notes: ['display: the former tent 0.6·w (DISPLAY_STACK_LIFT_W), display only; lengths are the lower bound'] };
+  const R = base.R, w = P.w_mm, h = (P.hw ?? 0.65) * w;
+  const T = P.tension_N != null && P.tension_N > 0 ? P.tension_N : LIFT_DEFAULTS.T.value;
+  const k = P.wrapK_Nmm2 ?? LIFT_DEFAULTS.k.value, B = P.bendB_Nmm2 ?? LIFT_DEFAULTS.B.value, kappa = P.stackKappa ?? LIFT_DEFAULTS.kappa.value;
+  const notes = [];
+  if (!(P.tension_N > 0)) notes.push('T = 1 N assumed (tension_N empty, lift-spec §2 (d))');
+  const r = rise1({ T, k, B, h, R });
+  let delta1 = r.delta1, F = r.F, tc = r.tc, dent = r.dent, sigma = r.sigma, x0 = r.x0;
+  if (mode === 'measured') {
+    if (P.lift1_w != null) {
+      delta1 = P.lift1_w * w;
+      ({ x0, sigma } = flight(delta1, R, r.s0)); F = 2 * T * sigma; tc = tcAt(F, h); dent = 1.5 * tc - h / 2 - delta1;
+      if (dent < 0.02 || dent > 0.2) notes.push(`measured Δ₁ implies δ = ${dent.toFixed(3)} mm outside 0.02–0.2: t_c or h out of range, check the cross-section (#44)`);
+    } else notes.push('measured without lift1_w: the model Δ₁ (ideal) is used');
+  }
+  const { wc, rhoC } = crest(w, h, tc);
+  const pStar = psiStar(sigma, rhoC, wc);
+  const consts = { mode, R, w, h, T, k, B, kappa, tc, wc, rhoC, delta1, a1: Math.sqrt(2 * R * delta1), x0, sigma, s0: r.s0, lamT: r.lamT, lamB: r.lamB, lb: r.lb, Pi: r.Pi,
+    F1: F, dent1: dent, psiStarDeg: pStar * 180 / Math.PI, localStackWindowW: LOCAL_STACK_WINDOW_W, stackM: LIFT_CHOICES.stackM, plateauCap: LIFT_CHOICES.plateauCap,
+    status: { T: P.tension_N > 0 ? 'given' : 'assumed', k: 'estimate', B: 'estimate', kappa: 'analogue', delta1: mode === 'measured' && P.lift1_w != null ? 'photo' : 'model (=)', h: 'analogue' } };
+  const segById = new Map(path.segs.map((s) => [s.id, s]));
+  const stepOf = (s) => s.length / Math.max(1, s.pts.length - 1);
+  // local stack m (Q1 b), in the chronological order of path.crossings (the order stackLevels uses)
+  const byOver = new Map(), mLoc = new Map();
+  for (const c of path.crossings) {
+    if (!byOver.has(c.over)) byOver.set(c.over, []);
+    let lv = 0;
+    if (c.kind !== 'rail-parallel' && c.kind !== 'contact') {
+      for (const q of byOver.get(c.under) || []) if (mLoc.has(q) && q.kind !== 'rail-parallel' && q.kind !== 'contact' && q.at && c.at && dist3(q.at, c.at) <= LOCAL_STACK_WINDOW_W * w) lv = Math.max(lv, mLoc.get(q));
+    }
+    mLoc.set(c, 1 + lv);
+    byOver.get(c.over).push(c);
+  }
+  const cfg = { R, s0: r.s0, rhoC, wc };
+  const crossings = [], apicesBy = new Map(), dentsBy = new Map();
+  const dLowOf = (m) => { let s = 0; for (let i = 1; i <= m; i++) s += Math.sqrt(stackRise(delta1, i, kappa) / delta1); return dent * s + (h - tc) / 2; };
+  let nLowPsi = 0, nApex = 0, mMax = 0, mOrdMax = 0, psiMin = 180;
+  for (const c of path.crossings) {
+    const psiDeg = c.angleDeg != null ? c.angleDeg : 90;
+    const apexKind = APEX_KINDS.has(c.kind) || (c.kind !== 'rail-parallel' && c.kind !== 'contact' && psiDeg >= consts.psiStarDeg);
+    const over = segById.get(c.over), under = segById.get(c.under);
+    if (!apexKind || !over || !under || over.type !== 'leg') { crossings.push({ id: c.id, kind: c.kind, over: c.over, under: c.under, psiDeg, m: mLoc.get(c), mOrd: c.stack ?? 1, delta: 0, cls: c.kind === 'rail-parallel' ? 'rail-parallel (0)' : c.kind === 'contact' ? 'contact (no lift, V8)' : 'no apex' }); continue; }
+    const m = LIFT_CHOICES.stackM === 'ordinal' ? Math.max(1, c.stack ?? 1) : LIFT_CHOICES.stackM === 'one' ? 1 : mLoc.get(c), psi = psiDeg * Math.PI / 180;
+    const lpMax = LIFT_CHOICES.plateauCap === 'contact' ? Math.max(wc / 2, (c.lenMm ?? 0) / 2) : Infinity;   // #5 Q2
+    const D = stackRise(delta1, m, kappa);
+    const ap = apexOf(D, psi, { ...cfg, lpMax: psiDeg < consts.psiStarDeg || c.kind === 'wedge' ? lpMax : null });
+    const ic = c.over === c.a ? c.iA : c.iB, iu = c.under === c.a ? c.iA : c.iB;
+    const x = alongPolylineMm(over.pts, c.at, over.length, ic * stepOf(over));
+    const xu = alongPolylineMm(under.pts, c.at, under.length, iu * stepOf(under));
+    if (!apicesBy.has(c.over)) apicesBy.set(c.over, []);
+    apicesBy.get(c.over).push({ x, ...ap, cid: c.id, m, psiDeg });
+    const dLow = dLowOf(m), half = Math.min(wc / (2 * Math.max(1e-6, Math.sin(psi))), Math.max(lpMax, wc / 2));
+    if (under.type === 'leg') { if (!dentsBy.has(c.under)) dentsBy.set(c.under, []); dentsBy.get(c.under).push({ x: xu, d: dLow, half, cid: c.id }); }
+    const lowPsi = psiDeg < consts.psiStarDeg;
+    if (lowPsi) nLowPsi++;
+    nApex++; mMax = Math.max(mMax, m); mOrdMax = Math.max(mOrdMax, c.stack ?? 1); psiMin = Math.min(psiMin, psiDeg);
+    crossings.push({ id: c.id, kind: c.kind, over: c.over, under: c.under, psiDeg, m, mLocal: mLoc.get(c), mOrd: c.stack ?? 1, delta: D, cap: capRise(m, tc, h), xApex: x, xUnder: xu, plateau: ap.lp,
+      aFree: ap.lp + ap.x0s, F: 2 * T * ap.ss, dent: -dLow, extraLen: extraLengthApex(ap, R, r.s0, r.lamT), lowPsi, cls: lowPsi ? `ψ < ψ* (position ±w/tan ψ)` : 'tent' });
+  }
+  const legs = {};
+  const perSeg = {}, perThread = {};
+  let total = { sphere: 0, axis: 0, lifted: 0 }, liftMax = 0, bridges = 0;
+  for (const s of path.segs) {
+    if (s.type !== 'leg') continue;
+    const Hs = hullOf(apicesBy.get(s.id) || [], R);
+    const leg = { apices: Hs.apices, edges: Hs.edges, bridges: Hs.bridges, dents: dentsBy.get(s.id) || [] };
+    legs[s.id] = leg;
+    bridges += Hs.bridges;
+    const fn = (x) => envelopeAt(leg, x, R, r.s0, r.lamT);
+    const sphere = s.length, axis = sphere * (1 + h / (2 * R));
+    const extra = leg.apices.length ? extraLength(fn, 0, s.length, R, 0.1) : 0;
+    let lm = 0; for (const ap of leg.apices) lm = Math.max(lm, fn(Math.min(s.length, Math.max(0, ap.x))));
+    liftMax = Math.max(liftMax, lm);
+    perSeg[s.id] = { sphere, axis, lifted: axis + extra, extra, liftMax: lm };
+    const th = s.thread ?? '—';
+    perThread[th] = perThread[th] || { sphere: 0, axis: 0, lifted: 0 };
+    for (const key of ['sphere', 'axis', 'lifted']) { perThread[th][key] += perSeg[s.id][key]; total[key] += perSeg[s.id][key]; }
+  }
+  if (nLowPsi) notes.push(`${nLowPsi} crossings below ψ* = ${consts.psiStarDeg.toFixed(1)}°: plateau on the whole crest, apex position ±w/tan ψ (printed, not a fail; §1.5)`);
+  if (mMax >= 4) notes.push(`local stacks m ≥ 4 (max ${mMax}): position unreliable (K19, printed)`);
+  return { mode, displayOnly: false, consts, crossings, legs, lengths: { perSeg, perThread, total }, liftMax, mMax, mOrdMax, psiMinDeg: nApex ? psiMin : null, nApex, nLowPsi, bridges, notes };
+}
+/** x ↦ lift (mm above the on-site axis level R + h/2) of leg segId; 0 for a leg without apices or in display mode. */
+export function liftFnFor(mech, segId) {
+  const leg = mech?.legs?.[segId];
+  if (!leg || !leg.apices.length) return () => 0;
+  const { R, s0, lamT } = mech.consts;
+  return (x) => envelopeAt(leg, x, R, s0, lamT);
+}
+/** Lift at vertex i of seg (compat with display.js: liftAt(segId, i)). */
+export const liftAt = (mech, seg, i) => liftFnFor(mech, seg.id)(i * seg.length / Math.max(1, seg.pts.length - 1));
+/** x ↦ dent (≤ 0) of leg segId under foreign crossings (§1.7). */
+export function dentFnFor(mech, segId) {
+  const leg = mech?.legs?.[segId];
+  if (!leg || !leg.dents.length) return () => 0;
+  return dentProfile(leg.dents, mech.consts.lamT);
+}

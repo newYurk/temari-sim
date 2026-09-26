@@ -8,6 +8,7 @@ import { buildWork, stageLastOp } from './path.js';
 import { generateSN, generateC8, generateC10, generateC6, graphStats, resolve } from './marking.js';
 import { normalizeRecipe } from './recipe.js';
 import { kiku } from './program.js';
+import { buildMechanics } from './mechanics.js';
 
 /** Marking generators (#52 commit 3). S_N builds the full pipeline; the combination markings are drawn without a pattern. */
 export const GENERATORS = { S_N: null, C8: generateC8, C10: generateC10, C6: generateC6 };
@@ -137,14 +138,18 @@ export function layerPath(recipe, P, base, marking, layout, rowPlan) {
     start: A1.start, startLegId: A1.firstLegId };
 }
 
-/** Крючок механики (этап 2.4+): слой, который по пути вычислит реальные подъёмы нить-на-нить и формы плеч.
- *  Сейчас его нет — рендер использует условное смещение по порядку стопки (display.js), помеченное как изображение. */
 /**
- * Mechanics layer placeholder (not implemented yet); inputs accepted for the pipeline signature.
- * @param {any} [_recipe] @param {any} [_P] @param {any} [_path]
- * @returns {null}
+ * #5 mechanics layer (model/lift-spec.md §3.1): the lift of the thread axis over the finished path — a radial field over the
+ * construction (it moves no hole and changes no placement rule). Plain data (mechanics.js buildMechanics); the profile
+ * functions are rebuilt from it (liftFnFor, dentFnFor). liftMode display → { displayOnly: true } (the former tent).
+ * @param {any} _recipe @param {any} P @param {any} path @param {any} base
  */
-export function layerMechanics(_recipe, _P, _path) { return null; }
+export function layerMechanics(_recipe, P, path, base) {
+  if (!path || !base) return null;
+  const inputs = pick(P, ['w_mm', 'hw', 'tension_N', 'wrapK_Nmm2', 'bendB_Nmm2', 'stackKappa', 'liftMode', 'lift1_w']);
+  const parents = [path.stamp];
+  return { id: 'mechanics', inputs, parents, stamp: hash({ inputs, parents }), ...buildMechanics(P, path, base) };
+}
 
 /** Полный пересчёт. raw — сырые параметры (из UI/URL/теста). */
 export function computeAll(recipe0, raw) {
@@ -159,7 +164,7 @@ export function computeAll(recipe0, raw) {
   const layout = layerLayout(recipe, P, base, marking);
   const rowPlan = layerRowPlan(recipe, P, base, marking, layout);
   const path = layerPath(recipe, P, base, marking, layout, rowPlan);
-  const mechanics = layerMechanics(recipe, P, path);
+  const mechanics = layerMechanics(recipe, P, path, base);
   return { recipeId: recipe.id, params: P, base, marking, layout, rowPlan, path, mechanics, computedAt: Date.now() };
 }
 

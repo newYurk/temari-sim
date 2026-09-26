@@ -263,3 +263,23 @@ export function fToward(F, p) {
 export function fEast(F, p) { return F.atN ? eEast(p) : unit(cross(F.c, unit(p))); }
 /** Height of p along the centre axis (at P.N: p[2]). */
 export function fZ(F, p) { return F.atN ? p[2] : dot(p, F.c); }
+/** Along-leg position (in `length` units) of a point `at` near the polyline pts: the projection onto the nearest link
+ *  (not the nearest vertex — #31), scaled from the chord length to `length` (seg.length). Moved from display.js (#5): the
+ *  display tent and the lift mechanics place a crossing at the same x. Without `at`, the fallback (vertex index × step). */
+export function alongPolylineMm(pts, at, length, fallback) {
+  if (!at || !pts || pts.length < 2) return fallback;
+  let best = Infinity, pos = fallback;
+  const cumArr = [0];
+  for (let j = 1; j < pts.length; j++) cumArr.push(cumArr[j - 1] + dist(pts[j - 1], pts[j]));
+  const Lc = cumArr[cumArr.length - 1] || 1, scale = length / Lc;
+  for (let j = 1; j < pts.length; j++) {
+    const a = pts[j - 1], b = pts[j];
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ap = [at[0] - a[0], at[1] - a[1], at[2] - a[2]];
+    const ll = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2] || 1;
+    const t = Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ll));
+    const q = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
+    const d = dist(q, at);
+    if (d < best) { best = d; pos = (cumArr[j - 1] + t * (cumArr[j] - cumArr[j - 1])) * scale; }
+  }
+  return pos;
+}
