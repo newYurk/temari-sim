@@ -60,7 +60,10 @@ export function layerLayout(recipe, P, base, marking) {
   const inputs = pick(P, layerSpec(recipe, 'layout').inputs);
   const parents = [base.stamp, marking.stamp];
   const sTop = P.topMode === 'mm' ? P.sTop_mm : P.sTopFrac * base.Q;
-  let sBot = base.Q * (1 - P.bottomFromEq);
+  // #54: row-1 bottom by the recipe's kiku.bottom (default fraction — the S8 level, bit for bit)
+  const bm = recipe.kiku.bottom || { mode: 'fraction' };
+  const botOf = (l) => (bm.mode === 'fraction' ? l * (1 - P.bottomFromEq) : bm.mode === 'mmFromCenter' ? bm.mm : l - bm.mm);
+  let sBot = botOf(base.Q);
   // #52 commit 2 (spec stage3-arch §1.4): row-1 tops and bottoms as marking addresses plus resolved points. Kiku centre
   // P.N; set A — tops on even half-lines, bottoms on odd; set B — shifted by one half-line (startLine); levels are arcs
   // from the centre along the own half-line. side: null — the bite is the stitch centre on the line; its hole sides ±1 are
@@ -77,14 +80,20 @@ export function layerLayout(recipe, P, base, marking) {
   // #53 case 2: region(P, until=graph) — half-lines of different length to the boundary: row-1 bottoms at ℓ_h·(1 − bottomFromEq)
   // (petals proportional to their half-lines; S8: ℓ = Q on every half-line, the same level as before).
   let sBotK = null;
-  if (reg.sMaxK) { region.sMaxK = reg.sMaxK; sBotK = reg.sMaxK.map((l) => l * (1 - P.bottomFromEq)); sBot = null; }
+  if (reg.sMaxK) { region.sMaxK = reg.sMaxK; sBotK = reg.sMaxK.map(botOf); sBot = null; }
+  if (bm.mode !== 'fraction') for (const [k, l] of (reg.sMaxK || [reg.sMax]).entries()) {   // mm modes are checked; fraction keeps its old behaviour
+    const b = botOf(l);
+    if (!(b > sTop && b < l)) throw new Error(`recipe: kiku.bottom ${JSON.stringify(bm)} puts the row-1 bottom of half-line ${k} at ${b} mm — outside (sTop ${sTop}, ℓ ${l}) mm`);
+  }
   const program = kiku(marking, { center, v: recipe.kiku.v, grow: recipe.kiku.grow, layer: recipe.kiku.layer, sTop, sBot: sBotK || sBot, stop: region,
     sets: recipe.work.sets.map((st) => ({ set: st.set, thread: st.thread, startLine: st.startLine, begin1: st.row1.begin, beginN: st.next.begin })) });
   const v = program.v, bites = program.bites;
   const at = (k, s) => resolve(marking, `on(L(${center},azimuth=${k}), ${s}, from=${center})`);
   const sBotAt = (k) => (sBotK ? sBotK[k] : sBot);
   const pins = Array.from({ length: v }, (_, k) => ({ line: k, s: sBotAt(k), p: at(k, sBotAt(k)).xyz }));
-  return { id: 'layout', inputs, parents, stamp: hash({ inputs, parents }), sTop, sBot, ...(sBotK ? { sBotK } : {}), pins, topBasis: P.topMode === 'mm' ? 'мм от СП (GT14)' : 'доля Q',
+  // a non-default bottom mode joins the stamp (the default keeps the S8 stamp)
+  const stamp = bm.mode === 'fraction' ? hash({ inputs, parents }) : hash({ inputs, parents, bottom: bm });
+  return { id: 'layout', inputs, parents, stamp, sTop, sBot, ...(sBotK ? { sBotK } : {}), pins, topBasis: P.topMode === 'mm' ? 'мм от СП (GT14)' : 'доля Q',
     center, bites, region, program };
 }
 

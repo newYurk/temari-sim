@@ -2725,6 +2725,30 @@ if (G('8y'))
     'UI: the view button follows the kiku centre — «На центр кику ({name})» / «Onto kiku centre ({name})» (RU/EN), no fixed «Сверху (СП)» button');
 }
 
+// 8y2. #54 (Fable §5): the row-1 bottom level is a recipe choice — kiku.bottom fraction (default) | mmFromCenter |
+// mmFromBoundary; non-default modes join the layout stamp; bad values throw.
+if (G('8y'))
+{
+  console.log('\n## #54: recipe kiku.bottom (fraction | mmFromCenter | mmFromBoundary)');
+  const { normalizeRecipe } = await import('../src/recipe.js');
+  const { computeAll: fresh } = await import('../src/layers.js');
+  const base = await loadJSON('../data/recipe.kiku-s8.json');
+  const withB = (b, mut) => { const r = JSON.parse(JSON.stringify(base)); r.kiku.bottom = b; if (mut) mut(r); return normalizeRecipe(r); };
+  const A0 = computeAll(recipe, {}), Af = fresh(withB('fraction'), {}), Ac = fresh(withB({ mode: 'mmFromCenter', mm: 30 }), {}), Ab = fresh(withB({ mode: 'mmFromBoundary', mm: 12 }), {});
+  check(Af.layout.sBot === A0.layout.sBot && Af.layout.stamp === A0.layout.stamp && Af.path.stamp === A0.path.stamp
+    && Ac.layout.sBot === 30 && Ab.layout.sBot === A0.base.Q - 12 && Ac.layout.stamp !== A0.layout.stamp && Ac.layout.stamp !== Ab.layout.stamp
+    && Ac.path.stitches.filter((st) => st.row === 1 && st.level === 'bottom').every((st) => st.s === 30),
+    `kiku.bottom: fraction = the S8 level and stamp (${A0.layout.sBot.toFixed(3)} mm); mmFromCenter 30 → 30 mm; mmFromBoundary 12 → Q − 12 = ${Ab.layout.sBot.toFixed(3)} mm; non-default modes change the stamp`);
+  const c8 = (b) => withB(b, (r) => { const mk = r.layers.find((l) => l.id === 'marking'); mk.generator = 'C8'; mk.inputs = ['m_mm'];
+    const c = 'P.v6[0]', sub = (x) => x.replaceAll('P.N', c); Object.assign(r.kiku, { center: c, halfLines: sub(r.kiku.halfLines), stop: 'region(P.v6[0], until=graph)', program: sub(r.kiku.program) }); for (const s of r.work.sets) s.start = sub(s.start); });
+  const Cb = fresh(c8({ mode: 'mmFromBoundary', mm: 8 }), { topRule: 'braid' }), Cc = fresh(c8({ mode: 'mmFromCenter', mm: 14 }), { topRule: 'braid' });
+  check(Cb.layout.sBotK.every((x, k) => Math.abs(x - (Cb.layout.region.sMaxK[k] - 8)) < 1e-12) && Cc.layout.sBotK.every((x) => x === 14),
+    `graph region: mmFromBoundary 8 → ℓ_k − 8 (${Cb.layout.sBotK.slice(0, 2).map((x) => x.toFixed(2)).join(' / ')} mm); mmFromCenter 14 → 14 mm on every half-line`);
+  const bad = (b) => { try { fresh(withB(b), {}); return false; } catch { return true; } };
+  check(bad('nope') && bad({ mode: 'mmFromCenter' }) && bad({ mode: 'mmFromCenter', mm: 70 }) && bad({ mode: 'mmFromBoundary', mm: 58 }) && bad({ mode: 'fraction', mm: 3 }),
+    'kiku.bottom: unknown mode, missing mm, a level outside (sTop, ℓ) and fraction with mm throw');
+}
+
 // 8z. #44: thread look by thread type — render only. Presets (sewing / pearl #8 / pearl #5 / metallic gold, silver) with
 // diameter, colour, sheen, twist; jiwari diameter / colour default from the jiwari type; no layer reads the look params
 // (stamps, path and validator outputs unchanged); the ply-shading formula (twistShade = TWIST_GLSL in render.js).

@@ -52,6 +52,15 @@ export function normalizeRecipe(raw) {
   }
   if (k.grow !== undefined && k.grow !== 1 && k.grow !== -1) throw new Error(`recipe v2: kiku.grow ${k.grow} (1 or −1)`);
   if (k.layer !== undefined && k.layer !== 'over' && k.layer !== 'under') throw new Error(`recipe v2: kiku.layer «${k.layer}» (over | under)`);
+  // #54 (Fable §5): row-1 bottom level — a recipe choice, not a rule: 'fraction' (default; ℓ_h·(1 − bottomFromEq)),
+  // { mode: 'mmFromCenter', mm } (arc from the kiku centre) or { mode: 'mmFromBoundary', mm } (ℓ_h − mm)
+  if (k.bottom !== undefined) {
+    const bm = typeof k.bottom === 'string' ? { mode: k.bottom } : k.bottom;
+    if (!bm || !['fraction', 'mmFromCenter', 'mmFromBoundary'].includes(bm.mode)) throw new Error(`recipe v2: kiku.bottom ${JSON.stringify(k.bottom)} (fraction | { mode: mmFromCenter | mmFromBoundary, mm })`);
+    if (bm.mode !== 'fraction' && !(typeof bm.mm === 'number' && bm.mm > 0)) throw new Error(`recipe v2: kiku.bottom ${bm.mode} needs mm > 0`);
+    if (bm.mode === 'fraction' && bm.mm !== undefined) throw new Error('recipe v2: kiku.bottom fraction takes no mm (the fraction is the bottomFromEq input)');
+    k.bottom = bm;
+  }
   for (const s of r.work.sets) {
     const m = /^L\(\s*([^,()]+?)\s*,\s*azimuth\s*=\s*(\d+)\s*\)$/.exec(s.start || '');
     if (!m || m[1] !== k.center) throw new Error(`recipe v2: set ${s.set}: start must be «L(${k.center}, azimuth=j)»`);
