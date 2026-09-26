@@ -81,10 +81,10 @@ p();
 p('| Config | apices | m_max | Δ_c median / p95 / max, mm | lifted − axis | supports (plateau / bridge / flight / ground) |');
 p('|---|---|---|---|---|---|');
 const recipe = await loadRecipe();
-const cfgs = [['S8 braid, bow λ 0.32, m 0.5 (site view)', { topRule: 'braid', m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.32 }],
+const cfgs = [['S8 uwagake, bow λ 0.32, m 0.5 (site view)', { topRule: 'uwagake', m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.32 }],
   ['fan, bow λ 0.32, m 0.5', { topRule: 'fan', m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.32 }],
-  ['braid, geodesic, m 0.5 (engine default)', {}],
-  ['stress: braid, bow λ 0.6, m 1', { topRule: 'braid', m_mm: 1, shoulderForm: 'bow', bowLambda: 0.6 }]];
+  ['uwagake, geodesic, m 0.5 (engine default)', {}],
+  ['stress: uwagake, bow λ 0.6, m 1', { topRule: 'uwagake', m_mm: 1, shoulderForm: 'bow', bowLambda: 0.6 }]];
 for (const [name, raw] of cfgs) {
   const A = computeAll(recipe, { ...raw, liftMode: 'ideal' }), X = A.mechanics, d = X.crossings.map((c) => c.delta).filter((v) => v > 0).sort((a, b) => a - b);
   const q = (t) => d[Math.min(d.length - 1, Math.floor(t * d.length))], sc = X.consts.supportCounts || {}, Tt = X.lengths.total;

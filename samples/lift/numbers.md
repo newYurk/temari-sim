@@ -64,10 +64,10 @@ The pure stack is the patch rule; on patterns the support rule (§1.6/§1.8 v1.1
 
 | Config | apices | m_max | Δ_c median / p95 / max, mm | lifted − axis | supports (plateau / bridge / flight / ground) |
 |---|---|---|---|---|---|
-| S8 braid, bow λ 0.32, m 0.5 (site view) | 1592 | 2 | 0.268 / 0.403 / 0.469 | +0.60 % | 0 / 393 / 278 / 921 |
+| S8 uwagake, bow λ 0.32, m 0.5 (site view) | 1592 | 2 | 0.268 / 0.403 / 0.469 | +0.60 % | 0 / 393 / 278 / 921 |
 | fan, bow λ 0.32, m 0.5 | 1728 | 3 | 0.268 / 0.445 / 0.606 | +0.61 % | 83 / 445 / 311 / 889 |
-| braid, geodesic, m 0.5 (engine default) | 502 | 1 | 0.268 / 0.423 / 0.449 | +0.41 % | 0 / 135 / 147 / 220 |
-| stress: braid, bow λ 0.6, m 1 | 3433 | 13 | 0.364 / 1.403 / 1.624 | +2.00 % | 1449 / 49 / 548 / 1387 |
+| uwagake, geodesic, m 0.5 (engine default) | 502 | 1 | 0.268 / 0.423 / 0.449 | +0.41 % | 0 / 135 / 147 / 220 |
+| stress: uwagake, bow λ 0.6, m 1 | 3433 | 13 | 0.364 / 1.403 / 1.624 | +2.00 % | 1449 / 49 / 548 / 1387 |
 
 ## Formulas (§7)
 

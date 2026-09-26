@@ -196,7 +196,7 @@ function buildTermsJs(g) {
   const topObj = typed.topRules.map((k) => `  ${idKey(k)}: '${esc(k)}'`).join(',\n');
 
   return `// generated from glossary.json — do not edit
-/** @typedef {${unionType(typed.topRules.length ? typed.topRules : ['fan', 'braid'])}} TopRule */
+/** @typedef {${unionType(typed.topRules.length ? typed.topRules : ['fan', 'uwagake'])}} TopRule */
 /** @typedef {${unionType(typed.opKinds.length ? typed.opKinds : ['start-run'])}} OpKind */
 /** @typedef {${unionType(typed.segCls.length ? typed.segCls : ['free'])}} SegClass */
 /** @typedef {${unionType(typed.crossKinds.length ? typed.crossKinds : ['crossing'])}} CrossKind */

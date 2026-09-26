@@ -412,9 +412,10 @@
       ],
       "status": "source",
       "code": [
+        "topRule:uwagake",
         "V17"
       ],
-      "note": "В коде topRule пока braid (коммит переименования — отдельно)",
+      "note": "topRule id uwagake (legacy URL/recipe alias braid нормализуется в params)",
       "ru": {
         "canon": "увагакэ тидори",
         "ui": "uwagake",
@@ -915,7 +916,6 @@
       "def": "Текущий id режима верхнего стежка в коде (= uwagake по смыслу); переименование в uwagake — отдельный коммит",
       "status": "legacy",
       "code": [
-        "topRule:braid",
         "kTop",
         "lBraidMaxW"
       ],
@@ -3239,8 +3239,8 @@
         "CONTRIBUTING.md",
         "craft"
       ],
-      "enabled": false,
-      "since": null,
+      "enabled": true,
+      "since": "312b3945b3e665d690da6e51e33ceeb9e48f375a",
       "allowlist": [
         "decisions-log.md",
         "uncertainties.md",
@@ -3248,9 +3248,24 @@
         "snapshots/",
         "sources/",
         "glossary.md",
-        "samples/kiku-s8/leg-shape-spec.md"
+        "glossary.json",
+        "samples/kiku-s8/leg-shape-spec.md",
+        "sim/src/path.js",
+        "sim/test/glossary-gl.mjs",
+        "sim/test/run.mjs",
+        "sim/test/mechanics.test.mjs",
+        "sim/tools/lift-numbers.mjs",
+        "sim/src/validators.js",
+        "sim/src/params.js:165",
+        "sim/src/params.js:227",
+        "sim/src/params.js:230",
+        "sim/src/params.js:324",
+        "sim/src/i18n.js:235",
+        "sim/src/i18n.js:236",
+        "sim/src/i18n.js:609",
+        "sim/src/i18n.js:610"
       ],
-      "reason": "topRule переименован в uwagake; активировать после коммита переименования"
+      "reason": "topRule переименован в uwagake; braid — legacy id и внутренние идентификаторы #50 (path.js)"
     },
     {
       "pattern": "косичк",

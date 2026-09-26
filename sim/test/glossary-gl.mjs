@@ -48,9 +48,18 @@ function listFiles(dir, acc = []) {
   return acc;
 }
 
-function allowlisted(rel, extra = []) {
+function allowlisted(rel, extra = [], lineNo = 0) {
   const all = [...GLOBAL_ALLOWLIST, ...extra];
-  return all.some((p) => rel === p || rel.startsWith(p));
+  for (const p of all) {
+    const colon = p.indexOf(':');
+    if (colon > 0 && /^\d+$/.test(p.slice(colon + 1))) {
+      const file = p.slice(0, colon);
+      if (rel === file && Number(p.slice(colon + 1)) === lineNo) return true;
+      continue;
+    }
+    if (rel === p || rel.startsWith(p)) return true;
+  }
+  return false;
 }
 
 function stripGuillemets(line) {
@@ -208,9 +217,9 @@ export async function runGlossaryGl(check) {
     for (const scope of rule.scope) {
       for (const file of collectScopeFiles(scope)) {
         const rel = relative(ROOT, file);
-        if (allowlisted(rel, extraAllow)) continue;
         const lines = readFileSync(file, 'utf8').split('\n');
         lines.forEach((line, i) => {
+          if (allowlisted(rel, extraAllow, i + 1)) return;
           const scan = stripGuillemets(line);
           re.lastIndex = 0;
           if (re.test(scan)) {
@@ -238,10 +247,11 @@ export async function runGlossaryGl(check) {
   }
   check(TERM_ALIASES.catch === 'pickup', 'catch aliases to pickup');
 
-  check(Object.keys(TOP_RULES).includes('fan') && Object.keys(TOP_RULES).includes('braid'),
-    'TOP_RULES still fan+braid (rename commit pending)');
+  check(Object.keys(TOP_RULES).includes('fan') && Object.keys(TOP_RULES).includes('uwagake'),
+    'TOP_RULES fan+uwagake');
 
   const braidRule = g.forbidden.find((r) => r.pattern === 'braid');
-  check(braidRule && braidRule.enabled === false && braidRule.since === null, 'braid forbidden disabled until rename');
+  // since = the parent of the rename commit (a commit cannot carry its own sha): the rule is in force for every change after it
+  check(braidRule && braidRule.enabled === true && /^[0-9a-f]{7,40}$/.test(braidRule.since || ''), `braid forbidden enabled after rename (since ${braidRule?.since})`);
   check(g.forbidden.some((r) => r.replaceWith === '待ち針 / тидори'), 'forbidden #3 replaceWith тидори');
 }

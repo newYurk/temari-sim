@@ -208,7 +208,7 @@ graph TD
 | сакаса увагакэ (также: сакаса увагаке); UI: sakasa | 逆さ上掛け / sakasa uwagake chidori kagari | sakasa uwagake | Кику, растущее к центру (grow = −1, stage3 §2.1 逆さ菊); в программе kiku заявлено, не реализовано | — | SUESS-GLOSS | source |
 | ситагакэ (также: шитагаке, ситагаке чидори, шов чидори с поддевом снизу); UI: shitagake | 下掛け千鳥かがり / shitagake chidori kagari / вар.: 下がけ千鳥 | shitagake chidori | Вариант чидори: ряды рядом, без наложения сверху | — | SUESS-GLOSS, TK-SHITAGAKE | source |
 | судзидатэ (также: ребристый стежок, суджидате, гребень, косичка); UI: sujidate | 筋立て上掛け千鳥かがり / sujidate uwagake chidori kagari / вар.: 筋立て / ром.: sujidate kagari | sujidate (single raised rib) | Вариант с одним выступающим ребром (single raised rib); план #56 | — | TK-SUJIDATE | source |
-| увагакэ тидори (также: увагаке чидори, увагаке, увагаки, увагаке-чидори, косичка, увагакэ); UI: uwagake | 上掛け千鳥かがり / uwagake chidori kagari / вар.: 上掛け, うわがけちどりかがり / ром.: uwa-gake, uwagake chidori | uwagake (kiku herringbone; over-wrapping at top) | Зигзаг, где у полярных точек новая нить идёт поверх прежних рядов и стежок берёт их все под иглу | V17 | TK-UWA, SUESS-GLOSS | source |
+| увагакэ тидори (также: увагаке чидори, увагаке, увагаки, увагаке-чидори, косичка, увагакэ); UI: uwagake | 上掛け千鳥かがり / uwagake chidori kagari / вар.: 上掛け, うわがけちどりかがり / ром.: uwa-gake, uwagake chidori | uwagake (kiku herringbone; over-wrapping at top) | Зигзаг, где у полярных точек новая нить идёт поверх прежних рядов и стежок берёт их все под иглу | topRule:uwagake, V17 | TK-UWA, SUESS-GLOSS | source |
 
 ### пояса (belts)
 
@@ -231,7 +231,7 @@ graph TD
 
 | RU | JA | EN | Определение | Код | Источник | Статус |
 |---|---|---|---|---|---|---|
-| (braid) (также: косичка) | — | braid (braid top rule) | Текущий id режима верхнего стежка в коде (= uwagake по смыслу); переименование в uwagake — отдельный коммит | topRule:braid, kTop, lBraidMaxW | — | legacy |
+| (braid) (также: косичка) | — | braid (braid top rule) | Текущий id режима верхнего стежка в коде (= uwagake по смыслу); переименование в uwagake — отдельный коммит | kTop, lBraidMaxW | — | legacy |
 | веер | — | fan | Режим верхнего стежка для регрессии S8 / стресс-тестов (G3, V24) | topRule:fan | [вывод] | derived |
 
 ### детали стежка (stitch detail)

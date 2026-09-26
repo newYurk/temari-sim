@@ -3,7 +3,7 @@
 // A1, B1, A2 … — GT14; блоками A1…A5, B1…B5 — Suess 2014; явная последовательность).
 // Шитьё последовательное: всё — E/X, уровни рядов n ≥ 2, над/под в перекрестах — выводится из того, что уже
 // лежит на шаре после предыдущих операций (причинный префикс). Никаких сохранённых координат и сдвигов.
-import { resolveBowLambda, parseSequence, numParam } from './params.js';
+import { resolveBowLambda, parseSequence, numParam, topRuleOf } from './params.js';
 import { t, fmtNum } from './i18n.js';
 import {
   slerp, lineSeg, geodLen, dist, rotateToward, wrapPi, tangentTo, dot,
@@ -1692,7 +1692,7 @@ function buildWorkIn(recipe, P, base, marking, layout, rowPlan) {
   const muWrap = P.muWrap ?? P.mu ?? 0;
   const bowSide = P.bowSide === 'equator' ? 'equator' : 'pole';
   // #50 stage A: top rule flag (#54: default braid; fan = G3, the S8 regression / stress mode). k_top, ℓ_braid,max TEMPORARY until the §7a coordinates (#51).
-  const BRAID = P.topRule === 'braid';
+  const BRAID = topRuleOf(P) === 'uwagake';
   const K_TOP = numParam(P, 'kTop');
   // Commanded λ resolved per-leg once γ known; keep a preview using pin chord for tipDrop report.
   const mu = muWrap; // tipDrop report field (compat); Φ3 uses muWrap

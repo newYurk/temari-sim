@@ -15,3 +15,7 @@ sources/photos/
 
 # Diagnostic tool output (regenerate with sim/tools/diag_leg_kg.mjs)
 sim/out/
+
+# sim/tools dev dependencies (npm install for screenshots.mjs / panel-overflow.mjs)
+sim/tools/node_modules/
+sim/tools/package-lock.json

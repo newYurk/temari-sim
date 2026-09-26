@@ -1,7 +1,7 @@
 // Безбраузерные тесты: генератор пути + валидаторы. Запуск: node sim/test/run.mjs  (код выхода 0 = всё прошло)
 import { loadRecipe, loadJSON } from '../src/recipe.js';
 import { computeAll as computeAllDefault, G, finish, validatorStatuses } from './harness.mjs'; // memoized computeAll + group gates / parallel runner (#34)
-// #54: braid is the engine default top rule; the pinned S8 regression numbers of this suite are the fan mode, so every build
+// #54: uwagake is the engine default top rule; the pinned S8 regression numbers of this suite are the fan mode, so every build
 // here runs topRule 'fan' explicitly unless the call names its own topRule (computeAllDefault = the engine default).
 // #5: and liftMode 'display' (the former tent) unless the call names its own liftMode — the lift tests (group 5m) name 'ideal'.
 const computeAll = (r, raw = {}) => computeAllDefault(r, { topRule: 'fan', liftMode: 'display', ...raw });
@@ -314,7 +314,7 @@ if (G('20g'))
   const { computeAll: computeRaw } = await import('../src/layers.js');
   const { setGrazeRuleForTest } = await import('../src/path.js');
   const cfg = (mode, m, lam) => ({ C_mm: 240, w_mm: 0.714, m_mm: m, startRun_mm: 35, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: lam, muWrap: Math.max(0.32, lam), topRule: mode });
-  const cases = [['fan', 0.5, 0.1, ['s84', 's100']], ['fan', 0.5, 0.32, ['s276', 's292']], ['braid', 1, 0.2, ['s244', 's260']]];
+  const cases = [['fan', 0.5, 0.1, ['s84', 's100']], ['fan', 0.5, 0.32, ['s276', 's292']], ['uwagake', 1, 0.2, ['s244', 's260']]];
   const g0 = getLegSamples(); setLegSamples(96);
   try {
     for (const [mode, m, lam, ids] of cases) {
@@ -2314,14 +2314,16 @@ if (G('8r'))
   const w = 0.714;
   // #54: the engine default is braid, bit for bit (A0 = no topRule, A1 = explicit braid); explicit fan has no braid records
   {
-    const A0 = computeAllDefault(recipe, cfg(0.32, 1.0)), A1 = computeAllDefault(recipe, cfg(0.32, 1.0, { topRule: 'braid' })), AF = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'fan' }));
+    const A0 = computeAllDefault(recipe, cfg(0.32, 1.0)), A1 = computeAllDefault(recipe, cfg(0.32, 1.0, { topRule: 'uwagake' })), AF = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'fan' }));
     const legs = (A) => A.path.segs.filter((q) => q.type === 'leg');
     const same = legs(A0).length === legs(A1).length && legs(A0).every((q, i) => q.pts.length === legs(A1)[i].pts.length && q.pts.every((p, k) => p.every((c, j) => c === legs(A1)[i].pts[k][j])));
     const s0 = st(A0), s1 = st(A1), flips = Object.keys(s0).filter((k) => s0[k].status !== s1[k]?.status);
-    check(same && flips.length === 0 && A0.params.topRule === 'braid' && defaults().topRule === 'braid' && A0.path.stitches.some((x) => x.sides.braid) && !('K17' in st(AF)) && AF.path.stitches.every((x) => !x.sides.braid),
-      `#54: default = braid bit for bit (legs, statuses); explicit fan: no K17, no braid records; flips ${flips.join(',') || 'none'}`);
+    check(same && flips.length === 0 && A0.params.topRule === 'uwagake' && defaults().topRule === 'uwagake' && A0.path.stitches.some((x) => x.sides.braid) && !('K17' in st(AF)) && AF.path.stitches.every((x) => !x.sides.braid),
+      `#54: default = uwagake bit for bit (legs, statuses); explicit fan: no K17, no braid records; flips ${flips.join(',') || 'none'}`);
+    const { normalizeParams } = await import('../src/params.js');
+    check(normalizeParams({ topRule: 'braid' }).topRule === 'uwagake', 'legacy topRule braid URL/recipe normalizes to uwagake');
   }
-  const B = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'braid' })), VB = st(B), F = st(computeAll(recipe, cfg(0.32, 1.0)));
+  const B = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'uwagake' })), VB = st(B), F = st(computeAll(recipe, cfg(0.32, 1.0)));
   // T1 / K17 / T4
   {
     const tops = B.path.stitches.filter((x) => x.level === 'top' && (x.row >= 2 || x.closing));
@@ -2346,24 +2348,24 @@ if (G('8r'))
     const cr = VB.V8.details.crossover, by = new Map(B.path.segs.map((q) => [q.id, q]));
     const okPairs = cr.every((c) => { const a = by.get(c.a), b = by.get(c.b); return a.set === b.set && Math.abs(a.row - b.row) === 1 && c.belowTopMm <= 20 * w; });
     const labelled = VB.V8.details.found.filter((r) => /^crossover/.test(r.why)).length;
-    const B1 = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'braid', lBraidMaxW: 1 })), cr1 = st(B1).V8.details.crossover;
+    const B1 = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'uwagake', lBraidMaxW: 1 })), cr1 = st(B1).V8.details.crossover;
     console.log(`  crossover: ${cr.length} (max ${Math.max(...cr.map((c) => c.belowTopMm)).toFixed(2)} mm below s_T(n)); ℓ_braid,max = 1·w → ${cr1.length}`);
     check(cr.length > 0 && labelled > 0 && okPairs && F.V8.details.crossover.length === 0 && cr1.length < cr.length && cr1.every((c) => c.belowTopMm <= w),
       'V8 braid: crossover checked first (consecutive own rows, ≤ s_T(n) + ℓ_braid,max); ℓ_braid,max = w shrinks it; fan none');
   }
   // braid joint: interior holes (m1 λ0.52): great circle ∩ rail (no tangency exists), turn ≤ 20°, V22 pass; m0.5 λ0.6: > 20° → loud V22 fail
   {
-    const J = computeAll(recipe, cfg(0.52, 1.0, { topRule: 'braid' })), VJ = st(J);
+    const J = computeAll(recipe, cfg(0.52, 1.0, { topRule: 'uwagake' })), VJ = st(J);
     const ent = J.path.segs.filter((q) => q.entryKind === 'braidCross'), ex = J.path.segs.filter((q) => q.exitKind === 'braidCross');
     const noTan = ent.every((q) => (q.entryRoots || []).every((r) => !r.ok));
     const turns = [...ent.map((q) => q.braidJoinTurnDeg), ...ex.map((q) => q.braidExitTurnDeg)];
     const noClimb = J.path.segs.every((q) => q.joinMode !== 'climb' && q.exitKind !== 'drain');
     console.log(`  braid joints m1 λ0.52: entries ${ent.length}, top-hole ${ex.length}, max turn ${Math.max(...turns).toFixed(2)}°; tangency roots accepted 0`);
-    check(ent.length > 0 && ex.length > 0 && noTan && noClimb && turns.every((t) => t <= 20) && VJ.V22.status === 'pass' && /braid joints/.test(VJ.V22.value),
+    check(ent.length > 0 && ex.length > 0 && noTan && noClimb && turns.every((t) => t <= 20) && VJ.V22.status === 'pass' && /uwagake joints/.test(VJ.V22.value),
       'braid joint (decision 1b): no climb / drain; no tangency → great circle ∩ rail, turn ≤ 20° printed; V22 pass');
     // Fable (#50, 26.09): ℓ_m is the minimum; M moves along the rail until the full angle ≤ 20° (m0.5 λ0.6: the 18 joints
     // that exceeded it at ℓ_m by the rail's turn move a little and pass); fail only if unreachable before the rail ends.
-    const K = computeAll(recipe, cfg(0.6, 0.5, { topRule: 'braid' })), VK = st(K);
+    const K = computeAll(recipe, cfg(0.6, 0.5, { topRule: 'uwagake' })), VK = st(K);
     const moved = K.path.segs.filter((q) => (q.braidExitShiftMm ?? 0) > 0 || (q.braidJoinShiftMm ?? 0) > 0);
     const allJ = K.path.segs.flatMap((q) => [q.braidJoinTurnDeg, q.braidExitTurnDeg]).filter((x) => x != null);
     const shiftMax = Math.max(...moved.map((q) => Math.max(q.braidExitShiftMm ?? 0, q.braidJoinShiftMm ?? 0)));
@@ -2392,7 +2394,7 @@ if (G('8s'))
   const seq = (x) => roundSequence(recipe, { ...P0, ...x }).letters.join('');
   check(defaults().order === 'alternate' && seq({}) === 'AB'.repeat(7) && seq({ order: 'blocks', blockSize: 5 }) === 'AAAAABBBBBAABB' && seq({ order: 'blocks', blockSize: 3 }) === 'AAABBBAAABBBAB',
     'row order: default alternate (A1 B1 A2 …); blocks k×A, k×B, … (k = blockSize, last block short)');
-  for (const tr of ['fan', 'braid']) {
+  for (const tr of ['fan', 'uwagake']) {
     const Aa = computeAll(recipe, cfg({ topRule: tr })), Ab = computeAll(recipe, cfg({ topRule: tr, order: 'blocks', blockSize: 5 }));
     const ids = Ab.path.rounds.map((r) => r.id).join(',');
     // per round, segments in laying order (legs + pickups; several pickups share round/line/i, so no key map)
@@ -2609,7 +2611,7 @@ if (G('8v'))
   for (const s of v1.work.sets) delete s.start;
   const n1 = normalizeRecipe(v1);
   let same = true;
-  for (const raw of [{}, { m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, topRule: 'braid', rowsMode: 'untilEquator' }]) {
+  for (const raw of [{}, { m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, topRule: 'uwagake', rowsMode: 'untilEquator' }]) {
     const a = fresh(recipe, raw), b = fresh(v1, raw);
     for (const k of ['layout', 'rowPlan', 'path']) if (hash(a[k]) !== hash(b[k])) same = false;
     if (a.marking.stamp !== b.marking.stamp) same = false;
@@ -2700,7 +2702,7 @@ if (G('8x'))
   };
   const R = computeAll(recipe, {}).base.R;
   const res = [];
-  for (const raw of [{}, { m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, topRule: 'braid', rowsMode: 'untilEquator' }]) {
+  for (const raw of [{}, { m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, topRule: 'uwagake', rowsMode: 'untilEquator' }]) {
     const N = fresh(recipe, raw), S = fresh(south, raw), c = cmp(N, S);
     res.push({ raw, N, S, c });
     const v = (id) => c.vS.find((x) => x.id === id)?.status;
@@ -2752,7 +2754,7 @@ if (G('8y'))
   Object.assign(raw.kiku, { center: c, halfLines: sub(raw.kiku.halfLines), stop: 'region(P.v6[0], until=graph)', program: sub(raw.kiku.program) });
   for (const s of raw.work.sets) s.start = sub(s.start);
   const rc = normalizeRecipe(raw);
-  const Af = fresh(rc, {}), Ab = fresh(rc, { topRule: 'braid' });
+  const Af = fresh(rc, {}), Ab = fresh(rc, { topRule: 'uwagake' });
   const L = Af.layout, PG = L.program, R = Af.base.R, m = Af.params.m_mm;
   const a1 = Math.atan(1 / Math.SQRT2), a2 = Math.atan(Math.SQRT2);   // 35.26° (to the edge midpoints), 54.74° (to the vertices)
   const expK = [0, 1, 2, 3, 4, 5].map((k) => R * (k % 2 ? a2 : a1));
@@ -2803,7 +2805,7 @@ if (G('8y'))
     `kiku.bottom: fraction = the S8 level and stamp (${A0.layout.sBot.toFixed(3)} mm); mmFromCenter 30 → 30 mm; mmFromBoundary 12 → Q − 12 = ${Ab.layout.sBot.toFixed(3)} mm; non-default modes change the stamp`);
   const c8 = (b) => withB(b, (r) => { const mk = r.layers.find((l) => l.id === 'marking'); mk.generator = 'C8'; mk.inputs = ['m_mm'];
     const c = 'P.v6[0]', sub = (x) => x.replaceAll('P.N', c); Object.assign(r.kiku, { center: c, halfLines: sub(r.kiku.halfLines), stop: 'region(P.v6[0], until=graph)', program: sub(r.kiku.program) }); for (const s of r.work.sets) s.start = sub(s.start); });
-  const Cb = fresh(c8({ mode: 'mmFromBoundary', mm: 8 }), { topRule: 'braid' }), Cc = fresh(c8({ mode: 'mmFromCenter', mm: 14 }), { topRule: 'braid' });
+  const Cb = fresh(c8({ mode: 'mmFromBoundary', mm: 8 }), { topRule: 'uwagake' }), Cc = fresh(c8({ mode: 'mmFromCenter', mm: 14 }), { topRule: 'uwagake' });
   check(Cb.layout.sBotK.every((x, k) => Math.abs(x - (Cb.layout.region.sMaxK[k] - 8)) < 1e-12) && Cc.layout.sBotK.every((x) => x === 14),
     `graph region: mmFromBoundary 8 → ℓ_k − 8 (${Cb.layout.sBotK.slice(0, 2).map((x) => x.toFixed(2)).join(' / ')} mm); mmFromCenter 14 → 14 mm on every half-line`);
   const bad = (b) => { try { fresh(withB(b), {}); return false; } catch { return true; } };
@@ -2826,14 +2828,14 @@ if (G('8y'))
   const cfg = (lam, x = {}) => ({ rowsMode: 'untilEquator', shoulderForm: lam ? 'bow' : 'geodesic', bowLambda: lam || undefined, muWrap: 0.32, ...x });
   setLegSamples(96);
   // S8: V5 by the graph passes (equator at φ 90°), V17 / V23 pass, fan and braid
-  for (const tr of ['fan', 'braid']) {
+  for (const tr of ['fan', 'uwagake']) {
     const V = byId(computeAll(recipe, cfg(0.32, { topRule: tr })));
     check(V.V5.status === 'pass' && V.V5.numbers.reach === 0 && V.V5.numbers.minClear > (0.5 + 0.714) / 2 && V.V17.status === 'pass' && V.V17.numbers.diag === 0 && V.V23.status === 'pass' && V.V23.numbers.pts > 0 && V.V23.numbers.dMaxW <= 1.01,
       `S8 λ0.32 ${tr}: V5 graph clearance min ${fmt(V.V5.numbers.minClear, 3)} mm ≥ (m+w)/2, V17 pass (no diagnostics), V23 pass (${V.V23.numbers.pts} packed points, max ${fmt(V.V23.numbers.dMaxW, 3)} w)`);
   }
   // review b080c58 б2, в2, в4, в7: V17 legs with no level crossing (expected 0); V23 arcs skipped by class, diagnostics by
   // address with the reason, n/a when no packed point is left (the braid zone ℓ_braid,max = 200 w covers the whole leg)
-  for (const tr of ['fan', 'braid']) {
+  for (const tr of ['fan', 'uwagake']) {
     const V = byId(computeAll(recipe, cfg(0.32, { topRule: tr })));
     const Vz = byId(computeAll(recipe, cfg(0.32, { topRule: tr, lBraidMaxW: 200 })));
     check(V.V17.numbers.noCross === 0 && /legs with no level crossing 0 \(expected 0\)/.test(V.V17.value)
@@ -2844,7 +2846,7 @@ if (G('8y'))
   }
   // V23 catches a leg lying 2w off the leg it rails on (mutation: row-2 leg takes the row-3 leg's arcs)
   {
-    const A = computeAll(recipe, cfg(0.32, { topRule: 'braid' }));
+    const A = computeAll(recipe, cfg(0.32, { topRule: 'uwagake' }));
     const b = A.path.segs.find((s) => s.type === 'leg' && s.round === 'A2' && s.stitch === 3), c = A.path.segs.find((s) => s.type === 'leg' && s.round === 'A3' && s.stitch === 3);
     b.arcs = c.arcs;
     const V = byId(A);
@@ -2853,7 +2855,7 @@ if (G('8y'))
   // C8 face centre (Fable 54b §1, §2): V5 and K12 one clearance c(φ) — V5 passes by construction; V17 by the span (set B's
   // row-1 legs leave the span: out of span, printed with β_T)
   {
-    const A = fresh(c8(), cfg(0, { topRule: 'braid' }));
+    const A = fresh(c8(), cfg(0, { topRule: 'uwagake' }));
     const V = byId(A);
     check(V.V17.status === 'pass' && V.V17.numbers.outSpan > 0 && /out of span/.test(V.V17.value) && /β_T/.test(V.V17.value),
       `C8 braid λ0: V17 pass, legs that left the span before s_T(n) are «out of span» (${V.V17.numbers.outSpan}), printed with β_T`);
@@ -2880,7 +2882,7 @@ if (G('8y'))
     const f32 = b24(computeAll(recipe, cfg(0.32, { topRule: 'fan' }))).numbers.sets.A;
     check(!f32.overrun && f32.last.nRows === 9 && Math.abs(f32.last.H - 4.54) < 0.01,
       `S8 fan λ0.32: 9 rows, fan half-width H_9 ${fmt(f32.last.H, 3)} mm (spec 4.54), clearance ${fmt(f32.last.clear, 3)} mm — no overrun`);
-    const cf = b24(fresh(c8(), cfg(0, { topRule: 'fan' }))), cb = b24(fresh(c8(), cfg(0, { topRule: 'braid' })));
+    const cf = b24(fresh(c8(), cfg(0, { topRule: 'fan' }))), cb = b24(fresh(c8(), cfg(0, { topRule: 'uwagake' })));
     const ov = cf.numbers.sets.B.overrun;
     check(cf.status === 'fail' && ov && ov.n >= 3 && ov.n <= 4 && /configuration fail/.test(cf.value) && cb.status === 'pass' && /printed only/.test(cb.value),
       `C8 face fan λ0: a priori overrun at row ${ov?.n} of ${ov?.nRows} (${ov?.st}, H ${fmt(ov?.H ?? NaN, 2)} mm, clearance ${fmt(ov?.clear ?? NaN, 3)} mm → ${ov?.line}) → V24 fail; braid: printed only`);
@@ -2891,18 +2893,18 @@ if (G('8y'))
     const { setV24TraceEndForTest } = await import('../src/validators.js');
     const c8b = (b) => { const r = JSON.parse(JSON.stringify(base)); r.kiku.bottom = b; const mk = r.layers.find((l) => l.id === 'marking'); mk.generator = 'C8'; mk.inputs = ['m_mm'];
       const c = 'P.v6[0]', sub = (x) => x.replaceAll('P.N', c); Object.assign(r.kiku, { center: c, halfLines: sub(r.kiku.halfLines), stop: 'region(P.v6[0], until=graph)', program: sub(r.kiku.program) }); for (const s of r.work.sets) s.start = sub(s.start); return normalizeRecipe(r); };
-    const e16 = b24(fresh(c8b({ mode: 'mmFromCenter', mm: 16 }), cfg(0, { topRule: 'braid' })));
+    const e16 = b24(fresh(c8b({ mode: 'mmFromCenter', mm: 16 }), cfg(0, { topRule: 'uwagake' })));
     check(cb.numbers.sets.A.nEnd === null && cb.numbers.sets.B.nEnd === null && ['A', 'B'].every((k) => e16.numbers.sets[k].nEnd === 5 && Math.abs(e16.numbers.sets[k].sEndMm - 7.80) < 0.01 && e16.numbers.sets[k].last.n === 4 && !e16.numbers.sets[k].overrun)
       && e16.status === 'pass' && /rows n ≥ 5 beyond the row-1 trace \(s′_end = 7[.,]798 mm\): not checked a priori/.test(e16.value) && e16.numbers.planRows >= 10,
       `C8 face uwagake, row-1 bottoms 16 mm: rows n ≥ ${e16.numbers.sets.A.nEnd} beyond the row-1 trace (s′_end ${fmt(e16.numbers.sets.A.sEndMm, 3)} mm), not checked, H_4 ${fmt(e16.numbers.sets.A.last.H, 3)} mm the last checked; planned ${e16.numbers.planRows} rows; default C8: no n_end (A ends past its rows, B overruns at row 4 first)`);
     setV24TraceEndForTest(false);
     let m16;
-    try { m16 = b24(fresh(c8b({ mode: 'mmFromCenter', mm: 16 }), cfg(0, { topRule: 'braid' }))); } finally { setV24TraceEndForTest(true); }
+    try { m16 = b24(fresh(c8b({ mode: 'mmFromCenter', mm: 16 }), cfg(0, { topRule: 'uwagake' }))); } finally { setV24TraceEndForTest(true); }
     const hm = m16.numbers.sets.A.hRows;
     check(m16.numbers.sets.A.nEnd === null && hm[5] === hm[4] && m16.numbers.sets.A.overrun?.n === 6,
       `V24 mutation «yAt without null» (clamped to the leg's end): H₆ = H₅ = ${fmt(hm[5], 3)} mm (frozen) and a false overrun at row ${m16.numbers.sets.A.overrun?.n}`);
     const lamS8 = [0, 0.1, 0.2, 0.32, 0.4, 0.45, 0.52, 0.6], noEnd = [];
-    for (const tr of ['fan', 'braid']) for (const lam of lamS8) { const v = b24(computeAll(recipe, cfg(lam, { topRule: tr, muWrap: Math.max(0.32, lam) }))); if (Object.values(v.numbers.sets).some((s) => s.nEnd !== null)) noEnd.push(`${tr} λ${lam}`); }
+    for (const tr of ['fan', 'uwagake']) for (const lam of lamS8) { const v = b24(computeAll(recipe, cfg(lam, { topRule: tr, muWrap: Math.max(0.32, lam) }))); if (Object.values(v.numbers.sets).some((s) => s.nEnd !== null)) noEnd.push(`${tr} λ${lam}`); }
     check(!noEnd.length, `S8: no row beyond the row-1 trace at λ ${lamS8.join(' / ')}, fan and uwagake${noEnd.length ? ` (found: ${noEnd.join(', ')})` : ''}`);
   }
 }
@@ -3003,6 +3005,11 @@ if (G('9'))
     const Va = runValidators(A, 'all', null);
     check(Array.isArray(Va) && Va.length > 0 && Va.every((v) => v.id && v.status), `stage "all": runValidators runs at the last op (${Va.length} validators)`);
   }
+}
+
+if (G('i18n')) {
+  const { runI18nKeys } = await import('./i18n-keys.mjs');
+  runI18nKeys(check);
 }
 
 if (G('gl')) {

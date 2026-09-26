@@ -87,10 +87,10 @@ export function mechanicsIdealTests(check, fmt, { computeAll, recipe, runValidat
     // name, params, m_max, known fails, ψ < ψ*, [median band], [max band], [lifted − axis % band], K19 status
     ['engine defaults (braid)', {}, 1, [], 18, [0.2, 0.35], [0.3, 0.6], [0.3, 0.5], 'info'],
     // Fable Q5 §4 expectation for S8: median ≈ 0.3, max 0.5–0.8 mm, +0.4–0.6 % length (measured max 0.47: the lower thread sags)
-    ['S8 site view (braid, bow λ 0.32, m 0.5)', { topRule: 'braid', m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.32 }, 2, [], 'S8', [0.2, 0.35], [0.4, 0.8], [0.4, 0.7], 'info'],
+    ['S8 site view (uwagake, bow λ 0.32, m 0.5)', { topRule: 'uwagake', m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.32 }, 2, [], 'S8', [0.2, 0.35], [0.4, 0.8], [0.4, 0.7], 'info'],
     ['fan, bow λ 0.32, m 0.5', { topRule: 'fan', m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.32 }, 3, [], 'fan', [0.2, 0.35], [0.4, 0.8], [0.4, 0.7], 'info'],
     // tall plateau stacks (m up to 13): K19 warns (> 1.2 mm)
-    ['stress: braid, bow λ 0.6, m 1', { topRule: 'braid', m_mm: 1, shoulderForm: 'bow', bowLambda: 0.6 }, 13, ['V20'], 192, [0.25, 0.5], [1.2, 2], [1.5, 2.5], 'warn'],
+    ['stress: uwagake, bow λ 0.6, m 1', { topRule: 'uwagake', m_mm: 1, shoulderForm: 'bow', bowLambda: 0.6 }, 13, ['V20'], 192, [0.25, 0.5], [1.2, 2], [1.5, 2.5], 'warn'],
   ];
   for (const [name, raw, mMax, knownFails, nLow, bMed, bMax, bPct, k19] of cases) {
     const A = computeAll(recipe, { ...raw, liftMode: 'ideal' }), MX = A.mechanics;
@@ -145,7 +145,7 @@ export function mechanicsIdealTests(check, fmt, { computeAll, recipe, runValidat
       `V26 convergence on ${nL} loaded legs: table (0.01 mm) vs 0.002 mm worst ${fmt(100 * worst, 3)} % (${wid}); total ${fmt(t1, 3)} vs ${fmt(t2, 3)} mm; at 0.1 mm ${fmt(tc, 3)} mm (${fmt(100 * Math.abs(tc / t2 - 1), 2)} %)`);
   }
   // Fable Q5 §4 negative test: a rigid support (the lower thread's hull held fixed, choice 'patch') rebuilds the staircase
-  const A8 = computeAll(recipe, { topRule: 'braid', m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.32, liftMode: 'ideal' });
+  const A8 = computeAll(recipe, { topRule: 'uwagake', m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.32, liftMode: 'ideal' });
   const Mr = M.buildMechanics(A8.params, A8.path, A8.base, { ...M.LIFT_CHOICES, stackM: 'patch' });
   const dR = Math.max(...Mr.crossings.map((c) => c.delta)), dS = Math.max(...A8.mechanics.crossings.map((c) => c.delta));
   check(dR > 1.5 && dS < 0.8, `rigid support (negative): S8 max Δ_c ${fmt(dR, 3)} mm > 1.5 (staircase) vs support rule ${fmt(dS, 3)} mm`);

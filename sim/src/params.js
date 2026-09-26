@@ -29,9 +29,9 @@ export const THREAD_LOOKS = {
   'perle-5': { label: 'pearl cotton #5', diameter_mm: 0.714, color: '#ede3c8', roughness: 0.5, metalness: 0, sheen: 0.7, sheenRoughness: 0.35, specular: 0.3, edge: 0.3, twist: 0.6, pitch_mm: 1.6, plies: 2,
     status: 'default', source: 'DMC Pearl Cotton #5: materials/dmc-perle-5.json (w 0.714 mm, TK-GAUGE); twist visible at close range (Suess photo)' },
   'metallic-gold': { label: 'metallic gold', diameter_mm: 0.5, color: '#c9a55a', roughness: 0.3, metalness: 1, sheen: 0, sheenRoughness: 0.5, specular: 1, edge: 0, twist: 0.3, pitch_mm: 0.8, plies: 3,
-    status: 'estimate', source: 'Kreinik Fine #8 braid “approximately .50 mm” (spec 6a.22 — the m default); metallic gold marking in TemariKai patterns' },
+    status: 'estimate', source: 'Kreinik Fine #8 (~0.50 mm per vendor; spec 6a.22 — the m default); metallic gold marking in TemariKai patterns' },
   'metallic-silver': { label: 'metallic silver', diameter_mm: 0.5, color: '#c9cdd3', roughness: 0.3, metalness: 1, sheen: 0, sheenRoughness: 0.5, specular: 1, edge: 0, twist: 0.3, pitch_mm: 0.8, plies: 3,
-    status: 'estimate', source: 'Kreinik Fine #8 braid ≈ 0.5 mm; silver marking in Barb Suess 42-centre posts' },
+    status: 'estimate', source: 'Kreinik Fine #8 ≈ 0.5 mm; silver marking in Barb Suess 42-centre posts' },
 };
 // #44 (owner/coordinator 2026-09-26): default jiwari = pearl #8 in cream, 0.5 mm (Temari Bunko 二色重ね菊 / 菊 9.6 cm);
 // gold metallic stays a preset (obi lattice). sheen / sheenRoughness / specular / edge (edge darkening): Perplexity review, render only.
@@ -156,14 +156,14 @@ export const PARAM_SCHEMA = [
     basis: 'SUESS-2014: 5', status: 'intent', used: 'if “blocks”' },
   { key: 'sequence', group: 'intent', label: 'Sequence (if “explicit”)', type: 'text', def: 'AAAAABBBBB',
     basis: 'intent: letter = next row of that set (A or B); letter count per set = its row count', status: 'intent', used: 'if “explicit”' },
-  { key: 'topRule', group: 'intent', label: 'Top stitch rule', type: 'select', def: 'braid', options: ['fan', 'braid'],
-    optionLabels: { fan: 'fan (G3: hole beyond the trace edge of the outermost own thread + w/2; S8 regression / stress mode, valid while V24 finds no a priori overrun)', braid: 'braid (default, #54; from the previous stitch of the line, k_top·w wider; TEMPORARY k_top, ℓ_braid,max)' },
-    basis: '#50 Fable delta §5.3 (4) T1–T4; TemariKai «about 1 thread-width wider»; #54 Fable §1a: braid is the top rule of every kiku, fan the S8 regression / stress mode (spec v3.3 3.3.1: fails before laying on an a priori overrun onto the neighbouring marking, V24; ρ_top printed only)', status: 'intent',
-    used: 'path: top-hole placement (T1); V8 crossover, V16 separate, V22/(11) at the top off in braid' },
-  { key: 'kTop', group: 'intent', label: 'Braid k_top (half-width step per row, × w)', type: 'number', def: 0.5, min: 0, max: 2, step: 0.05,
-    basis: 'TEMPORARY until #51 coordinates: TemariKai «about 1 thread-width wider» per stitch → 0.5·w per side', status: 'intent', used: 'if topRule = braid' },
-  { key: 'lBraidMaxW', group: 'intent', label: 'Braid ℓ_braid,max (× w)', type: 'number', def: 20, min: 0, max: 200, step: 1,
-    basis: 'TEMPORARY until #51 coordinates: crossover accepted from the top to s_T(n) + ℓ_braid,max', status: 'intent', used: 'if topRule = braid (V8)' },
+  { key: 'topRule', group: 'intent', label: 'Top stitch rule', type: 'select', def: 'uwagake', options: ['fan', 'uwagake'], glossary: true,
+    optionLabels: { fan: 'fan (G3: hole beyond the trace edge of the outermost own thread + w/2; S8 regression / stress mode, valid while V24 finds no a priori overrun)', uwagake: 'uwagake (default, #54; from the previous stitch of the line, k_top·w wider; TEMPORARY k_top, ℓ_uwagake,max)' },
+    basis: '#50 Fable delta §5.3 (4) T1–T4; TemariKai «about 1 thread-width wider»; #54 Fable §1a: uwagake is the top rule of every kiku, fan the S8 regression / stress mode (spec v3.3 3.3.1: fails before laying on an a priori overrun onto the neighbouring marking, V24; ρ_top printed only)', status: 'intent',
+    used: 'path: top-hole placement (T1); V8 crossover, V16 separate, V22/(11) at the top off in uwagake' },
+  { key: 'kTop', group: 'intent', label: 'Uwagake k_top (half-width step per row, × w)', type: 'number', def: 0.5, min: 0, max: 2, step: 0.05,
+    basis: 'TEMPORARY until #51 coordinates: TemariKai «about 1 thread-width wider» per stitch → 0.5·w per side', status: 'intent', used: 'if topRule = uwagake' },
+  { key: 'lBraidMaxW', group: 'intent', label: 'Uwagake ℓ_uwagake,max (× w)', type: 'number', def: 20, min: 0, max: 200, step: 1,
+    basis: 'TEMPORARY until #51 coordinates: crossover accepted from the top to s_T(n) + ℓ_uwagake,max', status: 'intent', used: 'if topRule = uwagake (V8)' },
   { key: 'shoulderForm', group: 'intent', label: 'Arm tip / shoulder form', type: 'select', def: 'geodesic',
     options: ['geodesic', 'bow'],
     optionLabels: {
@@ -222,6 +222,17 @@ export function numParam(P, key) {
   const p = PARAM_SCHEMA.find((q) => q.key === key);
   if (!p) throw new Error(`numParam: unknown parameter ${key}`);
   return Number(p.def);
+}
+
+/** Resolved topRule (#54 / glossary rename): undefined → PARAM_SCHEMA default; legacy `braid` → uwagake. */
+export function topRuleOf(P) {
+  let v = P?.topRule;
+  if (v === 'braid') v = 'uwagake';
+  if (v === undefined || v === null || v === '') {
+    const p = PARAM_SCHEMA.find((q) => q.key === 'topRule');
+    return p.def;
+  }
+  return v;
 }
 
 export function groupLabel(key) {
@@ -310,6 +321,7 @@ export function normalizeParams(raw = {}) {
   const src = { ...raw };
   // Temporary aliases so old recipes / URLs keep working (D40).
   if (src.shoulderForm === 'bowToMarking') src.shoulderForm = 'bow';
+  if (src.topRule === 'braid') src.topRule = 'uwagake';
   if (src.mu !== undefined && src.muWrap === undefined) src.muWrap = src.mu;
   if (src.mu !== undefined && src.muThread === undefined) src.muThread = src.mu;
   // #41: μWrap not given → the default of the wrap-thread type (0.32 for the default type, unchanged).

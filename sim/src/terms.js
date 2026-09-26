@@ -1,12 +1,12 @@
 // generated from glossary.json — do not edit
-/** @typedef {'braid'|'fan'} TopRule */
+/** @typedef {'fan'|'uwagake'} TopRule */
 /** @typedef {'lay'|'park'|'resume'|'start-run'|'stitch'} OpKind */
 /** @typedef {'corner'|'free'|'rail'|'splice'|'tail'} SegClass */
 /** @typedef {'climb'|'contact'|'crossing'|'rail-parallel'|'squeeze'|'tipCross'|'wedge'} CrossKind */
 
 export const TOP_RULES = Object.freeze({
-  braid: 'braid',
-  fan: 'fan'
+  fan: 'fan',
+  uwagake: 'uwagake'
 });
 
 export const TERM = Object.freeze({

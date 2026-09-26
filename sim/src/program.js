@@ -2,7 +2,7 @@
 // Programs (#53, stage 3 step 2; spec stage3-arch §3). A program is the ordered sequence of bites and lays of one round
 // template, produced by a family generator; the path layer executes it and does not know which family made it.
 // Bites store intent only (§3.1): line, anchor, level rule, role, own cluster, wrap-around, layer order, growth direction.
-// Hole sides are placed by G3 in the path layer (fan) or from the previous stitch (braid, T1). Program data is plain
+// Hole sides are placed by G3 in the path layer (fan) or from the previous stitch (uwagake, T1). Program data is plain
 // (no functions): the test cache clones builds.
 import { resolve } from './marking.js';
 import { frameAt } from './geom.js';
