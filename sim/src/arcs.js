@@ -106,6 +106,8 @@ function turnAt(v, T1, T2) { return Math.atan2(dot(cross(T1, T2), v), dot(T1, T2
  *  that is ≤ 1e−12 rad; closer to 1 the two offset circles are (nearly) tangent — a double root, which a concave
  *  corner (a real turn, not a tangency by construction) cannot give. Real trims have 1 − |C/H| ≥ 2.6e−2. */
 export const TRIM_MARGIN = 1e-8;
+/** Concave corners below this turn (rad) are trimmed by the local (planar) formula in offsetChain (#22). */
+export const SMALL_CORNER = 0.03;
 
 /** Intersection of offset arcs P (ending near the corner) and Q (starting near it): the solution on the
  *  circle of P nearest P's end. Returns { psiP, psiQ } (psiQ measured on Q from its start). psiP < 0 means
@@ -163,6 +165,17 @@ export function offsetChain(arcs, al, side) {
         // ask the numbers whether a round-off turn of ≈ 1e−16 there is convex or concave.
         out.push({ k, rho: th > 0 ? al : Math.PI - al, a, psi: Math.abs(th), cls: 'corner', join: 'tangent' });
         Bo.join = 'tangent';
+      } else if (th * side > 0 && Math.abs(th) < SMALL_CORNER && out[out.length - 1].psi * Math.sin(out[out.length - 1].rho) > 2 * al * Math.tan(Math.abs(th) / 2)) {
+        // #22: a concave corner of a few milliradians (the degenerate entry's join at M, atan(|d_n|/ℓ_m) ≤ 0.02 rad, down
+        // to round-off when d_n ≈ 0). The two offset circles are nearly tangent there, so their exact intersection is
+        // ill-conditioned (1 − |C/H| ≈ θ²/2 falls below TRIM_MARGIN for θ < 1.4e−4). The trim point lies al·tan(θ/2)
+        // before the corner along each offset arc (the planar corner; curvature and the sphere enter at O(al·θ²), ≤ 1e−3·al at the bound).
+        const P = out[out.length - 1];
+        const cut = al * Math.tan(Math.abs(th) / 2);
+        P.psi -= cut / Math.sin(P.rho);
+        const pt = arcPoint(P, P.psi);
+        const psiQ = arcClosest(Bo, pt).psi;
+        Bo.a = pt; Bo.psi -= psiQ;
       } else if (th * side > 0) {
         // concave corner: the tube boundary is the intersection of the offset arcs; an offset arc shorter
         // than the overlap lies inside the tube and drops out (trim against the arc before it)

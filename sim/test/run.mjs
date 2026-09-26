@@ -7,6 +7,25 @@ import { stageLastOp, setLegSamples, getLegSamples, tangencyOk, TANGENCY_SIN_MAX
 import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS, liftFromDist, DISPLAY_STACK_LIFT_W, LIFT_DIST_EPS, DIVE_W } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
 import { norm, unit, mul, sub, add, dot, angle, cross } from '../src/geom.js';
+// #22: signed turn (deg) at vertex i of a sphere polyline (tangent-plane projection), and the degenerate-entry check
+// (coordinator, option 2): onRail legs start at X_n and join the rail at M, ℓ_m = max(w, 3|d_n|); spliceMm = |X_n M|
+// within 1e−6 mm and the turn at M ≤ atan(|d_n|/ℓ_m) + 0.2°.
+const turnAtVtx = (P, i) => {
+  const n = unit(P[i]); const pr = (v) => unit(sub(v, mul(n, dot(v, n))));
+  const a = pr(sub(P[i], P[i - 1])), b = pr(sub(P[i + 1], P[i]));
+  return Math.atan2(dot(cross(a, b), n), dot(a, b)) * 180 / Math.PI;
+};
+const degenEntryBad = (s, R, w) => {
+  if (s.joinMode !== 'onRail' || s.lam0) return null;
+  const i = s.mIdx;
+  if (!(i > 0 && i < s.pts.length - 1)) return `${s.id} no M vertex`;
+  const XM = R * angle(s.pts[0], s.pts[i]);
+  const lm = Math.max(w, 3 * Math.abs(s.lateralMm));
+  const t = Math.abs(turnAtVtx(s.pts, i)), tMax = Math.atan2(Math.abs(s.lateralMm), lm) * 180 / Math.PI + 0.2;
+  if (Math.abs(s.spliceMm - XM) > 1e-6) return `${s.id} splice ${s.spliceMm} vs |XM| ${XM}`;
+  if (t > tMax) return `${s.id} turn ${t.toFixed(3)}° > ${tMax.toFixed(3)}°`;
+  return null;
+};
 
 const recipe = await loadRecipe();
 const recipePreset = await loadJSON('../data/recipes/kiku-s8.json');
@@ -735,8 +754,13 @@ if (G('8b2'))
       ljN++; if (rel < 0.15) ljOk++;
     }
     if (ljN === 0) {
-      // Exterior with d≈0: tangent join length is negligible (6a.4 — no splice threshold).
-      check(ext.every((s) => (s.spliceMm ?? 0) < 0.07 * (A.params.w_mm / 0.714)), 'exterior d≈0 ⇒ spliceMm ≈ 0 (no false L_j)');
+      // Exterior with d≈0: tangent join length is negligible (6a.4 — no splice threshold). A degenerate entry
+      // (|d_n| ≤ 0.02·w, onRail) is not a tangent join: since #22 its chord X_n → M has ℓ_m = max(w, 3|d_n|) (was
+      // spliceMm 0 at the foot); it is checked as |X_n M| and the turn at M instead.
+      const tang = ext.filter((s) => s.joinMode !== 'onRail'), deg = ext.filter((s) => s.joinMode === 'onRail');
+      const bad = deg.map((s) => degenEntryBad(s, A.base.R, A.params.w_mm)).filter(Boolean);
+      check(tang.every((s) => (s.spliceMm ?? 0) < 0.07 * (A.params.w_mm / 0.714)) && bad.length === 0,
+        `exterior d≈0 ⇒ tangent spliceMm ≈ 0 (no false L_j); ${deg.length} degenerate entries: spliceMm = |X_n M| ±1e−6 mm, turn at M ≤ atan(|d|/ℓm)+0.2° (bad ${bad.join(',') || 0})`);
     } else {
       check(ljOk === ljN, 'L_j matches √(2·|d|·R·tan ρ) within 15% for exterior joins');
     }
@@ -1097,8 +1121,11 @@ if (G('8d0c'))
     // v3.1 §3.2(9б), §6.4 (#39): |d_n| ≤ 0.02·w is the degenerate entry — on the rail at the foot, no tangency search.
     const degen = A.path.segs.filter((s) => s.type === 'leg' && s.row >= 2 && s.joinMode && s.joinMode !== 'free'
       && Math.abs(s.lateralMm ?? Infinity) <= TANGENCY_RES_W * w);
-    check(degen.length > 0 && degen.every((s) => s.joinMode === 'onRail' && s.spliceMm === 0),
-      `λ=${lam}: every |d_n| ≤ 0.02·w entry is degenerate on-rail (${degen.length}; bad ${degen.filter((s) => s.joinMode !== 'onRail').map((s) => `${s.id} ${s.joinMode}`).join(',') || 0})`);
+    // #22 (coordinator): the degenerate entry starts at X_n and joins the rail at M (ℓ_m = max(w, 3|d_n|)); was spliceMm === 0.
+    const degBad = degen.map((s) => (s.joinMode !== 'onRail' ? `${s.id} ${s.joinMode}` : degenEntryBad(s, A.base.R, w))).filter(Boolean);
+    const degTurn = Math.max(0, ...degen.map((s) => (s.mIdx > 0 ? Math.abs(turnAtVtx(s.pts, s.mIdx)) : 0)));
+    check(degen.length > 0 && degBad.length === 0,
+      `λ=${lam}: every |d_n| ≤ 0.02·w entry is degenerate on-rail, spliceMm = |X_n M| ±1e−6 mm, turn at M ≤ atan(|d|/ℓm)+0.2° (${degen.length}; max turn ${fmt(degTurn, 4)}°; bad ${degBad.join(',') || 0})`);
     // Lower end (bottom legs, v3 §3.2(12)): E_n is the packing root on the rail — the thread stays on the rail to E_n.
     const botOff = rail.filter((s) => s.level === 'bottom' && s.exitKind !== 'atE');
     check(botOff.length === 0, `λ=${lam}: bottom legs end on the rail at E_n (atE; off ${botOff.map((s) => s.id).join(',') || 0})`);
@@ -1341,13 +1368,36 @@ if (G('8e'))
     // The count depends on m (22 at m = 1.0, Codex 6a.15); the rule is: every arm with min gap ≥ w is free.
     freeAlls.push(freeAll);
     check(freeAll > 0 && viol === 0, `N=${N}: all ${freeAll} freeAll arms have a free body, exitKind free and joinMode by the d_n band (v3.2 (9а–б))`);
-    if (N <= 192) check(peakOver === 0 && maxPeak <= 20, `N=${N}: all peaks ≤20° (max ${fmt(maxPeak, 2)})`);
-    else console.log(`  N=${N}: peak ${fmt(maxPeak, 2)}° printed, not gated (#22: the output grid resolves the climb kinks differently; rails are analytic since #36)`);
+    // #22: gated at every grid, 384 included (M and every joint are output vertices; no resample across a corner).
+    check(peakOver === 0 && maxPeak <= 20, `N=${N}: all peaks ≤20° (max ${fmt(maxPeak, 2)})`);
   }
   setLegSamples(null);
   check(freeAlls.every((x) => x === freeAlls[0]), `B.8 freeAll count grid-invariant 96/192/384 (${freeAlls.join('/')})`);
-  // Coordinator (#31): gate 96→192 non-increase only; 384 is printed (see #22 / #36).
-  check(peaks[0] >= peaks[1] - 1e-6, `B.8 peaks non-increasing 96→192 (${fmt(peaks[0], 2)}→${fmt(peaks[1], 2)}; 384: ${fmt(peaks[2], 2)} not gated, #22)`);
+  // #22: 384 gated too — non-increasing 96 → 192 → 384 (1e−6°) and |96 − 384| ≤ 0.5° (§6.4 grid convergence).
+  check(peaks[0] >= peaks[1] - 1e-6 && peaks[1] >= peaks[2] - 1e-6 && Math.abs(peaks[0] - peaks[2]) <= 0.5,
+    `B.8 peaks non-increasing 96→192→384 and |96−384| ≤ 0.5° (${peaks.map((x) => fmt(x, 3)).join('→')})`);
+  // #22, option (i) (coordinator): construction unchanged (M at ℓ_m from the foot). Per-leg check at M at every λ:
+  // expected turn = angle between the chord X_n → M and the rail link LEAVING M; the output polyline reproduces it
+  // within 0.2° and stays ≤ 20°. Legs whose rail turns (a corner) between the foot and M are reported per λ: count, max
+  // rail turn, max turn at M, min (9д) clearance from M to the axis of row n−1 (≥ 0.99·w).
+  for (const lam of [0, 0.32, 0.6]) for (const N of [96, 384]) {
+    setLegSamples(N);
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: lam ? 'bow' : 'geodesic', bowLambda: lam, muWrap: Math.max(0.32, lam), rowsMode: 'untilEquator' });
+    const legs = A.path.segs.filter((x) => x.type === 'leg' && x.row >= 2 && x.mIdx > 0 && x.mTurnExpDeg != null);
+    let err = 0, tMax = 0;
+    const k = { n: 0, rail: 0, turn: 0, clr: Infinity };
+    for (const s of legs) {
+      const t = turnAtVtx(s.pts, s.mIdx);
+      err = Math.max(err, Math.abs(t - s.mTurnExpDeg)); tMax = Math.max(tMax, Math.abs(t));
+      if (s.railCornerFootToM > 0) {
+        k.n++; k.rail = Math.max(k.rail, Math.abs(s.railTurnFootToMDeg ?? 0)); k.turn = Math.max(k.turn, Math.abs(t)); k.clr = Math.min(k.clr, s.clearFreeW ?? -1);
+      }
+    }
+    console.log(`  #22 λ=${lam} N=${N}: ${legs.length} legs with M, max |turn − expected| ${fmt(err, 4)}°, max turn ${fmt(tMax, 2)}°; rail corner foot→M: ${k.n}, max rail turn ${fmt(k.rail, 2)}°, max turn at M ${fmt(k.turn, 2)}°, min clearance from M ${k.n ? fmt(k.clr, 4) : '–'} w`);
+    check(legs.length > 0 && err <= 0.2 && tMax <= 20 && (k.n === 0 || k.clr >= 0.99),
+      `#22 λ=${lam} N=${N}: turn at M = chord→rail-link angle ±0.2°, ≤ 20°; clearance from M ≥ 0.99·w on ${k.n} legs with a rail corner foot→M`);
+  }
+  setLegSamples(null);
 }
 
 // 8f. Display 6a.17 lift(d): by distance d, all rows / both sets (review of 51eddd6)
