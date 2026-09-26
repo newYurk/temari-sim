@@ -2674,6 +2674,57 @@ if (G('8x'))
   check(v3.status === 'pass', `V3 on P.S: calc.py (the P.N kiku) mapped into the kiku frame (x·z0 + y·e2 + z·c) — ${v3.status}`);
 }
 
+// 8y. #53 case 2 (infrastructure, S8-neutral): region(P, until=graph) — per-half-line K12 stop at the nearest marking point,
+// per-half-line row-1 bottoms ℓ_h·(1 − bottomFromEq), per-half-line limit, non-congruent sets (V15 n/a), the petal class
+// checked against the marking; UI: the view onto the kiku centre. The C8 face kiku is built in memory from the S8 recipe
+// (the preset itself is held back: its top clusters at blunt petals are a separate issue), so these tests pin the
+// infrastructure, not the validity of that build.
+if (G('8y'))
+{
+  console.log('\n## #53 case 2: region(P, until=graph), per-half-line levels');
+  const { computeAll: fresh } = await import('../src/layers.js');
+  const { normalizeRecipe } = await import('../src/recipe.js');
+  const { markingSymmetric } = await import('../src/program.js');
+  const { v6Metrics, V6_TOL } = await import('../src/validators.js');
+  const raw = JSON.parse(JSON.stringify(await loadJSON('../data/recipe.kiku-s8.json')));
+  const c = 'P.v6[0]', sub = (x) => x.replaceAll('P.N', c);
+  raw.id = 'test-kiku-c8-face';
+  const mk = raw.layers.find((l) => l.id === 'marking'); mk.generator = 'C8'; mk.inputs = ['m_mm'];
+  Object.assign(raw.kiku, { center: c, halfLines: sub(raw.kiku.halfLines), stop: 'region(P.v6[0], until=graph)', program: sub(raw.kiku.program) });
+  for (const s of raw.work.sets) s.start = sub(s.start);
+  const rc = normalizeRecipe(raw);
+  const Af = fresh(rc, {}), Ab = fresh(rc, { topRule: 'braid' });
+  const L = Af.layout, PG = L.program, R = Af.base.R, m = Af.params.m_mm;
+  const a1 = Math.atan(1 / Math.SQRT2), a2 = Math.atan(Math.SQRT2);   // 35.26° (to the edge midpoints), 54.74° (to the vertices)
+  const expK = [0, 1, 2, 3, 4, 5].map((k) => R * (k % 2 ? a2 : a1));
+  check(L.region.address === 'region(P.v6[0], until=graph)' && L.region.sMaxK.length === 6 && L.region.sMaxK.every((x, k) => Math.abs(x - expK[k]) <= 1e-9 * R) && L.region.sMax === Math.max(...L.region.sMaxK),
+    `region(P.v6[0], until=graph): half-line k ends at its nearest marking point — ${L.region.sMaxK.map((x) => x.toFixed(3)).join(' / ')} mm = R·35.26° / R·54.74° alternating`);
+  check(L.sBot === null && L.sBotK.every((x, k) => x === L.region.sMaxK[k] * (1 - Af.params.bottomFromEq))
+    && Af.path.stitches.filter((st) => st.row === 1 && st.level === 'bottom').every((st) => Math.abs(st.s - L.sBotK[st.line]) <= 1e-9 * R),
+    `per-half-line row-1 bottoms ℓ_h·(1 − bottomFromEq): ${L.sBotK.map((x) => x.toFixed(3)).join(' / ')} mm; every row-1 bottom on its own level`);
+  const lim = Af.path.limitK;
+  check(Array.isArray(lim) && lim.every((x, k) => Math.abs(x - (L.region.sMaxK[k] + m / 2)) <= 1e-12 * R)
+    && [Af, Ab].every((A) => A.path.stitches.filter((st) => st.level === 'bottom').every((st) => st.s <= A.path.limitK[st.line] + 1e-9))
+    && ['A', 'B'].every((s) => Af.path.stopped[s] && Af.path.stopped[s].reason.includes('limit')),
+    `K12 per half-line: limit_k = ℓ_k + m/2 (untilEquator); every bottom within its line's limit (fan and braid); A row ${Af.path.stopped.A.row} and B row ${Af.path.stopped.B.row} would pass their limits (stopped)`);
+  const g = Af.marking.graph, cc = PG.frame.c;
+  check(PG.call === 'kiku(P.v6[0], 6)' && PG.symmetry.petalShift === 2 && PG.symmetry.sets.A.shift === 0 && PG.symmetry.sets.B.shift === null
+    && markingSymmetric(g, cc, 2 * 2 * Math.PI / 6) && !markingSymmetric(g, cc, 2 * Math.PI / 6),
+    'program kiku(P.v6[0], 6): 3 petals per set (petal class 120° is a marking symmetry), set B not a rotated copy of A (60° is no symmetry: A tops toward edge midpoints, B toward vertices)');
+  const vf = runValidators(Af, 'all', null), vb = runValidators(Ab, 'all', null), st = (v, id) => v.find((x) => x.id === id);
+  check(st(vf, 'V15').status === 'n/a' && /not congruent/.test(st(vf, 'V15').value) && st(vb, 'V15').status === 'n/a'
+    && v6Metrics(Af, Af.path.rounds.filter((r) => r.set === 'A')).rounds.every((q) => q.clean <= V6_TOL.cleanW * Af.params.w_mm && q.bVsA === null),
+    'V15 n/a for non-congruent sets (with the reason); V6 skips B vs A (shift null); set A petals exact under the 120° class');
+  const S8 = computeAll(recipe, {});
+  check(S8.layout.region.sMaxK === undefined && S8.layout.sBotK === undefined && S8.path.limitK === undefined && typeof S8.layout.sBot === 'number',
+    'S8 unchanged: no per-half-line region, levels or limits (uniform region keeps the single limit)');
+  const { LOCALES } = await import('../src/i18n.js');
+  const fs = await import('node:fs');
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  check(/\{name\}/.test(LOCALES.ru['view.center']) && /\{name\}/.test(LOCALES.en['view.center']) && !LOCALES.ru['view.top'] && html.includes('data-view="center" id="view-center"') && !html.includes('data-view="top"'),
+    'UI: the view button follows the kiku centre — «На центр кику ({name})» / «Onto kiku centre ({name})» (RU/EN), no fixed «Сверху (СП)» button');
+}
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');

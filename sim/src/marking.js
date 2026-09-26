@@ -613,6 +613,15 @@ export function resolve(mk, address) {
     if (!(rho > 0 && rho < Math.PI)) throw new Error(`marking: «${address}»: radius out of (0, 180°)`);
     return { type: 'circle', id: a, c: P.p, rho, onLine: null, center: P.id };
   }
+  if (fn === 'region' && (kw(args, 'until') ?? pos[1]) === 'graph') {
+    // #53 case 2: region(P, until=graph) — along each half-line of P up to the nearest marking point (K12 «to the region
+    // boundary»: the half-line length to the nearest marking point). sMaxK[k] per half-line k; sMax = the largest.
+    const P = resolve(mk, pos[0]);
+    if (P.type !== 'point') throw new Error(`marking: «${address}»: region(P, until=graph) needs a point`);
+    const P0 = mk.graph.points[P.id], R = mk.R ?? mk.Q / (Math.PI / 2);
+    const sMaxK = P0.halfLines.map((h) => { if (!h.line) throw new Error(`marking: «${address}»: ${P.id} has a circle direction`); return R * ang(P0.p, mk.graph.points[neighbourAlong(mk.graph, P0, h)].p); });
+    return { type: 'region', id: a, center: P.id, until: 'graph', sMax: Math.max(...sMaxK), sMaxK };
+  }
   if (fn === 'region') {
     const P = resolve(mk, pos[0]), until = resolve(mk, kw(args, 'until') ?? pos[1]);
     if (P.type !== 'point' || until.type !== 'circle') throw new Error(`marking: «${address}»: region(P, until=<circle>)`);

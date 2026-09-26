@@ -95,7 +95,8 @@ const ru = {
   'nav.last': 'в конец',
 
   // View
-  'view.top': 'Сверху (СП)',
+  'view.center': 'На центр кику ({name})',
+  'view.center.title': 'Камера смотрит на центр кику {c}',
   'view.oblique': 'Косо',
   'view.side': 'Сбоку',
   'view.bottom': 'Снизу',
@@ -409,7 +410,8 @@ const en = {
   'nav.next': 'forward',
   'nav.last': 'to end',
 
-  'view.top': 'Top (NP)',
+  'view.center': 'Onto kiku centre ({name})',
+  'view.center.title': 'The camera looks onto the kiku centre {c}',
   'view.oblique': 'Oblique',
   'view.side': 'Side',
   'view.bottom': 'Bottom',

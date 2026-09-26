@@ -1578,6 +1578,11 @@ function buildWorkIn(recipe, P, base, marking, layout, rowPlan) {
   const limit = (rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? sMax - 7 : sMax)) + (P.rowsMode === 'untilEquator' ? m / 2 : 0);
   const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [], setCollisions: [], virtualArrive: {}, startTop: {},
     shoulderForm, tipDrop: null };
+  // #53 case 2: region(P, until=graph) — the K12 limit of a bottom on half-line k is that half-line's length to the nearest
+  // marking point (+ the same rowsMode rule); a uniform region keeps the single limit (S8: W unchanged).
+  const sMaxK = layout.region.sMaxK || null;
+  const limitOf = (k) => (sMaxK ? (P.rowsMode === 'untilOly7' ? sMaxK[k] - 7 : sMaxK[k]) + (P.rowsMode === 'untilEquator' ? m / 2 : 0) : limit);
+  if (sMaxK) W.limitK = sMaxK.map((_, k) => limitOf(k));
   const lineIdx = (k) => ((k % N) + N) % N;
   // #52 commit 2: lines by address — half-line k of the kiku centre (layout.center), resolved once. #53 case 1: the (s, φ)
   // helpers work in the kiku frame (s from the centre, φ = the half-line azimuth phiOf; = phis[k] at P.N exactly).
@@ -1636,9 +1641,10 @@ function buildWorkIn(recipe, P, base, marking, layout, rowPlan) {
     const tip = row === 1 ? { s: biteOf(letter, 'bottom', firstK).s } : bottomLevel(firstK, prevRound);
     // §3.2(12), §6.2(г): no packing root is a construction failure (fail: true → V12 fail), never a silent stop.
     if (!tip || tip.fail) { W.stopped[letter] = { row, fail: true, reason: tip?.reason || 'laid parallel + GC tangent does not meet the E-line (packing root missing)' }; continue; }
-    if (tip.s > limit + 1e-9) {
-      if (stopEarly) { W.stopped[letter] = { row, sTip: tip.s, reason: `row ${row} tip would land at s = ${tip.s.toFixed(3)} mm > limit ${limit.toFixed(3)} mm` }; continue; }
-      W.beyond.push({ round: spec.id, sTip: tip.s, over: tip.s - limit });
+    const limT = limitOf(firstK);
+    if (tip.s > limT + 1e-9) {
+      if (stopEarly) { W.stopped[letter] = { row, sTip: tip.s, reason: `row ${row} tip would land at s = ${tip.s.toFixed(3)} mm > limit ${limT.toFixed(3)} mm` }; continue; }
+      W.beyond.push({ round: spec.id, sTip: tip.s, over: tip.s - limT });
     }
     rowsDone[letter] = row;
     W.sequence.planned.push(spec.id);

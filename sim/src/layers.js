@@ -34,16 +34,18 @@ export function layerBase(recipe, P) {
 
 export function layerMarking(recipe, P, base) {
   const inputs = pick(P, layerSpec(recipe, 'marking').inputs);
-  const gen = P.generator || 'S_N';
-  if (!(gen in GENERATORS)) throw new Error(`marking: unknown generator «${gen}» (S_N, C8, C10, C6)`);
   const recipeGen = layerSpec(recipe, 'marking').generator || 'S_N';
-  if (recipeGen !== 'S_N') throw new Error(`recipe ${recipe.id}: marking generator «${recipeGen}» — step 1 kiku recipes are on S_N`);
+  if (!(recipeGen in GENERATORS)) throw new Error(`recipe ${recipe.id}: unknown marking generator «${recipeGen}» (S_N, C8, C10, C6)`);
+  // #53 case 2: the recipe names its marking generator (kiku-c8-face: C8). The generator param shows another marking without
+  // a pattern (#52 commit 3); its default S_N means «the recipe's own».
+  const gen = P.generator && P.generator !== 'S_N' ? P.generator : recipeGen;
+  if (!(gen in GENERATORS)) throw new Error(`marking: unknown generator «${gen}» (S_N, C8, C10, C6)`);
   if (gen !== 'S_N') {
-    // #52 commit 3: combination marking without a pattern (the generator joins the marking inputs; S_N stamps unchanged)
+    // #52 commit 3: combination marking (the generator joins the marking inputs; S_N stamps unchanged)
     const inp = { ...inputs, generator: gen };
     const graph = GENERATORS[gen](base.R);
     return { id: 'marking', inputs: inp, parents: [base.stamp], stamp: hash({ inputs: inp, parents: [base.stamp] }), N: null, phis: null, m: P.m_mm,
-      generator: gen, graph, stats: graphStats(graph), R: base.R, Q: base.Q };
+      generator: gen, markingOnly: gen !== recipeGen, graph, stats: graphStats(graph), R: base.R, Q: base.Q };
   }
   const N = P.N;
   const phis = Array.from({ length: N }, (_, k) => 2 * Math.PI * k / N);
@@ -58,7 +60,7 @@ export function layerLayout(recipe, P, base, marking) {
   const inputs = pick(P, layerSpec(recipe, 'layout').inputs);
   const parents = [base.stamp, marking.stamp];
   const sTop = P.topMode === 'mm' ? P.sTop_mm : P.sTopFrac * base.Q;
-  const sBot = base.Q * (1 - P.bottomFromEq);
+  let sBot = base.Q * (1 - P.bottomFromEq);
   // #52 commit 2 (spec stage3-arch §1.4): row-1 tops and bottoms as marking addresses plus resolved points. Kiku centre
   // P.N; set A — tops on even half-lines, bottoms on odd; set B — shifted by one half-line (startLine); levels are arcs
   // from the centre along the own half-line. side: null — the bite is the stitch centre on the line; its hole sides ±1 are
@@ -72,12 +74,17 @@ export function layerLayout(recipe, P, base, marking) {
   const reg = resolve(marking, regionAddr);
   if (reg.type !== 'region') throw new Error(`recipe: kiku.stop «${regionAddr}» is not a region(...) address`);
   const region = { address: regionAddr, sMax: reg.sMax };
-  const program = kiku(marking, { center, v: recipe.kiku.v, grow: recipe.kiku.grow, layer: recipe.kiku.layer, sTop, sBot, stop: region,
+  // #53 case 2: region(P, until=graph) — half-lines of different length to the boundary: row-1 bottoms at ℓ_h·(1 − bottomFromEq)
+  // (petals proportional to their half-lines; S8: ℓ = Q on every half-line, the same level as before).
+  let sBotK = null;
+  if (reg.sMaxK) { region.sMaxK = reg.sMaxK; sBotK = reg.sMaxK.map((l) => l * (1 - P.bottomFromEq)); sBot = null; }
+  const program = kiku(marking, { center, v: recipe.kiku.v, grow: recipe.kiku.grow, layer: recipe.kiku.layer, sTop, sBot: sBotK || sBot, stop: region,
     sets: recipe.work.sets.map((st) => ({ set: st.set, thread: st.thread, startLine: st.startLine, begin1: st.row1.begin, beginN: st.next.begin })) });
   const v = program.v, bites = program.bites;
   const at = (k, s) => resolve(marking, `on(L(${center},azimuth=${k}), ${s}, from=${center})`);
-  const pins = Array.from({ length: v }, (_, k) => ({ line: k, s: sBot, p: at(k, sBot).xyz }));
-  return { id: 'layout', inputs, parents, stamp: hash({ inputs, parents }), sTop, sBot, pins, topBasis: P.topMode === 'mm' ? 'мм от СП (GT14)' : 'доля Q',
+  const sBotAt = (k) => (sBotK ? sBotK[k] : sBot);
+  const pins = Array.from({ length: v }, (_, k) => ({ line: k, s: sBotAt(k), p: at(k, sBotAt(k)).xyz }));
+  return { id: 'layout', inputs, parents, stamp: hash({ inputs, parents }), sTop, sBot, ...(sBotK ? { sBotK } : {}), pins, topBasis: P.topMode === 'mm' ? 'мм от СП (GT14)' : 'доля Q',
     center, bites, region, program };
 }
 
@@ -86,13 +93,16 @@ export function layerRowPlan(recipe, P, base, marking, layout) {
   const inputs = pick(P, layerSpec(recipe, 'rowPlan').inputs);
   const parents = [base.stamp, marking.stamp, layout.stamp];
   const R = base.R, w = P.w_mm;
-  const limit = P.rowsMode === 'untilOly7' ? layout.region.sMax - 7 : layout.region.sMax;   // K12 region boundary (#52 commit 2)
   // set A's first top and bottom half-lines (S8: L(P.N,0), L(P.N,1))
   const setA = recipe.work.sets[0].set;
-  const hlTop = resolve(marking, layout.bites.find((b) => b.set === setA && b.role === 'top').line);
-  const hlBot = resolve(marking, layout.bites.find((b) => b.set === setA && b.role === 'bottom').line);
+  const bT = layout.bites.find((b) => b.set === setA && b.role === 'top'), bB = layout.bites.find((b) => b.set === setA && b.role === 'bottom');
+  const hlTop = resolve(marking, bT.line);
+  const hlBot = resolve(marking, bB.line);
+  // K12 region boundary (#52 commit 2); #53 case 2: per half-line (region until=graph) — the plan follows set A's bottoms
+  const sMaxA = layout.region.sMaxK ? layout.region.sMaxK[bB.k] : layout.region.sMax;
+  const limit = P.rowsMode === 'untilOly7' ? sMaxA - 7 : sMaxA;
   const rows = [];
-  let sT = layout.sTop, sB = layout.sBot;
+  let sT = layout.sTop, sB = layout.sBotK ? layout.sBotK[bB.k] : layout.sBot;
   const maxRows = P.rowsMode === 'count' ? P.rowsCount : 200;
   for (let n = 1; n <= maxRows; n++) {
     const T = pointOnLine(R, hlTop, sT), B = pointOnLine(R, hlBot, sB);
@@ -133,8 +143,8 @@ export function computeAll(recipe0, raw) {
   const P = normalizeParams(raw);
   const base = layerBase(recipe, P);
   const marking = layerMarking(recipe, P, base);
-  if (marking.generator !== 'S_N') {
-    // combination marking: drawn without a pattern (no layout / rowPlan / path in step 1)
+  if (marking.markingOnly) {
+    // another marking than the recipe's (generator param): drawn without a pattern (no layout / rowPlan / path)
     return { recipeId: recipe.id, params: P, base, marking, layout: null, rowPlan: null, path: null, mechanics: null, markingOnly: true, computedAt: Date.now() };
   }
   const layout = layerLayout(recipe, P, base, marking);

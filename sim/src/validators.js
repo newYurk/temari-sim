@@ -1433,7 +1433,12 @@ function runValidatorsIn(A, stage, ref) {
       const ra = path.rounds.find((r) => r.set === 'A' && r.row === rb.row);
       if (ra && ids.has(segById.get(ra.segIds[ra.segIds.length - 1]).id)) pairs.push([ra, rb]);
     }
-    if (!pairs.length || setsIn.length < 2) add({ id: 'V15', name: 'Bn = An rotated by 360°/N', crit: 'TK-GT14 «Enter … Color B on a marking line that has a bottom stitch of Color A … same 5mm»; TK-KIKU (2 seta)', status: 'n/a', value: 'needs completed An and Bn' });
+    // #53 case 2: sets that are not congruent (the program's set shift is null — the start-line rotation is no marking
+    // symmetry, e.g. C8 face centre: A tops toward edge midpoints, B tops toward vertices) have no Bn = rot(An) to check
+    const shNull = A.layout.program.symmetry.sets.B && A.layout.program.symmetry.sets.B.shift == null;
+    if (shNull) add({ id: 'V15', name: 'Bn = An rotated by 360°/N', crit: 'TK-GT14; #53 case 2 (non-congruent sets)', status: 'n/a',
+      value: `sets A and B are not congruent at ${A.layout.program.center} (the rotation between their start lines is no marking symmetry) — nothing to compare` });
+    else if (!pairs.length || setsIn.length < 2) add({ id: 'V15', name: 'Bn = An rotated by 360°/N', crit: 'TK-GT14 «Enter … Color B on a marking line that has a bottom stitch of Color A … same 5mm»; TK-KIKU (2 seta)', status: 'n/a', value: 'needs completed An and Bn' });
     else {
       const parts = [], pairNums = [];
       let unexplained = 0, explained = 0;

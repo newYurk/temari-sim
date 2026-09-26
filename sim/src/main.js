@@ -21,7 +21,7 @@ const state = {
   raw: { ...uiDefaults(paramsFromQuery(location.search)), ...paramsFromQuery(location.search) },   // #47: site default bow λ 0.32
   stage: ['2a', '2b', 'B1', 'A2', 'all'].includes(q.get('stage')) ? q.get('stage') : 'A2',   // 'all' = whole pattern (recipe stage, throughOp *)
   k: q.has('k') ? Number(q.get('k')) : null,
-  view: q.get('view') || (recipe.kiku?.center === 'P.S' ? 'bottom' : 'top'),   // #53: default view onto the kiku centre
+  view: q.get('view') || 'center',   // #53: default view onto the kiku centre (the 'center' view follows it)
   zoom: q.has('zoom') ? Number(q.get('zoom')) : 1,
 };
 const recipePreset = await loadJSON('../data/recipes/kiku-s8.json');
@@ -73,6 +73,7 @@ function initRecipeSelect() {
 
 function renderRecipeMeta() {
   initRecipeSelect();
+  syncCenterView();
   const meta = $('recipe-meta');
   if (!meta) return;
   const id = recipe.id;
@@ -173,6 +174,7 @@ function recompute(first = false) {
   console.info(`[sim] computeAll ${window.__sim.buildMs.toFixed(0)} ms`);
   const errs = A.params._errors;
   $('perr').textContent = errs.length ? t('err.inputs', { errs: errs.join('; ') }) : '';
+  R3.setViewCenter(A.layout?.program?.frame?.c || null);
   R3.buildStatic(A);   // #43: plain wrap colour first (or a cached bake); the bake itself runs after the first frame
   if (A.markingOnly) { showMarkingOnly(first); return; }
   window.__sim.markingOnly = false;
@@ -560,8 +562,18 @@ function renderLegend() {
   }
 }
 
+/** #53: the view button onto the kiku centre, named after the centre (pole label, else the point id). */
+function syncCenterView() {
+  const b = $('view-center');
+  if (!b) return;
+  const c = recipe.kiku?.center || 'P.N';
+  const name = c === 'P.N' ? t('label.NP') : c === 'P.S' ? t('label.SP') : c.replace(/^P\./, '');
+  b.textContent = t('view.center', { name });
+  b.title = t('view.center.title', { c });
+}
 function refreshI18nUI() {
   applyDomI18n(document);
+  syncCenterView();
   syncLangToggle();
   renderRecipeMeta();
   syncColorInputs();

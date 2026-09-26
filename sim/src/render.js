@@ -216,13 +216,13 @@ export class Renderer {
     g.add(this.pinGroup);
     // подписи линий и полюса
     this.staticLabels = new THREE.Group();
-    if (!A.markingOnly) {
+    if (!A.markingOnly && A.marking.phis) {
       A.marking.phis.forEach((phi, k) => this.staticLabels.add(this.label(`L${k}`, point(R + 3, Q, phi), 'lbl line')));
       this.staticLabels.add(this.label(t('label.equator'), point(R + 1.5, Q, -Math.PI / 2 + 0.25), 'lbl line'));
     } else for (const P of Object.values(G.points)) this.staticLabels.add(this.label(String(P.valence), mul(P.p, R + 1.4), 'lbl line'));
-    this.staticLabels.add(this.label(t('label.NP'), point(R + 1.6, 1.6, -3 * Math.PI / 8), 'lbl pole'));
-    // #53: a kiku on the south pole gets its own centre label (the NP label shows through the ball in the view from below)
+    // #53: a kiku on the south pole gets its own centre label and no NP label (it shows through the ball at the centre)
     if (A.layout?.center === 'P.S') this.staticLabels.add(this.label(t('label.SP'), [0, 0, -(R + 1.6)], 'lbl pole'));
+    else this.staticLabels.add(this.label(t('label.NP'), point(R + 1.6, 1.6, -3 * Math.PI / 8), 'lbl pole'));
     g.add(this.staticLabels);
     this.static = g;
     this.world.add(g);
@@ -377,10 +377,16 @@ export class Renderer {
   }
 
   /** Виды камеры (в координатах симулятора: СП = +z). */
+  /** #53: the kiku centre (unit vector) the 'center' view looks onto. */
+  setViewCenter(c) { this.viewCenter = c ? c.slice() : null; }
+
   view(name, R = this.R || 38.2, distMm = null, dirVec = null) {   // dirVec — произвольное направление камеры (параметр URL dir=x,y,z)
     const D = distMm || R * 7.2;          // distMm — фиксированная дистанция (сравнение размеров разных мари)
     const toThree = (v) => new THREE.Vector3(v[0], v[2], -v[1]);
     const dirs = { top: [0, -0.0008, 1], oblique: [0.55, -0.95, 0.9], bottom: [0, 0.0008, -1], side: [0, -1, 0.05] };
+    // #53: 'center' looks onto the kiku centre (setViewCenter); at the poles it is the top / bottom view
+    const c = this.viewCenter || [0, 0, 1];
+    dirs.center = c[2] > 1 - 1e-12 ? dirs.top : c[2] < -1 + 1e-12 ? dirs.bottom : c;
     const d = unit(dirVec && dirVec.length === 3 && dirVec.every(Number.isFinite) ? dirVec : dirs[name] || dirs.top);
     this.camera.position.copy(toThree(mul(d, D)));
     this.controls.target.set(0, 0, 0);
