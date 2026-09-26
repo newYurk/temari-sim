@@ -1,0 +1,175 @@
+{
+ "generator": "sim/tools/bow_theory.py --json (independent pure-python tip-drop theory)",
+ "entries": [
+  {
+   "C": 240.0,
+   "w": 0.714,
+   "m": 0.5,
+   "N": 8,
+   "s_top": 5.0,
+   "s_bot": 40.0,
+   "R": 38.197186342054884,
+   "leg_mm": 37.105261759228284,
+   "lateral_mm": 0.607,
+   "rows": [
+    {
+     "lam": 0.0,
+     "tipDrop_mm": 5.302103856125775,
+     "sagitta_mm": 0.0,
+     "alpha_deg": 7.305251278612661,
+     "rows": 4,
+     "rows_canon": 4
+    },
+    {
+     "lam": 0.1,
+     "tipDrop_mm": 3.7989060999009325,
+     "sagitta_mm": 0.49988455296087725,
+     "alpha_deg": 10.331221804354831,
+     "theta_deg": 3.0259705257421703,
+     "rows": 6,
+     "rows_canon": 6
+    },
+    {
+     "lam": 0.2,
+     "tipDrop_mm": 2.981120014133893,
+     "sagitta_mm": 1.001828663403529,
+     "alpha_deg": 13.365673906512406,
+     "theta_deg": 6.060422627899745,
+     "rows": 7,
+     "rows_canon": 7
+    },
+    {
+     "lam": 0.32,
+     "tipDrop_mm": 2.373450129555593,
+     "sagitta_mm": 1.6098691631289916,
+     "alpha_deg": 17.030487576254668,
+     "theta_deg": 9.725236297642006,
+     "rows": 9,
+     "rows_canon": 9
+    },
+    {
+     "lam": 0.4,
+     "tipDrop_mm": 2.091548314231666,
+     "sagitta_mm": 2.0204850544748623,
+     "alpha_deg": 19.49526308317616,
+     "theta_deg": 12.190011804563497,
+     "rows": 10,
+     "rows_canon": 10
+    },
+    {
+     "lam": 0.45,
+     "tipDrop_mm": 1.9477470456160333,
+     "sagitta_mm": 2.2799073907091745,
+     "alpha_deg": 21.047159187492245,
+     "theta_deg": 13.741907908879583,
+     "rows": 11,
+     "rows_canon": 11
+    },
+    {
+     "lam": 0.52,
+     "tipDrop_mm": 1.7775291338390389,
+     "sagitta_mm": 2.647432687901149,
+     "alpha_deg": 23.237514091949492,
+     "theta_deg": 15.932262813336832,
+     "rows": 12,
+     "rows_canon": 12
+    },
+    {
+     "lam": 0.6,
+     "tipDrop_mm": 1.6170916668114188,
+     "sagitta_mm": 3.074793018065491,
+     "alpha_deg": 25.77063218269487,
+     "theta_deg": 18.465380904082206,
+     "rows": 13,
+     "rows_canon": 13
+    }
+   ],
+   "alpha_geo_deg": 7.305251278612661
+  },
+  {
+   "C": 240.0,
+   "w": 0.714,
+   "m": 1.0,
+   "N": 8,
+   "s_top": 5.0,
+   "s_bot": 40.0,
+   "R": 38.197186342054884,
+   "leg_mm": 37.33288288012972,
+   "lateral_mm": 0.857,
+   "rows": [
+    {
+     "lam": 0.0,
+     "tipDrop_mm": 4.971756561723275,
+     "sagitta_mm": 0.0,
+     "alpha_deg": 7.630294341522322,
+     "rows": 4,
+     "rows_canon": 5
+    },
+    {
+     "lam": 0.1,
+     "tipDrop_mm": 3.6217595331858803,
+     "sagitta_mm": 0.5067176888855922,
+     "alpha_deg": 10.678158881670504,
+     "theta_deg": 3.0478645401481814,
+     "rows": 6,
+     "rows_canon": 6
+    },
+    {
+     "lam": 0.2,
+     "tipDrop_mm": 2.8682694454078828,
+     "sagitta_mm": 1.0155530039465468,
+     "alpha_deg": 13.734691054562191,
+     "theta_deg": 6.104396713039868,
+     "rows": 7,
+     "rows_canon": 7
+    },
+    {
+     "lam": 0.32,
+     "tipDrop_mm": 2.300026558023781,
+     "sagitta_mm": 1.6320252166636044,
+     "alpha_deg": 17.426520725823995,
+     "theta_deg": 9.796226384301674,
+     "rows": 9,
+     "rows_canon": 9
+    },
+    {
+     "lam": 0.4,
+     "tipDrop_mm": 2.033918688072376,
+     "sagitta_mm": 2.0484135442057214,
+     "alpha_deg": 19.90979165786784,
+     "theta_deg": 12.279497316345516,
+     "rows": 10,
+     "rows_canon": 10
+    },
+    {
+     "lam": 0.45,
+     "tipDrop_mm": 1.8975548550230386,
+     "sagitta_mm": 2.3115250147857984,
+     "alpha_deg": 21.473508091591537,
+     "theta_deg": 13.843213750069216,
+     "rows": 11,
+     "rows_canon": 11
+    },
+    {
+     "lam": 0.52,
+     "tipDrop_mm": 1.7356019084467675,
+     "sagitta_mm": 2.6843434414331804,
+     "alpha_deg": 23.68082267191412,
+     "theta_deg": 16.0505283303918,
+     "rows": 12,
+     "rows_canon": 12
+    },
+    {
+     "lam": 0.6,
+     "tipDrop_mm": 1.5824077358589221,
+     "sagitta_mm": 3.1179739862897256,
+     "alpha_deg": 26.234031104628404,
+     "theta_deg": 18.603736763106077,
+     "rows": 13,
+     "rows_canon": 13
+    }
+   ],
+   "alpha_geo_deg": 7.630294341522322
+  }
+ ]
+}

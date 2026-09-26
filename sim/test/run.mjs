@@ -12,6 +12,21 @@ const recipe = await loadRecipe();
 const recipePreset = await loadJSON('../data/recipes/kiku-s8.json');
 const materialPreset = await loadJSON('../data/materials/dmc-perle-5.json');
 const ref = await loadJSON('../data/calc_reference.json');
+// 6a.22: acceptance numbers that depend on (m+w) come from the CURRENT defaults (params.js) or from the
+// independent theory reference sim/data/bow_reference.json (python3 sim/tools/bow_theory.py --json),
+// never from hand-written literals. Changing the default m = one line in params.js + regenerating references.
+const bowRef = await loadJSON('../data/bow_reference.json');
+const DEF = defaults();
+const bowTheory = (m = DEF.m_mm, w = DEF.w_mm, C = DEF.C_mm) => {
+  const e = bowRef.entries.find((x) => Math.abs(x.m - m) < 1e-9 && Math.abs(x.w - w) < 1e-9 && Math.abs(x.C - C) < 1e-9);
+  if (!e) throw new Error(`bow_reference.json has no entry for C=${C} w=${w} m=${m}; run python3 sim/tools/bow_theory.py --json`);
+  return e;
+};
+const theoryAt = (lam, e = bowTheory()) => {
+  const r = e.rows.find((x) => Math.abs(x.lam - lam) < 1e-9);
+  if (!r) throw new Error(`bow_reference.json has no λ=${lam} row for m=${e.m}`);
+  return r;
+};
 let failures = 0;
 const check = (cond, msg) => { console.log(`${cond ? '  ok ' : '  FAIL'} ${msg}`); if (!cond) failures++; };
 const fmt = (x, d = 4) => x.toFixed(d);
@@ -26,7 +41,7 @@ function report(title, raw, stage = '2b') {
   return { A, V };
 }
 
-// 1. Этап 2a и 2b при параметрах по умолчанию (stage-1: C = 240, w = 0.714, m = 1.0, S8)
+// 1. Stages 2a and 2b at default parameters (C = 240, w = 0.714, m = default from params.js, S8)
 const a = report('По умолчанию', {}, '2a');
 check(a.V.find((v) => v.id === 'V3').status === 'pass', '2a: префикс совпадает с calc.py (длина и E/X)');
 const b = report('По умолчанию', {}, '2b');
@@ -52,15 +67,15 @@ console.log(`\n  L(300)/L(240) = ${fmt(ratio, 5)} (чистое подобие �
 check(ratio > 1.2 && ratio < 1.3, 'длина ряда 1 растёт с C как предсказывает геометрия');
 // 2b. Подобие: если масштабировать ВСЕ длины входа (C, w, m, скрытый проход) и задать верх долей Q,
 //     длина ряда должна вырасти ровно в C'/C — чистая математика, без подгонки.
-if (G('2b-2c'))
+if (G('2b'))
 {
   const k = 1.25;
   const base = { C_mm: 240, topMode: 'fracQ', sTopFrac: 5 / 60 };
   const A1 = computeAll(recipe, { ...base });
-  const A2 = computeAll(recipe, { ...base, C_mm: 240 * k, w_mm: 0.714 * k, m_mm: 1.0 * k, startRun_mm: 35 * k });
+  const A2 = computeAll(recipe, { ...base, C_mm: 240 * k, w_mm: 0.714 * k, m_mm: DEF.m_mm * k, startRun_mm: 35 * k });
   // 6a.11(3)/6a.12: similarity on FULL path (untilEquator), lengths in fractions of w or R — no absolute mm.
   const A1f = computeAll(recipe, { ...base, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32 });
-  const A2f = computeAll(recipe, { ...base, C_mm: 240 * k, w_mm: 0.714 * k, m_mm: 1.0 * k, startRun_mm: 35 * k,
+  const A2f = computeAll(recipe, { ...base, C_mm: 240 * k, w_mm: 0.714 * k, m_mm: DEF.m_mm * k, startRun_mm: 35 * k,
     rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32 });
   const threadLen = (path, thread) => path.segs.filter((s) => s.thread === thread).reduce((a, s) => a + s.length, 0);
   const r1 = threadLen(A1f.path, 'A'), r2 = threadLen(A2f.path, 'A');
@@ -93,12 +108,16 @@ if (G('2b-2c'))
 }
 
 // 2c. S16: dense marking — V5 catches neighbour-line reach; closing X squeeze in both JS and calc_reference (D37)
-{
-  const A = computeAll(recipe, { N: 16 });
+// 6a.22: at the default (thin) m the 5 mm top no longer reaches the neighbour line → S16 uses a 4 mm top;
+// m = 1.0 with the 5 mm top is kept as the stress set.
+if (G('2c'))
+for (const s16 of [{ N: 16, sTop_mm: 4 }, { N: 16, m_mm: 1.0 }]) {
+  const A = computeAll(recipe, s16);
   const V = runValidators(A, '2b', ref);
   const v5 = V.find((v) => v.id === 'V5');
-  console.log(`\n  N = 16, верх 5 мм: V5 ${v5.status}: ${v5.value}`);
-  check(v5.status === 'fail', 'S16 при верхе 5 мм: V5 = fail (захват задевает соседнюю линию разметки) — ожидаемо');
+  const lab = `S16 m=${A.params.m_mm} top ${A.layout.sTop} mm`;
+  console.log(`\n  ${lab}: V5 ${v5.status}: ${v5.value}`);
+  check(v5.status === 'fail', `${lab}: V5 = fail (catch reaches the neighbour marking line), as expected`);
   // calc.py stage-1 closed form unchanged; calc_reference.py applies G3/D36 neighbour-gap squeeze so V3=pass (D37).
   const m = A.params.m_mm, w = A.params.w_mm;
   const a1 = A.path.stitches.filter((st) => st.round === 'A1');
@@ -122,7 +141,7 @@ if (G('2b-2c'))
   console.log(`  S16 V3 ${v3.status} (expect pass after calc_reference squeeze): dXY=${v3.numbers?.dXY?.toFixed?.(9) ?? v3.numbers?.dXY}`);
   check(v3.status === 'pass' && (v3.numbers?.dXY ?? 1) < 1e-6,
     `S16 V3 pass (JS ↔ calc_reference); dXY=${v3.numbers?.dXY}`);
-  const B = computeAll(recipe, { N: 16, sTop_mm: 8 });
+  const B = computeAll(recipe, { ...s16, sTop_mm: 8 });
   check(summary(runValidators(B, '2b', null)).fail === 0, 'S16 с верхом 8 мм: без fail');
 }
 
@@ -141,8 +160,9 @@ if (G('3'))
   check(n2 <= n1, 'более толстая нить даёт не больше рядов до экватора');
   const c4 = computeAll(recipe, { w_mm: 1.0, rowsMode: 'count', rowsCount: 4 });
   check(c4.rowPlan.nRows === 4, 'замысел «ровно 4 ряда» сохраняет число рядов при смене w');
-  const m2 = computeAll(recipe, { m_mm: 0.5 });
-  check(Math.abs(m2.path.stitches[0].eOff - (0.5 + 0.714) / 2) < 1e-12, 'E = (m + w)/2 при m = 0,5 (захват следует за разметкой)');
+  const mAlt = DEF.m_mm === 1.0 ? 0.5 : 1.0; // any m other than the default
+  const m2 = computeAll(recipe, { m_mm: mAlt });
+  check(Math.abs(m2.path.stitches[0].eOff - (mAlt + m2.params.w_mm) / 2) < 1e-12, `E = (m + w)/2 at m = ${mAlt} (catch follows the marking)`);
 }
 
 // 4. Чистота конвейера: пересчёт не зависит от предыдущего набора параметров
@@ -251,19 +271,20 @@ if (G('8'))
   console.log(`  tipDrop bow λ=0: ${fmt(tb0.tipDrop_mm, 3)} mm (must match geodesic)`);
   console.log(`  tipDrop bow λ=0.32: ${fmt(tb.tipDrop_mm, 3)} mm (bow ${fmt(tb.bowLateralMm, 3)}, λ=${fmt(tb.lambda, 3)})`);
   check(tg.tipDrop_mm > 4.5 && tg.tipDrop_mm < 5.5, `geodesic tipDrop in 4.5–5.5 mm (got ${fmt(tg.tipDrop_mm, 3)})`);
-  check(Math.abs(tg.tipDrop_mm - 4.968) < 0.02, 'geodesic tipDrop ≈ 4.97 mm at default C/w');
+  const th0 = theoryAt(0), th32 = theoryAt(0.32), th60 = theoryAt(0.6);
+  check(Math.abs(tg.tipDrop_mm - th0.tipDrop_mm) < 0.02, `geodesic tipDrop ≈ theory ${fmt(th0.tipDrop_mm, 3)} mm at default C/w/m (got ${fmt(tg.tipDrop_mm, 3)})`);
   check(Math.abs(tb0.tipDrop_mm - tg.tipDrop_mm) < 0.02, 'bow with λ=0 matches geodesic tipDrop');
   check(tg.shoulderForm === 'geodesic' && tg.bowLateralMm === 0, 'geodesic mode stores zero bow');
   check(tb.shoulderForm === 'bow' && tb.bowLateralMm > 0, 'bow: lateral sagitta > 0');
   check(Math.abs(tb.lambda - 0.32) < 1e-9, 'bowLambda=0.32 → λ = 0.32');
   check(tb.tipDrop_mm < tg.tipDrop_mm, 'bow reduces tipDrop vs geodesic (α′ steeper)');
-  // 6a.11(1) tangent Δ₂ canon (replaces concentric §3): 2.296 / 1.576 at λ=0.32 / 0.60
-  console.log(`  theory 6a.11 tangent Δ≈2.296 δ≈1.632 at λ=0.32; actual Δ=${fmt(tb.tipDrop_mm, 4)} δ=${fmt(tb.bowLateralMm, 4)}`);
-  check(Math.abs(tb.tipDrop_mm - 2.296) / 2.296 < 0.005, `bow tipDrop within 0.5% of tangent 2.296 (got ${fmt(tb.tipDrop_mm, 4)})`);
-  check(Math.abs(tb.bowLateralMm - 1.632) / 1.632 < 0.005, `bow sagitta within 0.5% of theory 1.632 (got ${fmt(tb.bowLateralMm, 4)})`);
+  // 6a.11(1) tangent Δ₂ canon (replaces concentric §3); values from bow_reference.json at the current m
+  console.log(`  theory 6a.11 tangent Δ≈${fmt(th32.tipDrop_mm, 4)} δ≈${fmt(th32.sagitta_mm, 4)} at λ=0.32 (m=${DEF.m_mm}); actual Δ=${fmt(tb.tipDrop_mm, 4)} δ=${fmt(tb.bowLateralMm, 4)}`);
+  check(Math.abs(tb.tipDrop_mm - th32.tipDrop_mm) / th32.tipDrop_mm < 0.005, `bow tipDrop within 0.5% of tangent theory ${fmt(th32.tipDrop_mm, 4)} (got ${fmt(tb.tipDrop_mm, 4)})`);
+  check(Math.abs(tb.bowLateralMm - th32.sagitta_mm) / th32.sagitta_mm < 0.005, `bow sagitta within 0.5% of theory ${fmt(th32.sagitta_mm, 4)} (got ${fmt(tb.bowLateralMm, 4)})`);
   const B60 = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, rowsMode: 'count', rowsCount: 2 });
-  check(Math.abs(B60.path.tipDrop.tipDrop_mm - 1.576) / 1.576 < 0.005, `λ=0.6 tipDrop within 0.5% of tangent 1.576 (got ${fmt(B60.path.tipDrop.tipDrop_mm, 4)})`);
-  check(Math.abs(B60.path.tipDrop.bowLateralMm - 3.118) / 3.118 < 0.005, `λ=0.6 sagitta within 0.5% of 3.118 (got ${fmt(B60.path.tipDrop.bowLateralMm, 4)})`);
+  check(Math.abs(B60.path.tipDrop.tipDrop_mm - th60.tipDrop_mm) / th60.tipDrop_mm < 0.005, `λ=0.6 tipDrop within 0.5% of tangent theory ${fmt(th60.tipDrop_mm, 4)} (got ${fmt(B60.path.tipDrop.tipDrop_mm, 4)})`);
+  check(Math.abs(B60.path.tipDrop.bowLateralMm - th60.sagitta_mm) / th60.sagitta_mm < 0.005, `λ=0.6 sagitta within 0.5% of theory ${fmt(th60.sagitta_mm, 4)} (got ${fmt(B60.path.tipDrop.bowLateralMm, 4)})`);
   check(Alias.path.tipDrop.shoulderForm === 'bow', 'alias bowToMarking → bow');
   check(!PARAM_SCHEMA.some((p) => /tipDrop|delta_mm|dS_mm/i.test(p.key)),
     'no tipDrop/delta_mm user input in PARAM_SCHEMA (Δ is derived only)');
@@ -275,7 +296,7 @@ if (G('8'))
   const Vb = runValidators(B, 'A2', null);
   check(Vb.find((v) => v.id === 'V2').status === 'pass', 'V2 passes with bow (polyLen legs)');
   check(summary(runValidators(G, 'A2', ref)).fail === 0, 'geodesic A2: no validator fail');
-  console.log(`  tipDrop ${fmt(tb.tipDrop_mm, 3)} vs tangent 2.296 (rows-to-equator asserted in §8c)`);
+  console.log(`  tipDrop ${fmt(tb.tipDrop_mm, 3)} vs tangent theory ${fmt(th32.tipDrop_mm, 3)} (rows-to-equator asserted in §8c)`);
 }
 
 
@@ -375,9 +396,12 @@ if (G('8b'))
   // V21 angle emitted; 6a.20: free α_ref = analytic arc at axis (λ>0) / geodesic at axis (λ=0); bilateral 3% sine
   check(v21.numbers.minAngleDeg != null && v21.numbers.minAngleGeoDeg != null, 'V21 emits minAngleDeg / minAngleGeoDeg');
   check(v21.status === 'pass' && (v21.numbers.badAngle || 0) === 0, 'V21 lower-arm angle OK under 6a.20 (no 5° allowance)');
-  // Gold (6a.20): row1 λ=0.32 → α_act≈16.777°, α_ref≈16.847°, sin ratio ≈0.996
+  // Gold (6a.20): row1 λ=0.32 → α_act≈16.777°, α_ref≈16.847°, sin ratio ≈0.996. These are the Codex-audited
+  // values at m = 1.0, so they are checked on the m = 1.0 stress set (6a.22); the default m checks sinRatio below.
   {
-    const r1 = (v21.numbers.angleRows || []).filter((r) => r.row === 1 && r.isFree !== false);
+    const okGold = computeAll(recipe, { shoulderForm: 'bow', muWrap: 0.32, bowLambda: 0.32, rowsMode: 'count', rowsCount: 2, m_mm: 1.0 });
+    const v21g = runValidators(okGold, 'A2', null).find((v) => v.id === 'V21');
+    const r1 = (v21g.numbers.angleRows || []).filter((r) => r.row === 1 && r.isFree !== false);
     const g = r1.find((r) => Math.abs(r.angleDeg - 16.777) < 0.05) || r1[0];
     check(!!g, '6a.20 gold: row1 angle row present');
     if (g) {
@@ -386,6 +410,9 @@ if (G('8b'))
       check(Math.abs(g.alphaRefDeg - 16.847) < 0.05, `6a.20 gold α_ref≈16.847° analytic-at-axis (got ${fmt(g.alphaRefDeg, 3)})`);
       check(Math.abs(g.sinRatio - 1) <= 0.03, `6a.20 gold |sinRatio−1|≤0.03 (got ${fmt(g.sinRatio, 4)})`);
     }
+    const r1d = (v21.numbers.angleRows || []).filter((r) => r.row === 1 && r.isFree !== false);
+    check(r1d.length > 0 && r1d.every((r) => Math.abs(r.sinRatio - 1) <= 0.03),
+      `6a.20 default m=${DEF.m_mm}: row1 |sinRatio−1|≤0.03 (max ${fmt(Math.max(...r1d.map((r) => Math.abs(r.sinRatio - 1))), 4)})`);
   }
 
   // V20 bowSagMm: sag-invert λ still checked against discrete κ_g
@@ -557,23 +584,25 @@ if (G('8b2'))
       'V21 fails when upper A2 rail is mutated (α_exp from accepted prev, not self)');
   }
 
-  // V13 tip-width growth at A2 (Errata 6a.1 / 6a.6) — lock Fable numbers; do NOT retune thresholds.
-  // Acceptance = growth magnitude + monotonicity in λ, NOT V13 status (warn at λ=0.2 stays honest).
-  {
-    const expect = [
-      { bowLambda: 0, grow: 0.21 },
-      { bowLambda: 0.2, grow: 0.43 },
-      { bowLambda: 0.32, grow: 0.59 },
-      { bowLambda: 0.45, grow: 0.75 },
-      { bowLambda: 0.6, grow: 0.92 },
-    ];
+  // V13 tip-width growth at A2 (Errata 6a.1 / 6a.6 / 6a.22) — lock Fable numbers; do NOT retune thresholds.
+  // Acceptance = growth magnitude (+ monotonicity in λ where the spec asserts it), NOT V13 status.
+  // The growth is not closed-form in m, so the spec tables are keyed by m: 6a.1/6a.6 at m = 1.0 (stress set,
+  // monotonic), 6a.22(a) at m = 0.5 (thin marking: not monotonic; V13 no longer separates bow from geodesic).
+  const V13_SPEC = {
+    1.0: { src: '6a.1/6a.6', monotonic: true, grow: { 0: 0.21, 0.2: 0.43, 0.32: 0.59, 0.45: 0.75, 0.6: 0.92 } },
+    0.5: { src: '6a.22(a)', monotonic: false, grow: { 0: 1.54, 0.2: 0.93, 0.32: 0.63, 0.45: 0.77, 0.6: 0.94 } },
+  };
+  check(V13_SPEC[DEF.m_mm] != null, `V13 spec table exists for the default m=${DEF.m_mm} (else ask Fable for the table)`);
+  for (const mSpec of [...new Set([DEF.m_mm, 1.0])].filter((mm) => V13_SPEC[mm])) {
+    const spec = V13_SPEC[mSpec];
+    const expect = Object.entries(spec.grow).map(([lam, grow]) => ({ bowLambda: +lam, grow }));
     const grows = [];
     for (const e of expect) {
       const A = computeAll(recipe, {
         shoulderForm: e.bowLambda === 0 ? 'geodesic' : 'bow',
         bowLambda: e.bowLambda || undefined,
         muWrap: Math.max(0.32, e.bowLambda || 0),
-        rowsMode: 'count', rowsCount: 2,
+        rowsMode: 'count', rowsCount: 2, m_mm: mSpec,
       });
       const V = runValidators(A, 'A2', null);
       const v13 = V.find((v) => v.id === 'V13');
@@ -581,10 +610,10 @@ if (G('8b2'))
       const w = A.params.w_mm;
       const grow = row ? (row.W - row.Wp) / w : NaN;
       grows.push(grow);
-      console.log(`  V13 growth λ=${e.bowLambda}: ${fmt(grow, 3)} w (expect ${e.grow} ±0.1), status=${v13.status}`);
-      check(Math.abs(grow - e.grow) <= 0.1, `V13 A2 tip-width growth at λ=${e.bowLambda} within ±0.1 w of ${e.grow}`);
+      console.log(`  V13 growth m=${mSpec} λ=${e.bowLambda}: ${fmt(grow, 3)} w (expect ${e.grow} ±0.1, ${spec.src}), status=${v13.status}`);
+      check(Math.abs(grow - e.grow) <= 0.1, `V13 A2 tip-width growth m=${mSpec} λ=${e.bowLambda} within ±0.1 w of ${e.grow} (${spec.src})`);
     }
-    check(grows.every((g, i) => i === 0 || g > grows[i - 1] - 1e-9), 'V13 A2 tip-width growth monotonic in λ');
+    if (spec.monotonic) check(grows.every((g, i) => i === 0 || g > grows[i - 1] - 1e-9), `V13 A2 tip-width growth monotonic in λ (m=${mSpec}, ${spec.src})`);
   }
 
   // Errata 6a.4: row-1 has no rail splice; exterior rail joins turn ≤ 1°; L_j ~ formula
@@ -645,7 +674,7 @@ if (G('8b2'))
 }
 
 // 8c. Rows to equator, Δ_n trend, analytic θ (§5.2), convergence (§5.3)
-if (G('8c-8d0'))
+if (G('8c'))
 {
   console.log('\n## Rows to equator / Δ_n / θ / convergence (Fable §5.2–5.6)');
   const countA = (A) => A.path.rounds.filter((r) => r.set === 'A').length;
@@ -673,35 +702,29 @@ if (G('8c-8d0'))
   console.log(`  tip next: geo ${fmt(Geq.path.stopped?.A?.sTip ?? NaN, 3)}, λ0.32 ${fmt(B32.path.stopped?.A?.sTip ?? NaN, 3)}, λ0.6 ${fmt(B60.path.stopped?.A?.sTip ?? NaN, 3)}`);
   // Full-path packing regression (§5.1 / Errata 6a.7): must reach equator with correct Δ₂ —
   // a w-tube packThenPierce false-positive stops early (~49 mm) with ~26–28 channel-like rows.
-  check(Math.abs(d20 - 4.968) < 0.02, `λ=0 geo Δ₂ ≈ 4.968 (±0.02) got ${fmt(d20, 5)}`);
-  check(Math.abs(d200 - 4.968) < 0.02, `λ=0 bow Δ₂ ≈ 4.968 (±0.02) got ${fmt(d200, 5)}`);
-  check(n0 === 5 && n00 === 5, 'λ=0: 5 rows to equator (geo and bowλ=0)');
+  // Δ₂ and rows from the independent theory at the current m (bow_reference.json); rows = tangent canon 1+floor(20/Δ₂).
+  const t0 = theoryAt(0);
+  check(Math.abs(d20 - t0.tipDrop_mm) < 0.02, `λ=0 geo Δ₂ ≈ theory ${fmt(t0.tipDrop_mm, 3)} (±0.02) got ${fmt(d20, 5)}`);
+  check(Math.abs(d200 - t0.tipDrop_mm) < 0.02, `λ=0 bow Δ₂ ≈ theory ${fmt(t0.tipDrop_mm, 3)} (±0.02) got ${fmt(d200, 5)}`);
+  // λ=0: the canon 1+floor(20/Δ₂) is an estimate — Δ_n is not constant for free geodesics (6a.12: formula ±1).
+  check(Math.abs(n0 - t0.rows_canon) <= 1 && n00 === n0,
+    `λ=0: rows to equator = 1+floor(20/Δ₂) ±1 = ${t0.rows_canon}±1 (geo and bowλ=0 equal; m=${DEF.m_mm}) got ${n0}/${n00}`);
   check(tip0 >= 58 && tip0 <= 60 && tip00 >= 58 && tip00 <= 60,
     `λ=0 last tip (K12) in 58–60 mm (got geo ${fmt(tip0, 3)}, bow ${fmt(tip00, 3)})`);
   // 6a.12 / 6a.14: rows = 1+floor(20/Δ₂) ±1; Δ₂ ±0.5% vs table.
   // Δ_n (n≥3) ±3% of Δ₂ and non-decreasing — ONLY for λ > 0 (at λ=0 free geodesics may drift ≈5%/row).
-  const table = [
-    { lam: 0, d2: 4.968, rows: 5 },
-    { lam: 0.10, d2: 3.616, rows: 6 },
-    { lam: 0.20, d2: 2.861, rows: 8 },
-    { lam: 0.32, d2: 2.293, rows: 9 },
-    { lam: 0.40, d2: 2.027, rows: 10 },
-    { lam: 0.45, d2: 1.890, rows: 11 },
-    { lam: 0.52, d2: 1.729, rows: 12 },
-    { lam: 0.60, d2: 1.575, rows: 13 },
-  ];
-  const expectRows = (d2) => 1 + Math.floor(20 / d2);
-  check(n32 === 9 || Math.abs(n32 - expectRows(2.293)) <= 1, `λ=0.32 rows ≈ 1+floor(20/Δ₂)=9 ±1 (got ${n32})`);
-  check(n60 === 13 || Math.abs(n60 - expectRows(1.575)) <= 1, `λ=0.6 rows ≈ 1+floor(20/Δ₂)=13 ±1 (got ${n60})`);
+  const table = bowTheory().rows.map((r) => ({ lam: r.lam, d2: r.tipDrop_mm, rows: r.rows_canon }));
+  const tRow = (lam) => table.find((r) => Math.abs(r.lam - lam) < 1e-9);
+  console.log(`  theory (m=${DEF.m_mm}) Δ₂: ${table.map((r) => `${r.lam}:${fmt(r.d2, 3)}`).join(' ')}; rows: ${table.map((r) => r.rows).join('/')}`);
+  check(n32 === tRow(0.32).rows, `λ=0.32 rows = 1+floor(20/Δ₂) = ${tRow(0.32).rows} (got ${n32})`);
+  check(n60 === tRow(0.6).rows, `λ=0.6 rows = 1+floor(20/Δ₂) = ${tRow(0.6).rows} (got ${n60})`);
   check(n0 < n32 && n32 < n60, 'row count monotonic in λ');
-  check(Math.abs(n32 - 9) <= 1, `λ=0.32 rows 9±1 (got ${n32})`);
-  check(Math.abs(n60 - 13) <= 1, `λ=0.6 rows 13±1 (got ${n60})`);
 
   const d32 = dSseries(B32), d60 = dSseries(B60);
   console.log(`  Δ_n λ=0.32: ${d32.map((x) => fmt(x, 3)).join(', ')}`);
   console.log(`  Δ_n λ=0.6: ${d60.slice(0, 8).map((x) => fmt(x, 3)).join(', ')}…`);
-  check(Math.abs(d32[0] - 2.293) / 2.293 < 0.005, `λ=0.32 Δ₂ within 0.5% of 2.293 (got ${fmt(d32[0], 5)})`);
-  check(Math.abs(d60[0] - 1.575) / 1.575 < 0.005, `λ=0.6 Δ₂ within 0.5% of 1.575 (got ${fmt(d60[0], 5)})`);
+  check(Math.abs(d32[0] - tRow(0.32).d2) / tRow(0.32).d2 < 0.005, `λ=0.32 Δ₂ within 0.5% of theory ${fmt(tRow(0.32).d2, 4)} (got ${fmt(d32[0], 5)})`);
+  check(Math.abs(d60[0] - tRow(0.6).d2) / tRow(0.6).d2 < 0.005, `λ=0.6 Δ₂ within 0.5% of theory ${fmt(tRow(0.6).d2, 4)} (got ${fmt(d60[0], 5)})`);
   const laterOk = (ds) => ds.slice(1).every((x, i) => Math.abs(x - ds[0]) / ds[0] <= 0.03 + 1e-12 && x + 1e-12 >= ds[i]);
   check(laterOk(d32), 'λ=0.32 Δ_n (n≥3) within ±3% of Δ₂ and monotonically non-decreasing');
   check(laterOk(d60), 'λ=0.6 Δ_n (n≥3) within ±3% of Δ₂ and monotonically non-decreasing');
@@ -763,7 +786,7 @@ if (G('8c-8d0'))
   for (const row of table.filter((r) => r.lam > 0 && r.lam !== 0.32 && r.lam !== 0.6)) {
     const A = computeAll(recipe, { shoulderForm: 'bow', bowLambda: row.lam, muWrap: Math.max(row.lam, 0.32), rowsMode: 'count', rowsCount: 2 });
     const d2 = A.path.tipDrop.tipDrop_mm;
-    check(Math.abs(d2 - row.d2) / row.d2 < 0.005, `λ=${row.lam} Δ₂ within 0.5% of ${row.d2} (got ${fmt(d2, 5)})`);
+    check(Math.abs(d2 - row.d2) / row.d2 < 0.005, `λ=${row.lam} Δ₂ within 0.5% of theory ${fmt(row.d2, 4)} (got ${fmt(d2, 5)})`);
   }
 
   // §5.2: analytic tangent unit(±P×E) vs arcsin(λ·tan(γ/2))
@@ -799,21 +822,24 @@ if (G('8c-8d0'))
 
 
 // 8d0. K16b two-sided Clairaut window (6a.20) — pure formula
+if (G('8d0'))
 {
   console.log('\n## K16b two-sided Clairaut window (6a.20)');
+  // Formula unit test on the Codex fef6b4e audit case, which was taken at m = 1.0 (stress set, 6a.22):
+  // x_leg = +1.666 and α = 8.5° are that audit's measured inputs; everything else follows from m and w.
   const m = 1.0, w = 0.714;
   const alpha = 8.5 * Math.PI / 180;
   const half = w / (2 * Math.cos(alpha));
-  const xE = (m + w) / 2; // +0.857
-  // Overshoot: E=+0.857, leg=+1.666 → |dx|=0.809 > half≈0.361 → NOT coverage
+  const xE = (m + w) / 2;
+  // Overshoot: E=+(m+w)/2, leg=+1.666 → |dx| > half → NOT coverage
   {
     const xLeg = 1.666;
     const deltaSum = (xLeg + (m + w) / 2) / Math.tan(alpha);
     const win = k16bCoverageWindow({ m, w, alpha, deltaSum, xE });
     console.log(`  overshoot: xE=${fmt(xE, 3)} xLeg=${fmt(win.xLeg, 3)} |dx|=${fmt(Math.abs(win.dxE), 3)} half=${fmt(win.half, 3)} covered=${win.coveredE}`);
     check(Math.abs(win.xLeg - 1.666) < 1e-9, `overshoot x_leg≈1.666 (got ${fmt(win.xLeg, 6)})`);
-    check(Math.abs(xE - 0.857) < 1e-9, 'E at +0.857');
-    check(win.coveredE === false, 'B2-style overshoot (leg=+1.666, E=+0.857) is NOT coverage');
+    check(Math.abs(win.xLeg - (-(m + w) / 2 + deltaSum * Math.tan(alpha))) < 1e-12, 'x_leg = −(m+w)/2 + Δsum·tan α');
+    check(win.coveredE === false, `B2-style overshoot (leg=+1.666, E=+${fmt(xE, 3)}) is NOT coverage`);
     check(Math.abs(win.dxE) > win.half, 'overshoot |x_leg−x_E| > w/(2 cos α)');
   }
   // In-window: place x_leg at xE (perfect center) → covered
@@ -834,6 +860,15 @@ if (G('8c-8d0'))
     const winOut = k16bCoverageWindow({ m, w, alpha, deltaSum: dOut, xE });
     check(winIn.coveredE === true, `|x_leg−x_E|=half (${fmt(half, 4)}) is coverage`);
     check(winOut.coveredE === false, 'just outside half-width is NOT coverage');
+  }
+  // 6a.22(c): K16b window in Δsum·tan α at the default m: [(m+w) − w/(2 cos α), (m+w) + w/(2 cos α)]
+  {
+    const md = DEF.m_mm, wd = DEF.w_mm, aE = theoryAt(0.32).alpha_deg * Math.PI / 180;
+    const lo = (md + wd) - wd / (2 * Math.cos(aE)), hi = (md + wd) + wd / (2 * Math.cos(aE));
+    console.log(`  K16b window at m=${md} (α′(E)=${fmt(aE * 180 / Math.PI, 2)}° at λ=0.32): [${fmt(lo, 3)}; ${fmt(hi, 3)}]`);
+    const winLo = k16bCoverageWindow({ m: md, w: wd, alpha: aE, deltaSum: lo / Math.tan(aE), xE: (md + wd) / 2 });
+    const winHi = k16bCoverageWindow({ m: md, w: wd, alpha: aE, deltaSum: hi / Math.tan(aE), xE: (md + wd) / 2 });
+    check(winLo.coveredE && winHi.coveredE, 'K16b window endpoints at the default m are coverage (validator = formula)');
   }
   // Clairaut average tan α rises when moving toward pole (smaller s) from hole
   {
@@ -972,19 +1007,25 @@ if (G('8d0f'))
   setLegSamples(prevN);
 }
 
-// 8d0b. K16b λ=0: per-leg α + per-line Δ → 0 false promises (independent audit match)
+// 8d0b. K16 at λ=0 (#31, §3.2 (15)): promise by formula with the Clairaut mean ᾱ of the actual leg, per T (K16a)
+// and per E/X pair (K16b), no λ=0 switch; fail = promised but uncovered. Unpromised & uncovered T's are printed, not failed
+// (at m=0.5 set B row 3 on L4/L0: row-4 legs start at B4 top holes fanned by A4 threads, issue #38).
 if (G('8d0b'))
 {
-  console.log('\n## K16b λ=0 per-leg/line inputs (0 false promises)');
+  console.log('\n## K16 λ=0: formula (15) with Clairaut ᾱ per leg → promised ⇒ covered');
   const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0, rowsMode: 'untilEquator' });
   const v = runValidators(A, A.path.ops.length - 1, null).find((x) => x.id === 'K16');
   console.log(`  K16: ${v.status} — ${v.value}`);
-  check(v.status === 'pass', 'K16 pass at λ=0 (K16b diagnostic-only)');
-  // Both sets: every promised side is covered (miss 0). Published row-wide α/Δ had 10 false promises in B.
-  check(/miss 0/.test(v.value) && !/miss [1-9]/.test(v.value),
-    `K16b λ=0: 0 false promises on both sets (got ${v.value.match(/K16b diag[^;]+/g)?.join(' | ')})`);
-  check(/set B:.*K16b diag \d+\/\d+ promised-covered \(miss 0/.test(v.value),
-    'set B K16b diag reports miss 0');
+  check(v.status === 'pass', 'K16 pass at λ=0 (promised ⇒ covered, K16a and K16b)');
+  const ps = v.numbers.perSet || {};
+  for (const set of ['A', 'B']) {
+    const q = ps[set];
+    check(!!q && q.aMiss === 0 && q.bMiss === 0,
+      `K16 λ=0 set ${set}: 0 promised-but-uncovered (K16a ${q?.aOk}/${q?.aProm} of ${q?.aN}, K16b ${q?.bOk}/${q?.bPromised} of ${q?.bN})`);
+  }
+  check((ps.A?.aProm ?? 0) === (ps.A?.aN ?? -1), `K16a λ=0 set A: every T promised by the formula (${ps.A?.aProm}/${ps.A?.aN})`);
+  for (const r of (v.numbers.aRows || []).filter((q) => !q.promised))
+    console.log(`  K16a not promised: ${r.set}${r.row} L${r.line} x=${r.x.map((x) => fmt(x, 3)).join('/')} d=${fmt(r.dMm, 3)} ${r.covered ? 'covered' : 'open'}`);
   // Sanity: geodesicAlphaAt on a known leg is acute and finite
   const leg = A.path.segs.find((s) => s.type === 'leg' && s.row === 1);
   const a0 = geodesicAlphaAt(leg.from, leg.to, leg.from);
@@ -1059,7 +1100,7 @@ if (G('8e'))
     const a = proj(sub(p[i], p[i - 1])), b = proj(sub(p[i + 1], p[i]));
     return Math.atan2(dot(cross(a, b), n), dot(a, b)) * 180 / Math.PI;
   };
-  const peaks = [];
+  const peaks = [], freeAlls = [];
   for (const N of [96, 192, 384]) {
     setLegSamples(N);
     const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, rowsMode: 'untilEquator' });
@@ -1081,11 +1122,16 @@ if (G('8e'))
     }
     peaks.push(maxPeak);
     console.log(`  N=${N}: freeAll=${freeAll} viol=${viol} peakOver=${peakOver} maxPeak=${fmt(maxPeak, 2)}`);
-    check(freeAll === 22 && viol === 0, `N=${N}: 22 freeAll arms are joinMode=free (Codex 6a.15)`);
-    check(peakOver === 0 && maxPeak <= 20, `N=${N}: all peaks ≤20° (max ${fmt(maxPeak, 2)})`);
+    // The count depends on m (22 at m = 1.0, Codex 6a.15); the rule is: every arm with min gap ≥ w is free.
+    freeAlls.push(freeAll);
+    check(freeAll > 0 && viol === 0, `N=${N}: all ${freeAll} freeAll arms are joinMode=free (Codex 6a.15)`);
+    if (N <= 192) check(peakOver === 0 && maxPeak <= 20, `N=${N}: all peaks ≤20° (max ${fmt(maxPeak, 2)})`);
+    else console.log(`  N=${N}: peak ${fmt(maxPeak, 2)}° printed, not gated (#22, #36: grid 384 amplifies noise ≈ w/h per row)`);
   }
   setLegSamples(null);
-  check(peaks[0] >= peaks[1] - 1e-6 && peaks[1] >= peaks[2] - 1e-6, `B.8 peaks converge 96→192→384 (${peaks.map((x) => fmt(x, 2)).join('→')})`);
+  check(freeAlls.every((x) => x === freeAlls[0]), `B.8 freeAll count grid-invariant 96/192/384 (${freeAlls.join('/')})`);
+  // Coordinator (#31): gate 96→192 non-increase only; 384 is printed (see #22 / #36).
+  check(peaks[0] >= peaks[1] - 1e-6, `B.8 peaks non-increasing 96→192 (${fmt(peaks[0], 2)}→${fmt(peaks[1], 2)}; 384: ${fmt(peaks[2], 2)} not gated, #22/#36)`);
 }
 
 // 8f. Display 6a.17 lift(d): by distance d, all rows / both sets (review of 51eddd6)

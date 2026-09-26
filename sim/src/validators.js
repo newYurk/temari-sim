@@ -728,6 +728,25 @@ export function runValidators(A, stage = '2b', ref = null) {
     const diagH = [];
     const lambdaTip = path.tipDrop?.lambda ?? path.tipDrop?.bowLambda ?? 0;
     const isGeo0 = !(lambdaTip > 1e-9) && (path.tipDrop?.shoulderForm !== 'bow');
+    // #31: α for the h_x diagnostic is measured on the model (row-1 incoming bottom legs, angle to the
+    // meridian at E), not a constant from m = 1.0 (8.5° geodesic / 18° bow); fallback to those constants.
+    const alphaMeasured = (() => {
+      const vals = [];
+      for (const st of bottoms) {
+        if (st.row !== 1) continue;
+        const L = segById.get(st.legId);
+        if (!L || !L.pts || L.pts.length < 2) continue;
+        const E = unit(L.pts[L.pts.length - 1]), Q = unit(L.pts[L.pts.length - 2]);
+        const t = [Q[0] - E[0], Q[1] - E[1], Q[2] - E[2]];
+        const k = t[0] * E[0] + t[1] * E[1] + t[2] * E[2];
+        const tt = [t[0] - k * E[0], t[1] - k * E[1], t[2] - k * E[2]];
+        const nz = [-E[0] * E[2], -E[1] * E[2], 1 - E[2] * E[2]]; // toward the pole (+z) in the tangent plane
+        const a = Math.hypot(...tt), b = Math.hypot(...nz);
+        if (!(a > 1e-15 && b > 1e-15)) continue;
+        vals.push(Math.acos(clamp((tt[0] * nz[0] + tt[1] * nz[1] + tt[2] * nz[2]) / (a * b))));
+      }
+      return vals.length ? vals.reduce((x, y) => x + y, 0) / vals.length : null;
+    })();
     // 6a.20: exclude first lower circuit line after resume (transition step; e.g. B → L2)
     const resumeFirstBot = new Set();
     for (const r of path.rounds.filter((q) => q.begin === 'resume')) {
@@ -763,12 +782,12 @@ export function runValidators(A, stage = '2b', ref = null) {
       }
       return best;
     };
+    const aFails = [], aRows = [], perSet = {};
     for (const [set, sts] of Object.entries(bySet)) {
       const rows = [...new Set(sts.map((s) => s.row))].sort((a, b) => a - b);
       const Nrow = rows.length ? rows[rows.length - 1] : 0;
-      let aOk = 0, aN = 0, bOk = 0, bN = 0, bPromised = 0, bMiss = 0, cBad = 0;
-      // α: geodesic ~8.5°, bow ~18° (π/10)
-      const alphaK = isGeo0 ? (8.5 * Math.PI / 180) : Math.PI / 10;
+      let aN = 0, aProm = 0, aOk = 0, aMiss = 0, aCov = 0, bOk = 0, bN = 0, bPromised = 0, bMiss = 0, bRaw = 0, cBad = 0;
+      const alphaK = alphaMeasured ?? (isGeo0 ? (8.5 * Math.PI / 180) : Math.PI / 10);
       for (const n of rows) {
         const mine = sts.filter((s) => s.row === n);
         for (const st of mine) {
@@ -776,11 +795,40 @@ export function runValidators(A, stage = '2b', ref = null) {
           const closingWide = !!st.closing || (st.xOff != null && st.xOff <= -(w + 0.5 * (w / 0.714)));
           const firstLowerResume = resumeFirstBot.has(`${st.set}:${st.row}:${st.line}`);
           const T = unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2]);
-          // K16a: T_n covered by n+1 for n < N; last open — acceptance
+          // K16a (§3.2 (15), #31): T_n is PROMISED coverage by leg n+1 where |(m+w)/2 − Δ_{n+1}·tan ᾱ| ≤ w/2,
+          // ᾱ = Clairaut mean of that actual leg between its bottom hole (E_{n+1} / X_{n+1}) and level T_n.
+          // Fail only where promised and the model does not cover (≤ w/2·1.1); unpromised & uncovered is not a fail.
           if (n < Nrow) {
             aN++;
             const d = minDistToRow(T, set, n + 1);
-            if (d <= w / 2 * 1.1) aOk++;
+            const cov = d <= w / 2 * 1.1;
+            if (cov) aCov++;
+            const nx = bottoms.find((s) => s.set === set && s.row === n + 1 && s.line === st.line && !s.closing);
+            let prom = false; const xs = [];
+            if (nx && nx.s != null && st.s != null) {
+              const d1 = Math.abs(nx.s - st.s), sT = tipLevelMm(T, R);
+              const inc = segById.get(nx.legId);
+              let out = null;
+              const iPk = order.get(nx.pickupId);
+              if (iPk != null) for (let i = iPk + 1; i < path.segs.length; i++) {
+                const q = path.segs[i];
+                if (q.type === 'leg' && q.set === set && q.row === n + 1) { out = q; break; }
+              }
+              for (const [L, hole, sign] of [[inc, nx.E, 1], [out, nx.X, -1]]) {
+                if (!L || !L.from || !L.to) continue;
+                const aH = geodesicAlphaAt(L.from, L.to, hole);
+                const tA = clairautAvgTan(aH, tipLevelMm(hole, R), sT, R);
+                const x = sign * ((m + w) / 2 - d1 * tA);
+                xs.push(x);
+                if (Math.abs(x) <= w / 2 + 1e-9) prom = true;
+              }
+            }
+            aRows.push({ set, row: n, line: st.line, i: st.i, x: xs, promised: prom, dMm: d, covered: cov });
+            if (prom) {
+              aProm++;
+              if (cov) aOk++;
+              else { aMiss++; aFails.push({ set, row: n, line: st.line, i: st.i, dMm: d, x: xs }); }
+            }
           }
           // K16b: E_n, X_n covered by n+2 — at λ=0 diagnostic via two-sided Clairaut window (6a.20).
           // Inputs are per covering leg / line (not row-wide α or Δ): α from that leg's own hole,
@@ -831,16 +879,11 @@ export function runValidators(A, stage = '2b', ref = null) {
             const dE = minDistToRow(st.E, set, n + 2);
             const dX = minDistToRow(st.X, set, n + 2);
             const covE = dE <= w / 2 * 1.1, covX = dX <= w / 2 * 1.1;
-            if (isGeo0) {
-              // Diagnostic: record where two-sided window promises coverage but model has none
-              if (promisedE) { bPromised++; if (covE) bOk++; else bMiss++; }
-              if (promisedX) { bPromised++; if (covX) bOk++; else bMiss++; }
-              bN += 2;
-            } else {
-              bN += 2;
-              if (covE) bOk++;
-              if (covX) bOk++;
-            }
+            // #31: promise per pair at every λ (no λ=0 switch): fail only where the window promises and the model does not cover.
+            if (promisedE) { bPromised++; if (covE) bOk++; else bMiss++; }
+            if (promisedX) { bPromised++; if (covX) bOk++; else bMiss++; }
+            bRaw += (covE ? 1 : 0) + (covX ? 1 : 0);
+            bN += 2;
           }
           if (n < Nrow) {
             const hx = (m + w) / (2 * Math.tan(alphaK));
@@ -874,26 +917,19 @@ export function runValidators(A, stage = '2b', ref = null) {
           }
         }
       }
-      if (aN && aOk < aN) fail = true;
-      if (isGeo0) {
-        // 6a.17/6a.20: K16b is diagnostic at λ=0 — record misses, do not fail acceptance (K16a/c still fail).
-      } else if (bN && bOk < bN) {
-        fail = true;
-      }
-      if (cBad) fail = true;
-      const bTxt = isGeo0
-        ? `K16b diag ${bOk}/${bPromised || 0} promised-covered (miss ${bMiss}; raw ${bOk}/${bN})`
-        : `K16b ${bOk}/${bN} (E/X by n+2)`;
-      parts.push(`set ${set}: K16a ${aOk}/${aN} (T covered by n+1); ${bTxt}; K16c foreign-near-C ${cBad}`);
+      if (aMiss || bMiss || cBad) fail = true;
+      perSet[set] = { aN, aProm, aOk, aMiss, aCov, bN, bPromised, bOk, bMiss, bRaw, cBad };
+      parts.push(`set ${set}: K16a promised ${aProm}/${aN}, covered ${aOk}/${aProm} (miss ${aMiss}; raw covered ${aCov}/${aN}); ` +
+        `K16b promised ${bPromised}/${bN}, covered ${bOk}/${bPromised} (miss ${bMiss}; raw covered ${bRaw}/${bN}); K16c foreign-near-C ${cBad}`);
     }
-    const alpha = isGeo0 ? (8.5 * Math.PI / 180) : Math.PI / 10;
+    const alpha = alphaMeasured ?? (isGeo0 ? (8.5 * Math.PI / 180) : Math.PI / 10);
     const hx = (m + w) / (2 * Math.tan(alpha));
     const enough = Object.values(bySet).some((sts) => new Set(sts.map((s) => s.row)).size >= 2);
     add({
-      id: 'K16', name: 'Tip coverage (T by n+1, E/X by n+2, C open)', crit: '6a.16/6a.17/6a.20 K16a–c (K16b two-sided Clairaut window; formula-diag at λ=0)',
+      id: 'K16', name: 'Tip coverage (T by n+1, E/X by n+2, C open)', crit: '§3.2 (15) K16a–c: promise by formula with the Clairaut mean ᾱ of the actual leg (per T / per E,X pair); fail = promised but uncovered',
       status: !enough ? 'n/a' : (fail ? 'fail' : 'pass'),
-      value: parts.join('; ') + `; h_x=${f(hx, 2)} mm; diag mean (h_x − d_T→n+1)=${diagH.length ? f(diagH.reduce((a, b) => a + b, 0) / diagH.length, 2) : '—'} mm`,
-      numbers: { hx, diagH, isGeo0 },
+      value: parts.join('; ') + `; α(E)=${f(alpha * 180 / Math.PI, 2)}°, h_x=${f(hx, 2)} mm; diag mean (h_x − d_T→n+1)=${diagH.length ? f(diagH.reduce((a, b) => a + b, 0) / diagH.length, 2) : '—'} mm`,
+      numbers: { hx, alphaDeg: alpha * 180 / Math.PI, diagH, isGeo0, aFails, aRows, perSet },
     });
   }
 

@@ -48,13 +48,53 @@ function densifyEnds(pts, prof, zone, h) {
 const norm3 = (p) => Math.hypot(p[0], p[1], p[2]);
 
 /**
- * Stack lift profile along the leg (mm, 6a.17).
+ * Stack lift profile along the leg (mm, 6a.17), sampled at the leg vertices.
  * lift(d)=0.6·√(w²−d²) for d<w; tent at a crossing; climb from δ; wedge — c.stack·0.6·w.
  */
 export function stackProfile(A, seg) {
-  const n = seg.pts.length, prof = new Float64Array(n);
+  const n = seg.pts.length, step = seg.length / Math.max(1, n - 1);
+  const f = stackProfileFn(A, seg);
+  const prof = new Float64Array(n);
+  for (let i = 0; i < n; i++) prof[i] = f(i * step);
+  return prof;
+}
+
+/**
+ * Along-leg position (mm, in seg.length units) of a crossing centre: projection of c.at onto the
+ * leg polyline when available (not the nearest vertex — vertices are ≈ 0.4 mm apart, a tent is
+ * ±w/sinψ, so snapping the centre to a vertex under-lifts samples near holes; #31), else the vertex index.
+ */
+function crossingPosMm(seg, c, ic, step) {
+  const pts = seg.pts;
+  if (!c.at || !pts || pts.length < 2) return ic * step;
+  let best = Infinity, pos = ic * step;
+  const cumArr = [0];
+  for (let j = 1; j < pts.length; j++) cumArr.push(cumArr[j - 1] + dist(pts[j - 1], pts[j]));
+  const Lc = cumArr[cumArr.length - 1] || 1, scale = seg.length / Lc;
+  for (let j = 1; j < pts.length; j++) {
+    const a = pts[j - 1], b = pts[j];
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ap = [c.at[0] - a[0], c.at[1] - a[1], c.at[2] - a[2]];
+    const ll = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2] || 1;
+    const t = Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ll));
+    const q = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
+    const d = dist(q, c.at);
+    if (d < best) { best = d; pos = (cumArr[j - 1] + t * (cumArr[j] - cumArr[j - 1])) * scale; }
+  }
+  return pos;
+}
+
+/**
+ * Stack lift as a function of the along-leg position x (mm, 0 … seg.length), 6a.17.
+ * Evaluated directly at densified display samples (no linear interpolation of vertex values).
+ * @returns {(x: number) => number}
+ */
+export function stackProfileFn(A, seg) {
+  const n = seg.pts.length;
   const w = A.params.w_mm, kLift = DISPLAY_STACK_LIFT_W;
   const step = seg.length / Math.max(1, n - 1);
+  const L = step * Math.max(1, n - 1);
+  /** @type {((x: number) => number)[]} */
+  const parts = [];
   for (const c of A.path.crossings) {
     if (c.over !== seg.id) continue;
     const ic = c.over === c.a ? c.iA : c.iB;
@@ -64,15 +104,15 @@ export function stackProfile(A, seg) {
       // Keep prior wedge extent via c.stack (6a.17).
       const half = c.halfMm ?? Math.max(w, c.lenMm / 2);
       const taper = Math.max(w, half);
-      const iTop = c.iA <= 2 ? 0 : n - 1, zoneN = Math.ceil((c.lenMm || half) / step);
-      for (let i = 0; i < n; i++) {
-        const dz = Math.abs(i - iTop);
-        const t = dz <= zoneN ? 1 : dz >= zoneN + taper / step ? 0
-          : 0.5 * (1 + Math.cos(Math.PI * (dz - zoneN) * step / taper));
-        prof[i] = Math.max(prof[i], stack * kLift * w * t);
-      }
+      const xTop = c.iA <= 2 ? 0 : L, zone = Math.ceil((c.lenMm || half) / step) * step;
+      parts.push((x) => {
+        const dz = Math.abs(x - xTop);
+        const t = dz <= zone ? 1 : dz >= zone + taper ? 0 : 0.5 * (1 + Math.cos(Math.PI * (dz - zone) / taper));
+        return stack * kLift * w * t;
+      });
       continue;
     }
+    const xc = crossingPosMm(seg, c, ic, step);
 
     if (c.kind === 'climb') {
       // δ = how far the new axis sits inside the prior tube (≈ w − dmin).
@@ -81,12 +121,11 @@ export function stackProfile(A, seg) {
       const peak = kLift * Math.sqrt(Math.max(0, 2 * w * delta - delta * delta)) * stack;
       if (peak <= 0) continue;
       const half = Math.max(w, c.lenMm / 2, c.climbMm || 0, c.halfMm || w);
-      for (let i = 0; i < n; i++) {
-        const ds = Math.abs(i - ic) * step;
-        if (ds > half) continue;
-        const t = ds <= half * 0.5 ? 1 : 0.5 * (1 + Math.cos(Math.PI * (ds - half * 0.5) / (half * 0.5)));
-        prof[i] = Math.max(prof[i], peak * t);
-      }
+      parts.push((x) => {
+        const ds = Math.abs(x - xc);
+        if (ds > half) return 0;
+        return peak * (ds <= half * 0.5 ? 1 : 0.5 * (1 + Math.cos(Math.PI * (ds - half * 0.5) / (half * 0.5))));
+      });
       continue;
     }
 
@@ -95,12 +134,11 @@ export function stackProfile(A, seg) {
       const psi = (c.angleDeg != null ? c.angleDeg : 90) * Math.PI / 180;
       const sinPsi = Math.max(0.05, Math.abs(Math.sin(psi)));
       const half = w / sinPsi;
-      for (let i = 0; i < n; i++) {
-        const ds = Math.abs(i - ic) * step;
-        if (ds > half) continue;
-        const lift = kLift * Math.sqrt(Math.max(0, w * w - ds * ds * sinPsi * sinPsi)) * stack;
-        prof[i] = Math.max(prof[i], lift);
-      }
+      parts.push((x) => {
+        const ds = Math.abs(x - xc);
+        if (ds > half) return 0;
+        return kLift * Math.sqrt(Math.max(0, w * w - ds * ds * sinPsi * sinPsi)) * stack;
+      });
       continue;
     }
 
@@ -113,14 +151,13 @@ export function stackProfile(A, seg) {
     const peak = liftFromDist(d, w, kLift) * stack;
     if (peak <= 0) continue;
     const half = Math.max(w, c.lenMm / 2, c.halfMm || 0);
-    for (let i = 0; i < n; i++) {
-      const ds = Math.abs(i - ic) * step;
-      if (ds > half) continue;
-      const t = 0.5 * (1 + Math.cos(Math.PI * Math.min(1, ds / half)));
-      prof[i] = Math.max(prof[i], peak * t);
-    }
+    parts.push((x) => {
+      const ds = Math.abs(x - xc);
+      if (ds > half) return 0;
+      return peak * 0.5 * (1 + Math.cos(Math.PI * Math.min(1, ds / half)));
+    });
   }
-  return prof;
+  return (x) => { let v = 0; for (const f of parts) v = Math.max(v, f(x)); return v; };
 }
 
 const lift = (p, r) => mul(unit(p), r);
@@ -183,7 +220,11 @@ export function displayGeometry(A, segIds = null, opts = {}) {
       const dive0 = clear0 < w / 4 ? 0 : Math.min(DIVE_W * w, clear0); // 0 ⇒ vertical drop
       const dive1 = clear1 < w / 4 ? 0 : Math.min(DIVE_W * w, clear1);
       const zone = Math.max(dive0, dive1, DIVE_W * w) + 0.5;
-      const { P, V, X, L } = densifyEnds(s.pts, prof0, zone, 0.08);
+      const { P, V: V0, X, L } = densifyEnds(s.pts, prof0, zone, 0.08);
+      // #31: evaluate the display lift at the densified samples (tent centre at the true crossing point),
+      // not a linear interpolation of vertex values.
+      const fProf = mech ? null : stackProfileFn(A, s);
+      const V = fProf ? X.map((x) => fProf(x * (s.length / (L || 1)))) : V0;
       let liftMax = 0;
       const pts = P.map((p, i) => {
         liftMax = Math.max(liftMax, V[i]);

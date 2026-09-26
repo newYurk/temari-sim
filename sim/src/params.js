@@ -23,8 +23,8 @@ export const PARAM_SCHEMA = [
 
   { key: 'N', group: 'marking', label: 'Division count (Simple N)', type: 'select', def: 8, options: [4, 6, 8, 10, 12, 16],
     basis: 'TK-GT14 “Simple 8 division”; kiku of 2 sets needs even N', status: 'source', used: 'geometry' },
-  { key: 'm_mm', group: 'marking', label: 'Marking thread width m, mm', type: 'number', def: 1.0, min: 0.1, max: 2, step: 0.05,
-    basis: 'TK-GAUGE “Rainbow Gallery Nordic Gold – 1 strand = 1mm” (only gold-metallic gauge in sources; marking often thinner → upper estimate)',
+  { key: 'm_mm', group: 'marking', label: 'Marking thread width m, mm', type: 'number', def: 0.5, min: 0.1, max: 2, step: 0.05,
+    basis: 'Spec 6a.22 (U10/A18): Kreinik Fine #8 “approximately .50 mm”, marking “a bit finer” than the design thread; estimate (b), range 0.35–0.78; 1.0 = stress value only (S16)',
     status: 'default', used: 'geometry: E/X position' },
 
   // Thread defaults match sim/data/materials/dmc-perle-5.json (estimate/analogue provenance; not measured-on-#5).

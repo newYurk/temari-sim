@@ -59,23 +59,22 @@ const PREWARM = [
   { cost: 10, N: 96, raw: { C_mm: 300, topMode: 'fracQ', sTopFrac: 5 / 60, w_mm: 0.714 * 1.25, m_mm: 1.25, startRun_mm: 35 * 1.25, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32 } }, // 9
   { cost: 10, N: 96, raw: { C_mm: 240, topMode: 'fracQ', sTopFrac: 5 / 60, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: 0.32, muWrap: 0.32 } }, // 10
   { cost: 6, N: 192, raw: { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0.32, rowsMode: 'untilEquator' } }, // 11
-  // 12: block 2c (S16) has no gate of its own (a gate line there would break the #31 stash), so every worker
-  // runs it; precomputing its build lets all but one worker read it from the shared cache.
-  { cost: 12, N: 96, raw: { N: 16 } }, // 12
+  // 12: block 2c (S16 at the default m, 4 mm top; #31).
+  { cost: 12, N: 96, raw: { N: 16, sTop_mm: 4 } }, // 12
   // 13…: the builds of 8d0f (stability.mjs), in stabilityBuilds() order.
   // validate: also precompute the validator statuses (validatorStatuses); cost = compute + validate.
   ...stabilityBuilds().map((b) => ({ cost: b.N === 384 ? 17 : b.raw.shoulderForm === 'geodesic' ? 2 : b.raw.bowLambda >= 0.6 ? 20 : 13, validate: true, ...b })),
 ];
 const GROUP_COST = {
-  pre: { cost: 6 }, '2b-2c': { cost: 9, uses: [9, 10, 12] }, 3: { cost: 6 }, 4: { cost: 5 }, 5: { cost: 0 }, 6: { cost: 3 },
+  pre: { cost: 6 }, '2b': { cost: 4, uses: [9, 10] }, '2c': { cost: 8, uses: [12] }, 3: { cost: 6 }, 4: { cost: 5 }, 5: { cost: 0 }, 6: { cost: 3 },
   7: { cost: 6 }, 8: { cost: 14 }, '8b': { cost: 18 }, '8b2': { cost: 16 },
-  '8c-8d0': { cost: 45, uses: [0, 1, 2, 3, 5, 6, 7, 11] }, '8d0a': { cost: 4, uses: [1, 5, 6] }, '8d0c': { cost: 1, uses: [4, 6, 8] },
+  '8c': { cost: 45, uses: [0, 1, 2, 3, 5, 6, 7, 11] }, '8d0': { cost: 1 }, '8d0a': { cost: 4, uses: [1, 5, 6] }, '8d0c': { cost: 1, uses: [4, 6, 8] },
   '8d0f': { cost: 2, uses: stabilityBuilds().map((_, j) => 13 + j) },
   '8d0b': { cost: 5 }, '8d': { cost: 14, uses: [6] }, '8e': { cost: 7, uses: [7, 11] }, '8f': { cost: 4, uses: [6] }, '8g': { cost: 8 },
   '8h': { cost: 20 }, '8i': { cost: 45, uses: [5, 6] }, 9: { cost: 3 },
 };
 // --quick skips the fine grids (192/384) and the long untilEquator λ sweeps.
-const QUICK_SKIP = new Set(['8c-8d0', '8d0a', '8d0c', '8d0f', '8d', '8e', '8i']);
+const QUICK_SKIP = new Set(['8c', '8d0a', '8d0c', '8d0f', '8d', '8e', '8i']);
 
 // ---- computeAll memo -------------------------------------------------------------------------------------
 const recipeKeys = new WeakMap();

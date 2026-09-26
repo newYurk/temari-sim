@@ -12,6 +12,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', '..', 'samples', 'kiku-s8'))
 import calc  # noqa: E402
 
+def sim_defaults():
+    """Default parameters from sim/src/params.js (single source of truth, e.g. the default marking width m)."""
+    import subprocess
+    root = os.path.join(HERE, '..', '..')
+    js = "import {defaults} from './sim/src/params.js'; console.log(JSON.stringify(defaults()))"
+    out = subprocess.run(['node', '--input-type=module', '-e', js], cwd=root, check=True, capture_output=True, text=True)
+    return json.loads(out.stdout)
+
 def key(C, w, m, N, s_top, bfe, rule, run):
     return f"C={C:g}|w={w:g}|m={m:g}|N={N}|sTop={s_top:.6f}|bfe={bfe:.6f}|start={rule}:{run:g}"
 
@@ -84,12 +92,19 @@ def one(C, w, m, N, s_top=5.0, bfe=1/3, rule='TK-ANCHOR', run=35.0):
 
 def main():
     out = []
-    grid = itertools.product((200.0, 230.0, 240.0, 250.0, 300.0), (0.714, 0.75, 1.0), (0.5, 1.0), (8, 16))
+    # Marking widths: the current default m from params.js (6a.22: 0.5 for GT14) plus m = 1.0 kept as the
+    # stress value (S16). Changing the default m in params.js and re-running this script is all it takes.
+    m_def = float(sim_defaults()['m_mm'])
+    ms = tuple(sorted({0.5, 1.0, m_def}))
+    grid = itertools.product((200.0, 230.0, 240.0, 250.0, 300.0), (0.714, 0.75, 1.0), ms, (8, 16))
     for C, w, m, N in grid:
         out.append(one(C, w, m, N))
-    out.append(one(240.0, 0.714, 1.0, 8, rule='OLY-BASIC', run=25.0))
-    # замысел «верх = доля Q» при C=300: s_top = (5/60)*75
-    out.append(one(300.0, 0.714, 1.0, 8, s_top=0.0833 * 75.0))
+    for m in sorted({m_def, 1.0}):
+        out.append(one(240.0, 0.714, m, 8, rule='OLY-BASIC', run=25.0))
+        # intent "top = fraction of Q" at C=300: s_top = (5/60)*75
+        out.append(one(300.0, 0.714, m, 8, s_top=0.0833 * 75.0))
+    # S16 at the default m with the 4 mm top (6a.22: with thin marking a 5 mm top no longer reaches the neighbour line)
+    out.append(one(240.0, 0.714, m_def, 16, s_top=4.0))
     dst = os.path.join(HERE, '..', 'data', 'calc_reference.json')
     json.dump(dict(generator='sim/tools/calc_reference.py → samples/kiku-s8/calc.py + G3/D36 closing squeeze',
                    entries=out),
