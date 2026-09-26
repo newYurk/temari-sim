@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { point, unit, mul, add, sub, norm, dist, cross, fPoint } from './geom.js';
-import { tubeMesh } from './tube.js';
+import { TWIST_COLOR, tubeMesh } from './tube.js';
 import { displayGeometry } from './display.js';
 import { t } from './i18n.js';
 import { WrapBaker } from './wrap-bake.js';
@@ -72,18 +72,39 @@ function tubeGeometry(pts, radius, colorAt, radial = 14, caps = true, look = nul
   return g;
 }
 
-/** #44: GLSL of twistShade (tube.js) — the same formula per fragment. */
-export const TWIST_GLSL = '{ float g = 0.5 - 0.5 * cos(uPlies * (vTw.x - 6.28318530718 * vTw.y / uPitch)); diffuseColor.rgb *= 1.0 - 0.55 * uTwist * smoothstep(0.55, 1.0, g); }';
+/** #44: GLSL of twistShade (tube.js) — the same formula per fragment, faded out where one groove period is under ~2 px
+ *  (fwidth of the phase), so distant threads show a fine texture instead of barber-pole stripes. Sets twPh / twFade. */
+export const TWIST_GLSL = `float twPh = uPlies * (vTw.x - 6.28318530718 * vTw.y / uPitch);
+  float twFade = 1.0 - smoothstep(0.8, 2.4, fwidth(twPh));
+  { float g = 0.5 - 0.5 * cos(twPh); diffuseColor.rgb *= 1.0 - ${TWIST_COLOR.toFixed(2)} * uTwist * twFade * smoothstep(0.55, 1.0, g); }`;
+/** #44 (Perplexity review): the groove relief in the normal (surface gradient of the phase from screen derivatives,
+ *  tilt ∝ d(groove)/dφ, faded like the colour), then edge darkening by N·V of the unbumped normal. */
+const TWIST_NORMAL_GLSL = `{
+    float g = 0.5 - 0.5 * cos(twPh), x = clamp((g - 0.55) / 0.45, 0.0, 1.0);
+    float dh = -6.0 * x * (1.0 - x) / 0.45 * 0.5 * sin(twPh);
+    vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);
+    vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx);
+    float det = dot(dpx, r1);
+    vec3 gph = (dFdx(twPh) * r1 + dFdy(twPh) * r2) * sign(det);
+    float lg = length(gph);
+    if (lg > 1e-8) normal = normalize(normal - 0.45 * uTwist * twFade * dh * gph / lg);
+  }
+  diffuseColor.rgb *= 1.0 - uEdge * (1.0 - smoothstep(0.0, 0.75, abs(dot(nGeom, normalize(vViewPosition)))));`;
 /** #44 (render only): thread material of a look — sheen / roughness / metalness of the type, ply twist per fragment,
  *  an environment map for metallic types (without it metal renders black). */
 function lookMaterial(look, env, extra = {}) {
-  const mat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: look.roughness, metalness: look.metalness, sheen: look.sheen, sheenRoughness: 0.5,
-    sheenColor: new THREE.Color(0xffffff), side: THREE.DoubleSide, envMap: look.metalness > 0 ? env : null, envMapIntensity: 1.8, ...extra });
-  const u = { uTwist: { value: look.twist || 0 }, uPitch: { value: look.pitch_mm || 1 }, uPlies: { value: look.plies || 2 } };
+  // #44 review: sheen in the thread's own colour (sheenColor × diffuse in the shader), low specular for cotton
+  const mat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: look.roughness, metalness: look.metalness, sheen: look.sheen, sheenRoughness: look.sheenRoughness ?? 0.5,
+    sheenColor: new THREE.Color(0xffffff), specularIntensity: look.specular ?? 1, clearcoat: 0, side: THREE.DoubleSide, envMap: look.metalness > 0 ? env : null, envMapIntensity: 1.8, ...extra });
+  const u = { uTwist: { value: look.twist || 0 }, uPitch: { value: look.pitch_mm || 1 }, uPlies: { value: look.plies || 2 }, uEdge: { value: look.edge || 0 } };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, u);
     sh.vertexShader = 'attribute vec2 aTw;\nvarying vec2 vTw;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vTw = aTw;');
-    sh.fragmentShader = 'uniform float uTwist;\nuniform float uPitch;\nuniform float uPlies;\nvarying vec2 vTw;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  ' + TWIST_GLSL);
+    sh.fragmentShader = 'uniform float uTwist;\nuniform float uPitch;\nuniform float uPlies;\nuniform float uEdge;\nvarying vec2 vTw;\n' + sh.fragmentShader
+      .replace('#include <color_fragment>', '#include <color_fragment>\n  ' + TWIST_GLSL)
+      .replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n  vec3 nGeom = normal;')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n  ' + TWIST_NORMAL_GLSL)
+      .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n#ifdef USE_SHEEN\n  material.sheenColor *= diffuseColor.rgb;\n#endif');
   };
   mat.customProgramCacheKey = () => 'thread-twist';
   return mat;

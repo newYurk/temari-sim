@@ -8,8 +8,9 @@
 import * as THREE from 'three';
 import { sewCover, wrapLayerAxes, mulberry32, WRAP_GPU_MAX, WRAP_BAKE, WRAP_SEED, WRAP_LAYERS } from './wrap.js';
 
-/** #44: the layers under the top strand show at 60 % of their darkening (0.84 → 0.90, 0.72 → 0.83) — lower line contrast. */
-export const WRAP_SHADE_SOFT = 0.6;
+/** #44: the layers under the top strand show at 45 % of their darkening (0.84 → 0.93, 0.72 → 0.87) — lower line contrast
+ *  (Perplexity review: strand brightness variation ±8–12 %, the 3fe6f3d wrap was noisier than the reference). */
+export const WRAP_SHADE_SOFT = 0.45;
 
 const bakeVert = /* glsl */ `
 varying vec2 vUv;
@@ -35,8 +36,8 @@ vec3 threadCol(vec3 p, vec4 axd, float t, float idx) {
   // hair: fine fibre noise along the strand (position along the circle), fixed by the strand index
   float along = atan(dot(p, normalize(cross(ax, vec3(0.31, 0.83, 0.47)))), dot(p, normalize(cross(ax, cross(ax, vec3(0.31, 0.83, 0.47))))));
   float fib = hash13(vec3(floor(along * 2400.0), floor(t * 6.0), idx));
-  // #44: softer strand contrast (round-profile shading 0.93…1.03, fibre noise ×0.16) — the wrap reads as a dense layer
-  return uColor * axd.w * mix(0.93, 1.03, rnd) * (1.0 + uHair * 0.16 * (fib - 0.5));
+  // #44: softer strand contrast (round-profile shading 0.95…1.02, fibre noise ×0.16) — the wrap reads as a dense layer
+  return uColor * axd.w * mix(0.95, 1.02, rnd) * (1.0 + uHair * 0.16 * (fib - 0.5));
 }
 void main() {
   // three.js SphereGeometry: u → azimuth, v → polar angle θ = (1 − v)·π; x = −cos(2πu) sin θ, y = cos θ, z = sin(2πu) sin θ
@@ -142,7 +143,7 @@ export class WrapBaker {
     WRAP_LAYERS.forEach((L, row) => {
       const ax = wrapLayerAxes(wraps, row);
       const dyeRnd = mulberry32(row === 0 ? WRAP_SEED ^ 0x5bd1e995 : L.seed ^ 0x5bd1e995);
-      for (let i = 0; i < wraps; i++) data.set([ax[3 * i], ax[3 * i + 1], ax[3 * i + 2], 0.9 + 0.12 * dyeRnd()], 4 * (row * wraps + i));   // #44: dye spread 0.2 → 0.12 (same mean 0.96)
+      for (let i = 0; i < wraps; i++) data.set([ax[3 * i], ax[3 * i + 1], ax[3 * i + 2], 0.92 + 0.08 * dyeRnd()], 4 * (row * wraps + i));   // #44: dye spread 0.2 → 0.08 (same mean 0.96)
     });
     const axTex = new THREE.DataTexture(data, wraps, WRAP_LAYERS.length, THREE.RGBAFormat, THREE.FloatType);
     axTex.minFilter = axTex.magFilter = THREE.NearestFilter; axTex.needsUpdate = true;

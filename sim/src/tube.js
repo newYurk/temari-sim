@@ -59,10 +59,12 @@ export function tubeMesh(pts, radius, radial = 14, caps = false) {
 }
 
 /** #44 (render only): brightness factor of the ply shading at angle a around the tube and arc length s along it —
- *  plies helical grooves of lay length pitch; depth twist ∈ [0, 1] (0 → 1 everywhere). Range [1 − 0.55·twist, 1]. */
+ *  plies helical grooves of lay length pitch; depth twist ∈ [0, 1] (0 → 1 everywhere). Range [1 − TWIST_COLOR·twist, 1]:
+ *  the colour part stays ≤ 10 % (Perplexity review); the relief goes into the normal in render.js. */
+export const TWIST_COLOR = 0.16;
 export function twistShade(a, s, { twist = 0, pitch_mm = 1, plies = 2 } = {}) {
   if (!(twist > 0) || !(pitch_mm > 0)) return 1;
   const ph = plies * (a - 2 * Math.PI * s / pitch_mm);
   const g = 0.5 - 0.5 * Math.cos(ph), x = Math.max(0, Math.min(1, (g - 0.55) / 0.45));
-  return 1 - 0.55 * twist * x * x * (3 - 2 * x);   // = GLSL smoothstep(0.55, 1, g)
+  return 1 - TWIST_COLOR * twist * x * x * (3 - 2 * x);   // = GLSL smoothstep(0.55, 1, g)
 }

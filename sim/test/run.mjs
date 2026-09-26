@@ -2756,7 +2756,7 @@ if (G('8z'))
 {
   console.log('\n## #44: thread look by thread type (render only)');
   const Pm = await import('../src/params.js');
-  const { tubeMesh, twistShade } = await import('../src/tube.js');
+  const { tubeMesh, twistShade, TWIST_COLOR } = await import('../src/tube.js');
   const L = Pm.THREAD_LOOKS, keys = Object.keys(L);
   check(keys.join() === 'sewing,perle-8,perle-5,metallic-gold,metallic-silver'
     && keys.every((k) => L[k].diameter_mm > 0 && /^#[0-9a-f]{6}$/.test(L[k].color) && L[k].roughness >= 0 && L[k].roughness <= 1 && L[k].metalness >= 0 && L[k].metalness <= 1
@@ -2765,11 +2765,11 @@ if (G('8z'))
     'presets sewing / pearl #8 / pearl #5 / metallic gold / silver: diameter, colour, roughness, metalness, sheen, twist (pitch, plies), status and source; pearl #5 = w default, metallic = m default (Kreinik Fine #8)');
   const look = PARAM_SCHEMA.filter((p) => p.group === 'look');
   check(look.map((p) => p.key).join() === 'threadLook,jiwariLook,jiwariDiameter_mm,jiwariColor' && look.every((p) => p.basis && p.status && /render only/.test(p.used))
-    && defaults().jiwariLook === 'metallic-gold' && defaults().threadLook === 'perle-5',
-    'look params (group f, render only): threadLook (default pearl #5), jiwariLook (default metallic gold), jiwariDiameter_mm, jiwariColor');
+    && defaults().jiwariLook === 'perle-8' && defaults().threadLook === 'perle-5' && L['perle-8'].color === '#ede3c8' && L['metallic-gold'].metalness === 1,
+    'look params (group f, render only): threadLook (default pearl #5), jiwariLook (default pearl #8 cream, #44 answer 1), jiwariDiameter_mm, jiwariColor');
   const n1 = Pm.normalizeParams({ jiwariLook: 'sewing' }), n2 = Pm.normalizeParams({ jiwariLook: 'perle-8', jiwariDiameter_mm: 0.7, jiwariColor: '#FFFFFF' }), n0 = Pm.normalizeParams({});
   check(n1.jiwariDiameter_mm === 0.25 && n1.jiwariColor === L.sewing.color && n2.jiwariDiameter_mm === 0.7 && n2.jiwariColor === '#ffffff'
-    && n0.jiwariDiameter_mm === 0.5 && n0.jiwariColor === L['metallic-gold'].color && Pm.defaults({ jiwariLook: 'perle-8' }).jiwariDiameter_mm === 0.5 && !n1._errors.length,
+    && n0.jiwariDiameter_mm === 0.5 && n0.jiwariColor === L['perle-8'].color && Pm.defaults({ jiwariLook: 'perle-8' }).jiwariDiameter_mm === 0.5 && !n1._errors.length,
     'jiwari diameter / colour follow the jiwari type unless set (sewing → 0.25 mm; explicit 0.7 mm / #ffffff kept)');
   // render only: no layer input, identical pipeline and validators under every look
   const specs = recipe.layers.flatMap((l) => l.inputs || []);
@@ -2783,9 +2783,9 @@ if (G('8z'))
   const m = tubeMesh([[0, 0, 0], [1, 0, 0], [2, 0.1, 0]], 0.3, 8, true), lk = L['perle-5'];
   let lo = 1, hi = 0;
   for (let a = 0; a < 6.3; a += 0.01) for (const s of [0, 0.37, 1.1]) { const v = twistShade(a, s, lk); lo = Math.min(lo, v); hi = Math.max(hi, v); }
-  check(m.ang.length === m.pos.length && m.arc.length === m.pos.length && twistShade(1, 2, { twist: 0 }) === 1 && Math.abs(lo - (1 - 0.55 * lk.twist)) < 1e-3 && hi === 1
+  check(m.ang.length === m.pos.length && m.arc.length === m.pos.length && twistShade(1, 2, { twist: 0 }) === 1 && Math.abs(lo - (1 - TWIST_COLOR * lk.twist)) < 1e-3 && TWIST_COLOR * Math.max(...keys.map((k) => L[k].twist)) <= 0.1 && hi === 1
     && Math.abs(twistShade(0.3, 0.2, lk) - twistShade(0.3 + 2 * Math.PI / lk.plies, 0.2, lk)) < 1e-12 && Math.abs(twistShade(0.3, 0.2, lk) - twistShade(0.3, 0.2 + lk.pitch_mm / lk.plies, lk)) < 1e-12,
-    `ply shading: tube carries around / along coordinates; range [1 − 0.55·twist, 1] (pearl #5 ${lo.toFixed(3)}…${hi}); period 2π/plies around, pitch/plies along`);
+    `ply shading: tube carries around / along coordinates; colour range [1 − TWIST_COLOR·twist, 1] ≤ 10 % (pearl #5 ${lo.toFixed(3)}…${hi}); period 2π/plies around, pitch/plies along`);
 }
 
 if (G('9'))

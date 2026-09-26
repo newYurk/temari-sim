@@ -22,18 +22,20 @@ export const GROUPS = {
  *  roughness / metalness / sheen → three.js MeshPhysicalMaterial; twist = depth of the ply shading (0…1), pitch_mm = lay
  *  length of one ply turn, plies = number of plies. */
 export const THREAD_LOOKS = {
-  sewing: { label: 'sewing thread (thin, matte)', diameter_mm: 0.25, color: '#f4f0e6', roughness: 0.8, metalness: 0, sheen: 0.1, twist: 0.15, pitch_mm: 0.6, plies: 3,
+  sewing: { label: 'sewing thread (thin, matte)', diameter_mm: 0.25, color: '#f4f0e6', roughness: 0.8, metalness: 0, sheen: 0.2, sheenRoughness: 0.5, specular: 0.3, edge: 0.25, twist: 0.15, pitch_mm: 0.6, plies: 3,
     status: 'estimate', source: 'Suess (book photo): thin marking close to the wrap; sewing thread #50–60 ≈ 0.2–0.3 mm (estimate)' },
-  'perle-8': { label: 'pearl cotton #8', diameter_mm: 0.5, color: '#f1e6cc', roughness: 0.45, metalness: 0, sheen: 0.3, twist: 0.55, pitch_mm: 1.1, plies: 2,
+  'perle-8': { label: 'pearl cotton #8', diameter_mm: 0.5, color: '#ede3c8', roughness: 0.55, metalness: 0, sheen: 0.7, sheenRoughness: 0.35, specular: 0.3, edge: 0.3, twist: 0.55, pitch_mm: 1.1, plies: 2,
     status: 'estimate', source: 'DMC Pearl Cotton #8 ≈ 0.5 mm (estimate); Temari Bunko 二色重ね菊: cream jiwari 0.6–0.8 mm, 4–5× the wrap strand' },
-  'perle-5': { label: 'pearl cotton #5', diameter_mm: 0.714, color: '#f1e6cc', roughness: 0.4, metalness: 0, sheen: 0.3, twist: 0.6, pitch_mm: 1.6, plies: 2,
+  'perle-5': { label: 'pearl cotton #5', diameter_mm: 0.714, color: '#ede3c8', roughness: 0.5, metalness: 0, sheen: 0.7, sheenRoughness: 0.35, specular: 0.3, edge: 0.3, twist: 0.6, pitch_mm: 1.6, plies: 2,
     status: 'default', source: 'DMC Pearl Cotton #5: materials/dmc-perle-5.json (w 0.714 mm, TK-GAUGE); twist visible at close range (Suess photo)' },
-  'metallic-gold': { label: 'metallic gold', diameter_mm: 0.5, color: '#d2a53a', roughness: 0.3, metalness: 0.85, sheen: 0, twist: 0.3, pitch_mm: 0.8, plies: 3,
+  'metallic-gold': { label: 'metallic gold', diameter_mm: 0.5, color: '#c9a55a', roughness: 0.3, metalness: 1, sheen: 0, sheenRoughness: 0.5, specular: 1, edge: 0, twist: 0.3, pitch_mm: 0.8, plies: 3,
     status: 'estimate', source: 'Kreinik Fine #8 braid “approximately .50 mm” (spec 6a.22 — the m default); metallic gold marking in TemariKai patterns' },
-  'metallic-silver': { label: 'metallic silver', diameter_mm: 0.5, color: '#c9cdd3', roughness: 0.3, metalness: 0.85, sheen: 0, twist: 0.3, pitch_mm: 0.8, plies: 3,
+  'metallic-silver': { label: 'metallic silver', diameter_mm: 0.5, color: '#c9cdd3', roughness: 0.3, metalness: 1, sheen: 0, sheenRoughness: 0.5, specular: 1, edge: 0, twist: 0.3, pitch_mm: 0.8, plies: 3,
     status: 'estimate', source: 'Kreinik Fine #8 braid ≈ 0.5 mm; silver marking in Barb Suess 42-centre posts' },
 };
-export const JIWARI_LOOK_DEFAULT = 'metallic-gold';
+// #44 (owner/coordinator 2026-09-26): default jiwari = pearl #8 in cream, 0.5 mm (Temari Bunko 二色重ね菊 / 菊 9.6 cm);
+// gold metallic stays a preset (obi lattice). sheen / sheenRoughness / specular / edge (edge darkening): Perplexity review, render only.
+export const JIWARI_LOOK_DEFAULT = 'perle-8';
 export const THREAD_LOOK_DEFAULT = 'perle-5';
 /** The look of a thread type (unknown → fallback type). */
 export function threadLookOf(type, fallback = THREAD_LOOK_DEFAULT) {
@@ -185,7 +187,7 @@ export const PARAM_SCHEMA = [
     used: 'render only: sheen, twist shading of the laid thread' },
   { key: 'jiwariLook', group: 'look', label: 'Marking (jiwari) look (type)', type: 'select', def: JIWARI_LOOK_DEFAULT, options: Object.keys(THREAD_LOOKS),
     optionLabels: Object.fromEntries(Object.entries(THREAD_LOOKS).map(([k, v]) => [k, v.label])),
-    basis: '#44: metallic gold / silver, pearl cotton or thin sewing thread; Temari Bunko: 4–5× thicker than the wrap; Suess: thin, close to the wrap', status: 'intent',
+    basis: '#44: default pearl #8 cream 0.5 mm (Temari Bunko: cream jiwari 4–5× thicker than the wrap); also metallic gold / silver, pearl #5, thin sewing thread (Suess)', status: 'intent',
     used: 'render only: sets the default jiwari diameter and colour, sheen and twist' },
   { key: 'jiwariDiameter_mm', group: 'look', label: 'Marking (jiwari) visual diameter, mm', type: 'number', def: THREAD_LOOKS[JIWARI_LOOK_DEFAULT].diameter_mm, min: 0.1, max: 1.5, step: 0.05,
     basis: '#44: default from the jiwari type (estimate); the model marking width m (geometry) is a separate input', status: 'estimate',
