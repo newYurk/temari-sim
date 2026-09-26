@@ -1,5 +1,6 @@
 {
   "id": "kiku-s8-gt14",
+  "schema": 2,
   "title": "Кику S8 (八重菊, 2 набора × N/2 лепестков) — 上掛け千鳥かがり, по TemariKai GT14; порядок рядов — замысел (по ряду GT14 / блоками Suess 2014)",
   "derivedFrom": "samples/kiku-s8/recipe.md (шаги 3–9), thread-path.md (шаги 1–9)",
   "note": "Рецепт хранит ЗАМЫСЕЛ и операции иглы, а не координаты. Все координаты выводит генератор пути из параметров и из того, что уже лежит на шаре (последовательное шитьё). Ширины захвата и сдвигов верха/низа здесь нет (D16, D24): E/X, уровни рядов n ≥ 2 и порядок над/под выводятся.",
@@ -73,7 +74,8 @@
     },
     {
       "id": "marking",
-      "type": "simpleDivision",
+      "type": "graph",
+      "generator": "S_N",
       "inputs": [
         "N",
         "m_mm"
@@ -105,6 +107,13 @@
       "note": "План уровней по формуле (замысел «сколько рядов»). Фактические уровни рядов n ≥ 2 выводит генератор пути (levels.next) и сверяет с планом."
     }
   ],
+  "kiku": {
+    "center": "P.N",
+    "halfLines": "L(P.N, azimuth=k)",
+    "stop": "region(P.N, until=C.eq)",
+    "text": "кику вокруг точки разметки: центр, его полулинии по азимуту, стоп K12 — граница области (схема рецепта v2, #52: адреса разметки вместо индексов и полюса)",
+    "basis": "TK-GT14 «Simple 8 division», «Work to the equator»; spec stage3-arch §1.2"
+  },
   "stages": {
     "2a": {
       "text": "один проход: скрытый старт A → нижний стежок у L1 → подход к первой верхней точке L2",
@@ -146,7 +155,7 @@
   "kagari": {
     "start": {
       "exit": {
-        "line": 0,
+        "line": "start",
         "level": "top",
         "side": "left",
         "text": "выход нити вплотную слева от занятого у линии старта на уровне верха",
@@ -180,7 +189,7 @@
     ],
     "patternBasis": "TK-GT14: «Move 1 marking line to the right and take small stitch just below pin. Move 1 line to the right, and take a small top stitch»",
     "closing": {
-      "line": "startLine",
+      "line": "start",
       "level": "top",
       "passUnder": [
         "roundFirstLeg"
@@ -232,7 +241,7 @@
       {
         "set": "A",
         "thread": "A",
-        "startLine": 0,
+        "start": "L(P.N, azimuth=0)",
         "row1": {
           "begin": "hiddenStart",
           "basis": "TK-GT14 «With Color A, enter … just to the left of one marking line, 5 mm down from the NP»; recipe.md шаги 4–9"
@@ -245,7 +254,7 @@
       {
         "set": "B",
         "thread": "B",
-        "startLine": 1,
+        "start": "L(P.N, azimuth=1)",
         "row1": {
           "begin": "hiddenStart",
           "basis": "TK-GT14 «Enter a length of Color B on a marking line that has a bottom stitch of Color A. Keep to the same 5mm distance from the NP … Repeat the Chidori sequence … Complete the stitch but then allow the thread to park»"

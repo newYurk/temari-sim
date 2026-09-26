@@ -160,6 +160,8 @@ function recompute(first = false) {
   const errs = A.params._errors;
   $('perr').textContent = errs.length ? t('err.inputs', { errs: errs.join('; ') }) : '';
   R3.buildStatic(A);   // #43: plain wrap colour first (or a cached bake); the bake itself runs after the first frame
+  if (A.markingOnly) { showMarkingOnly(first); return; }
+  window.__sim.markingOnly = false;
   if (first) {
     R3.view(state.view, A.base.R, q.has('dist') ? Number(q.get('dist')) : null, q.has('dir') ? q.get('dir').split(',').map(Number) : null);
     const fq = q.get('focus');
@@ -273,7 +275,26 @@ function scheduleValidation() {
 
 /** Stage id for captions; 'all' is shown by its localized name (RU «весь узор»). */
 function stageName(stage) { return stage === 'all' ? t('stage.all') : stage; }
+/** #52 commit 3: a combination marking (C8 / C10 / C6) is drawn without a pattern — no path, stages or validators. */
+function showMarkingOnly(first) {
+  if (first) R3.view(state.view, A.base.R, q.has('dist') ? Number(q.get('dist')) : null, q.has('dir') ? q.get('dir').split(',').map(Number) : null);
+  R3.clearThread();
+  valRun++; V = null; D = null;
+  const st = A.marking.stats, byV = {};
+  for (const p of Object.values(A.marking.graph.points)) byV[p.valence] = (byV[p.valence] || 0) + 1;
+  const byVs = Object.keys(byV).sort((a, b) => Number(b) - Number(a)).map((v) => `${byV[v]} × v${v}`).join(', ');
+  $('opinfo').innerHTML = `<b>${t('marking.only', { gen: A.marking.generator, V: st.V, byV: byVs, E: st.E, F: st.F, L: st.lines })}</b><div class="src">${t('marking.legend')}</div>`;
+  for (const id of ['plan', 'caption', 'lengths', 'validators', 'vsum', 'diagnostics', 'legend']) { const el = $(id); if (el) el.innerHTML = ''; }
+  scheduleWrapBake();
+  syncURL();
+  if (!window.__sim.ready) window.__sim.tReady = performance.now();
+  window.__sim.ready = true;
+  window.__sim.markingOnly = true;
+  window.__sim.markingStats = { ...st, byV };
+}
+
 function setStage(stage, k = null) {
+  if (A.markingOnly) return;
   state.stage = stage;
   document.querySelectorAll('button.stage').forEach((b) => b.classList.toggle('active', b.dataset.stage === stage));
   const kEnd = A.path.stageEnd[stage];
@@ -287,6 +308,7 @@ function setStage(stage, k = null) {
 }
 
 function update() {
+  if (A.markingOnly) return;
   $('step').value = state.k;
   R3.buildThread(A, state.k);
   const op = A.path.ops[state.k];
@@ -543,9 +565,9 @@ document.querySelectorAll('button.stage').forEach((b) => b.addEventListener('cli
 document.querySelectorAll('button[data-view]').forEach((b) => b.addEventListener('click', () => { state.view = b.dataset.view; R3.view(state.view, A.base.R); syncURL(); }));
 $('step').addEventListener('input', (e) => { state.k = Number(e.target.value); update(); });
 $('prev').addEventListener('click', () => { state.k = Math.max(0, state.k - 1); update(); });
-$('next').addEventListener('click', () => { state.k = Math.min(A.path.stageEnd[state.stage], state.k + 1); update(); });
+$('next').addEventListener('click', () => { if (A.markingOnly) return; state.k = Math.min(A.path.stageEnd[state.stage], state.k + 1); update(); });
 $('first').addEventListener('click', () => { state.k = 0; update(); });
-$('last').addEventListener('click', () => { state.k = A.path.stageEnd[state.stage]; update(); });
+$('last').addEventListener('click', () => { if (A.markingOnly) return; state.k = A.path.stageEnd[state.stage]; update(); });
 for (const [id, key] of [['optTransparent', 'transparent'], ['optHidden', 'hidden'], ['optLabels', 'labels'], ['optPins', 'pins']])
   $(id).addEventListener('change', (e) => { R3.opts[key] = e.target.checked; R3.applyOpts(); syncURL(); });
 $('optChord').addEventListener('change', (e) => { R3.opts.hidMode = e.target.checked ? 'chord' : 'surf'; update(); });

@@ -58,6 +58,10 @@ export const PARAM_SCHEMA = [
 
   { key: 'N', group: 'marking', label: 'Division count (Simple N)', type: 'select', def: 8, options: [4, 6, 8, 10, 12, 16],
     basis: 'TK-GT14 “Simple 8 division”; kiku of 2 sets needs even N', status: 'source', used: 'geometry' },
+  { key: 'generator', group: 'marking', label: 'Marking generator', type: 'select', def: 'S_N', options: ['S_N', 'C8', 'C10', 'C6'],
+    optionLabels: { S_N: 'Simple N (the kiku pattern)', C8: 'C8 — 8-combination (marking only)', C10: 'C10 — 10-combination (marking only)', C6: 'C6 — 6 Combination Marking (marking only)' },
+    basis: 'TemariKai Standard Divisions (Simple, C8, C10) and «6 Combination Marking (S6)»; spec stage3-arch §1.3 (#52)', status: 'source',
+    used: 'marking graph; C8 / C10 / C6 are drawn without a pattern (step 1)' },
   { key: 'm_mm', group: 'marking', label: 'Marking thread width m, mm', type: 'number', def: 0.5, min: 0.1, max: 2, step: 0.05,
     basis: 'Spec 6a.22 (U10/A18): Kreinik Fine #8 “approximately .50 mm”, marking “a bit finer” than the design thread; estimate (b), range 0.35–0.78; 1.0 = stress value only (S16)',
     status: 'default', used: 'geometry: E/X position' },

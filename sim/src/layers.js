@@ -5,7 +5,11 @@
 import { pointOnLine, angleWithLine, rad } from './geom.js';
 import { normalizeParams } from './params.js';
 import { buildWork, stageLastOp } from './path.js';
-import { generateSN, graphStats, resolve } from './marking.js';
+import { generateSN, generateC8, generateC10, generateC6, graphStats, resolve } from './marking.js';
+import { normalizeRecipe } from './recipe.js';
+
+/** Marking generators (#52 commit 3). S_N builds the full pipeline; the combination markings are drawn without a pattern. */
+export const GENERATORS = { S_N: null, C8: generateC8, C10: generateC10, C6: generateC6 };
 
 export function canonical(x) {
   if (Array.isArray(x)) return '[' + x.map(canonical).join(',') + ']';
@@ -29,6 +33,17 @@ export function layerBase(recipe, P) {
 
 export function layerMarking(recipe, P, base) {
   const inputs = pick(P, layerSpec(recipe, 'marking').inputs);
+  const gen = P.generator || 'S_N';
+  if (!(gen in GENERATORS)) throw new Error(`marking: unknown generator «${gen}» (S_N, C8, C10, C6)`);
+  const recipeGen = layerSpec(recipe, 'marking').generator || 'S_N';
+  if (recipeGen !== 'S_N') throw new Error(`recipe ${recipe.id}: marking generator «${recipeGen}» — step 1 kiku recipes are on S_N`);
+  if (gen !== 'S_N') {
+    // #52 commit 3: combination marking without a pattern (the generator joins the marking inputs; S_N stamps unchanged)
+    const inp = { ...inputs, generator: gen };
+    const graph = GENERATORS[gen](base.R);
+    return { id: 'marking', inputs: inp, parents: [base.stamp], stamp: hash({ inputs: inp, parents: [base.stamp] }), N: null, phis: null, m: P.m_mm,
+      generator: gen, graph, stats: graphStats(graph), R: base.R, Q: base.Q };
+  }
   const N = P.N;
   const phis = Array.from({ length: N }, (_, k) => 2 * Math.PI * k / N);
   // #52 commit 1: the marking graph (S_N generator, invariants checked — a mismatch throws). Addresses resolve through
@@ -47,7 +62,9 @@ export function layerLayout(recipe, P, base, marking) {
   // P.N; set A — tops on even half-lines, bottoms on odd; set B — shifted by one half-line (startLine); levels are arcs
   // from the centre along the own half-line. side: null — the bite is the stitch centre on the line; its hole sides ±1 are
   // placed by G3 in path (needleSides depends on w, which is not a layout input). Stop region: region(P.N, until=C.eq).
-  const center = 'P.N';
+  // #52 commit 3: centre and stop from the recipe addresses (schema v2; v1 implies P.N and region(P.N, until=C.eq)).
+  const center = recipe.kiku.center;
+  if (!marking.graph.points[center]) throw new Error(`layout: kiku centre «${center}» is not a point of the marking`);
   const v = marking.graph.points[center].valence;
   const at = (k, s) => resolve(marking, `on(L(${center},azimuth=${k}), ${s}, from=${center})`);
   const bites = [];
@@ -55,8 +72,10 @@ export function layerLayout(recipe, P, base, marking) {
     const k = (((st.startLine + 2 * j + off) % v) + v) % v, q = at(k, s);
     bites.push({ set: st.set, role, row: 1, anchor: center, line: `L(${center},azimuth=${k})`, k, s, side: null, address: q.id, p: q.xyz });
   }
-  const regionAddr = `region(${center}, until=C.eq)`;
-  const region = { address: regionAddr, sMax: resolve(marking, regionAddr).sMax };
+  const regionAddr = recipe.kiku.stop;
+  const reg = resolve(marking, regionAddr);
+  if (reg.type !== 'region') throw new Error(`recipe: kiku.stop «${regionAddr}» is not a region(...) address`);
+  const region = { address: regionAddr, sMax: reg.sMax };
   const pins = Array.from({ length: v }, (_, k) => ({ line: k, s: sBot, p: at(k, sBot).xyz }));
   return { id: 'layout', inputs, parents, stamp: hash({ inputs, parents }), sTop, sBot, pins, topBasis: P.topMode === 'mm' ? 'мм от СП (GT14)' : 'доля Q',
     center, bites, region };
@@ -109,10 +128,15 @@ export function layerPath(recipe, P, base, marking, layout, rowPlan) {
 export function layerMechanics(_recipe, _P, _path) { return null; }
 
 /** Полный пересчёт. raw — сырые параметры (из UI/URL/теста). */
-export function computeAll(recipe, raw) {
+export function computeAll(recipe0, raw) {
+  const recipe = normalizeRecipe(recipe0);   // #52 commit 3: schema v2 (v1 accepted, deprecated)
   const P = normalizeParams(raw);
   const base = layerBase(recipe, P);
   const marking = layerMarking(recipe, P, base);
+  if (marking.generator !== 'S_N') {
+    // combination marking: drawn without a pattern (no layout / rowPlan / path in step 1)
+    return { recipeId: recipe.id, params: P, base, marking, layout: null, rowPlan: null, path: null, mechanics: null, markingOnly: true, computedAt: Date.now() };
+  }
   const layout = layerLayout(recipe, P, base, marking);
   const rowPlan = layerRowPlan(recipe, P, base, marking, layout);
   const path = layerPath(recipe, P, base, marking, layout, rowPlan);

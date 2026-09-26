@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import { point, eEast, unit, mul, add, sub, norm, dist } from './geom.js';
+import { point, unit, mul, add, sub, norm, dist, cross } from './geom.js';
 import { tubeMesh } from './tube.js';
 import { displayGeometry } from './display.js';
 import { t } from './i18n.js';
@@ -185,23 +185,29 @@ export class Renderer {
       geo.setIndex(idx); geo.computeVertexNormals();
       return new THREE.Mesh(geo, gold);
     };
-    for (const phi of A.marking.phis) {
-      const pts = [];
-      for (let s = 0.02; s <= 2 * Q - 0.02; s += 0.25) pts.push(point(R, s, phi));
-      g.add(ribbon(pts, (p) => eEast(p)));
+    // #52 commit 3: the marking lines come from the graph (every line = a full great circle, ribbon across its pole)
+    const G = A.marking.graph;
+    for (const L of Object.values(G.lines)) {
+      const e1 = G.points[L.points[0].id].p, e2 = cross(L.n, e1), pts = [];
+      for (let i = 0; i <= 960; i++) { const a = (i / 960) * 2 * Math.PI; pts.push(mul(add(mul(e1, Math.cos(a)), mul(e2, Math.sin(a))), R)); }
+      g.add(ribbon(pts, () => L.n));
     }
-    const eq = [];
-    for (let i = 0; i <= 720; i++) eq.push(point(R, Q, (i / 720) * 2 * Math.PI));
-    g.add(ribbon(eq, () => [0, 0, 1]));
+    // circles that are not on a line (latitude / obi circles added to the graph)
+    for (const Cc of Object.values(G.circles)) if (!Cc.onLine) {
+      const c = Cc.c, u = unit(Math.abs(c[2]) < 0.9 ? cross([0, 0, 1], c) : cross([1, 0, 0], c)), v = cross(c, u), pts = [];
+      for (let i = 0; i <= 720; i++) { const a = (i / 720) * 2 * Math.PI; pts.push(mul(add(mul(c, Math.cos(Cc.rho)), mul(add(mul(u, Math.cos(a)), mul(v, Math.sin(a))), Math.sin(Cc.rho))), R)); }
+      g.add(ribbon(pts, (p) => unit(cross(unit(p), cross(c, unit(p))))));
+    }
     // полюса
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
     const np = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 12), poleMat); np.position.set(0, 0, R + 0.1); g.add(np);
     const sp = np.clone(); sp.position.set(0, 0, -R - 0.1); g.add(sp);
+    if (A.markingOnly) this.markingFeatures(g, A, R);
     // булавки (условное изображение головки; положение — уровень низа ряда 1)
     this.pinGroup = new THREE.Group();
     // булавка — условное кольцо на поверхности (диаметр булавки не моделируется), чтобы не закрывать стежок
     const pinMat = new THREE.MeshBasicMaterial({ color: 0x1f4fbf });
-    for (const pin of A.layout.pins) {
+    for (const pin of A.layout ? A.layout.pins : []) {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.09, 8, 32), pinMat);
       const p = mul(unit(pin.p), R + 0.05); ring.position.set(...p);
       const nrm = unit(pin.p); ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(nrm[0], nrm[1], nrm[2]));
@@ -210,14 +216,54 @@ export class Renderer {
     g.add(this.pinGroup);
     // подписи линий и полюса
     this.staticLabels = new THREE.Group();
-    A.marking.phis.forEach((phi, k) => this.staticLabels.add(this.label(`L${k}`, point(R + 3, Q, phi), 'lbl line')));
+    if (!A.markingOnly) {
+      A.marking.phis.forEach((phi, k) => this.staticLabels.add(this.label(`L${k}`, point(R + 3, Q, phi), 'lbl line')));
+      this.staticLabels.add(this.label(t('label.equator'), point(R + 1.5, Q, -Math.PI / 2 + 0.25), 'lbl line'));
+    } else for (const P of Object.values(G.points)) this.staticLabels.add(this.label(String(P.valence), mul(P.p, R + 1.4), 'lbl line'));
     this.staticLabels.add(this.label(t('label.NP'), point(R + 1.6, 1.6, -3 * Math.PI / 8), 'lbl pole'));
-    this.staticLabels.add(this.label(t('label.equator'), point(R + 1.5, Q, -Math.PI / 2 + 0.25), 'lbl line'));
     g.add(this.staticLabels);
     this.static = g;
     this.world.add(g);
     this.applyOpts();
   }
+
+  /** #52 commit 3: points coloured by valence and faces tinted in two alternating shades (a combination marking without
+   *  a pattern). Faces: spherical polygons fanned from the centre, subdivided and lifted just above the ball. */
+  markingFeatures(g, A, R) {
+    const G = A.marking.graph;
+    const VCOL = { 4: 0x6b6b6b, 6: 0x1f5fbf, 8: 0xc2185b, 10: 0x7b1fa2 };
+    for (const P of Object.values(G.points)) {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(0.28 + 0.04 * P.valence, 16, 12), new THREE.MeshStandardMaterial({ color: VCOL[P.valence] ?? 0x333333 }));
+      s.position.set(...mul(P.p, R + 0.1)); g.add(s);
+    }
+    // two-colouring of the faces (adjacent faces across an edge get different shades when the graph allows it)
+    const shade = {}, faces = Object.values(G.faces);
+    const nbr = (f) => f.edges.flatMap((e) => G.edges[e].faces).filter((x) => x !== f.id);
+    for (const f0 of faces) if (shade[f0.id] === undefined) {
+      shade[f0.id] = 0; const q = [f0.id];
+      while (q.length) { const id = q.shift(); for (const n of nbr(G.faces[id])) if (shade[n] === undefined) { shade[n] = 1 - shade[id]; q.push(n); } }
+    }
+    const mats = [0xf3e2b3, 0xd9e8f5].map((c) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -0.5, polygonOffsetUnits: -0.5 }));
+    const lift = (p) => mul(unit(p), R + 0.01), n = 8;
+    for (const f of faces) {
+      const pos = [], vs = f.vertices.map((v) => G.points[v].p), c = f.center;
+      for (let i = 0; i < vs.length; i++) {
+        const a = vs[i], b = vs[(i + 1) % vs.length];
+        for (let r = 0; r < n; r++) for (let s = 0; s < n - r; s++) {
+          const P = (rr, ss) => lift(add(add(mul(c, 1 - (rr + ss) / n), mul(a, rr / n)), mul(b, ss / n)));
+          pos.push(...P(r, s), ...P(r + 1, s), ...P(r, s + 1));
+          if (s < n - r - 1) pos.push(...P(r + 1, s), ...P(r + 1, s + 1), ...P(r, s + 1));
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.add(new THREE.Mesh(geo, mats[shade[f.id]]));
+    }
+  }
+
+  /** Remove the threads (a marking without a pattern). */
+  clearThread() { this.dispose(this.dynamic); this.dynamic = null; }
 
   /** Нити до операции k (префикс), подсветка текущей операции. */
   buildThread(A, k) {

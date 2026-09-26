@@ -2482,6 +2482,90 @@ if (G('8u'))
 }
 
 
+// 8v. #52 commit 3: combination markings C8 / C10 (§1.3 tables), C6 counted against the TemariKai source, circles and
+// constructed points in the resolver, addCircle, recipe schema v2 (v1 accepted, deprecated) — same path bit for bit.
+if (G('8v'))
+{
+  console.log('\n## #52 C8 / C10 / C6, circles, recipe schema v2');
+  const M = await import('../src/marking.js');
+  const { computeAll: fresh, hash } = await import('../src/layers.js');
+  const { normalizeRecipe } = await import('../src/recipe.js');
+  const R = 38.197186342054884, C = 2 * Math.PI * R, deg = 180 / Math.PI;
+  const byV = (g) => { const o = {}; for (const p of Object.values(g.points)) o[p.valence] = (o[p.valence] || 0) + 1; return o; };
+  const corners = (g) => [...new Set(Object.values(g.faces).flatMap((f) => f.angles.map((a) => (a * deg).toFixed(6))))].sort().join('/');
+  const arcsOn = (g, lid) => g.lines[lid].edges.map((e) => g.edges[e].length);
+  const angP = (a, b) => Math.atan2(Math.hypot(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]), a[0] * b[0] + a[1] * b[1] + a[2] * b[2]);
+  const minArc = (g, v) => { const P = Object.values(g.points).filter((p) => p.valence === v); let m = Infinity; for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) m = Math.min(m, R * angP(P[i].p, P[j].p)); return m; };
+  const c8 = M.generateC8(R), s8 = M.graphStats(c8), b8 = byV(c8);
+  const coordOk = ['L[0]', 'L[2]', 'L.eq'].every((l) => arcsOn(c8, l).length === 8 && arcsOn(c8, l).every((x) => Math.abs(x - C / 8) < 1e-9 * R));
+  const e86 = Object.values(c8.edges).filter((e) => c8.points[e.a].valence + c8.points[e.b].valence === 14);
+  check(s8.V === 26 && s8.E === 72 && s8.F === 48 && s8.V - s8.E + s8.F === 2 && b8[8] === 6 && b8[6] === 8 && b8[4] === 12 && s8.lines === 9
+    && Object.values(c8.lines).every((L) => L.points.length === 8) && coordOk && corners(c8) === '45.000000/60.000000/90.000000'
+    && Math.abs(minArc(c8, 8) - C / 4) < 1e-9 * R && e86.length > 0 && e86.every((e) => Math.abs(e.length - R * Math.atan(Math.SQRT2)) < 1e-9 * R),
+    `C8: V 26 (6×v8, 8×v6, 12×v4), E 72, F 48, Euler 2, 9 lines × 8 points; coordinate lines L[0], L[2], L.eq in 8 arcs of C/8; faces ${corners(c8)}°; 8–8 C/4, 8–6 R·arctan√2 = ${(Math.atan(Math.SQRT2) * deg).toFixed(2)}°`);
+  const c10 = M.generateC10(R), s10 = M.graphStats(c10), b10 = byV(c10);
+  check(s10.V === 62 && s10.E === 180 && s10.F === 120 && b10[10] === 12 && b10[6] === 20 && b10[4] === 30 && s10.lines === 15
+    && Object.values(c10.lines).every((L) => L.points.length === 12) && corners(c10) === '36.000000/60.000000/90.000000'
+    && Math.abs(minArc(c10, 10) - R * Math.acos(1 / Math.sqrt(5))) < 1e-9 * R && !c10.lines['L.eq'],
+    `C10: V 62 (12×v10, 20×v6, 30×v4), E 180, F 120, 15 lines × 12 points (no equator); faces ${corners(c10)}°; neighbouring 10-valent points ${(minArc(c10, 10) / R * deg).toFixed(2)}° = arccos(1/√5)`);
+  // C6 against TemariKai «6 Combination Marking (S6)»: S6 without the equator; pins on alternate lines at C/6 + 3C/100 from
+  // the pole (zigzag); 3 more full lines; «8 6-point centers»; E / F / the other valences from the construction.
+  const c6 = M.generateC6(R), s6 = M.graphStats(c6), b6 = byV(c6), pin = C * M.C6_SOURCE_PIN_FRAC, exact = R * Math.acos(1 / 3);
+  const mk6 = { graph: c6, R, Q: C / 4 };
+  const near6 = Object.values(c6.points).filter((p) => p.valence === 6 && p.id !== 'P.N' && Math.abs(R * angP(p.p, [0, 0, 1]) - exact) < 1e-9 * R);
+  const pinOn = (k) => near6.some((p) => angP(M.resolve(mk6, `on(L(P.N, azimuth=${k}), ${exact}, from=P.N)`).p, p.p) < 1e-9);
+  const zig = ([0, 2, 4].every(pinOn) && ![1, 3, 5].some(pinOn)) || ([1, 3, 5].every(pinOn) && ![0, 2, 4].some(pinOn));
+  check(s6.lines === 6 && c6.points['P.N'].valence === 6 && ['L[0]', 'L[1]', 'L[2]'].every((l) => Math.abs(c6.lines[l].n[2]) < 1e-15) && !c6.lines['L.eq']
+    && b6[6] === 8 && b6[4] === 6 && s6.V === 14 && s6.E === 36 && s6.F === 24 && near6.length === 3 && zig && Math.abs(pin - exact) / R * deg < 0.5
+    && corners(c6) === '60.000000/90.000000',
+    `C6 vs source: S6 (3 lines, no equator) + 3 lines = 6; 8 six-point centres; the other 6 intersections v4; E 36, F 24 (90°/60°/60°); pins on alternate half-lines at arccos(1/3) = ${(exact / R * deg).toFixed(2)}° (source C/6 + 3C/100 = ${(pin / R * deg).toFixed(2)}°, its rounding)`);
+  // resolver: constructed points, intersections, circles, regions
+  const mk8 = { graph: c8, R, Q: C / 4 };
+  const r = (a) => M.resolve(mk8, a);
+  const throws = (a) => { try { r(a); return false; } catch { return true; } };
+  const on20 = r('on(L(P.N, azimuth=0), 20, from=P.N)').p, xc = r('X(L[0], C(P.N, 20), near=P.eq[0])');
+  const f0 = c8.faces['F[0]'];
+  const okRes = r('L[4]').id === 'L.eq' && r('X(L[1], L[5], near=P.N)').id.startsWith('P.v6[') && r('X(L[0], L.eq, near=P.eq[0])').id === 'P.eq[0]'
+    && angP(r('mid(E(L.eq:0))').p, [Math.cos(Math.PI / 8), Math.sin(Math.PI / 8), 0]) < 1e-12 && r('L(P.N, P.eq[2])').of === 'L[2]'
+    && angP(r('P.center[F[0]]').p, f0.center) === 0 && r('F[0]').vertices.length === 3 && angP(xc.p, on20) < 1e-12
+    && Math.abs(r('region(P.N, until=C(P.N, 30))').sMax - 30) < 1e-12 * R && Math.abs(r('C(P.N, ρ=45°)').rho - Math.PI / 4) < 1e-15
+    && Math.abs(r('C(P.N, 0.5Q)').rho - Math.PI / 4) < 1e-12
+    && ['X(L[0], C(P.N, 20))', 'X(L[0], L[1])', 'X(L[0], L[0], near=P.N)', 'X(L.eq, C(P.N, 20), near=P.N)', 'mid(E(L[0]:99))', 'L(P.N, P.S)', 'F[99]', 'P.center[P.N]', 'C(P.N, 0)'].every(throws);
+  check(okRes, 'resolver (any generator): L[4] ≡ L.eq, X(L_a, L_b, near) and X(L, C, near) (two roots without near throw; a root on a graph point returns it), mid(E), L(P, Q) (+ graph line), P.center[F], F[i], C(P, s | xQ | ρ=°), region(P, until=C(P, s))');
+  // addCircle: splits edges, no new faces, points onCircle v4; the source graph is untouched
+  let circOk = true; const circMsg = [];
+  for (const [nm, g] of [['S8', M.generateSN(8, R)], ['C8', c8], ['C10', c10]]) {
+    const s0 = M.graphStats(g), g2 = M.addCircle(g, R, { id: 'C.obi', center: 'P.N', rho: 0.9 }), s1 = M.graphStats(g2);
+    const pts = g2.circles['C.obi'].points.map((id) => g2.points[id]);
+    const ok = s1.F === s0.F && s1.V - s0.V === s1.E - s0.E && s1.V > s0.V && s1.V - s1.E + s1.F === 2 && pts.every((p) => p.kind === 'onCircle' && p.valence === 4 && Math.abs(angP(p.p, [0, 0, 1]) - 0.9) < 1e-9)
+      && M.graphStats(g).V === s0.V && !g.circles['C.obi'];
+    circMsg.push(`${nm} +${s1.V - s0.V}`); if (!ok) circOk = false;
+  }
+  const g90 = M.addCircle(c8, R, { id: 'C.q', center: 'P.N', rho: Math.PI / 2 });
+  check(circOk && M.graphStats(g90).V === 26 && g90.circles['C.q'].points.length === 8,
+    `addCircle: intersections become onCircle points (v4) that split line edges, V and E grow together, F unchanged, source graph untouched (${circMsg.join(', ')}); a circle through existing points (C8 ρ 90° = equator) adds none`);
+  // recipe schema v2 (the file) vs v1 (the same recipe written with startLine): identical layers and path
+  const rawV2 = JSON.parse(JSON.stringify(recipe));
+  const v1 = JSON.parse(JSON.stringify(recipe)); delete v1.schema; delete v1.kiku; delete v1.schemaIn; delete v1.deprecated;
+  for (const s of v1.work.sets) delete s.start;
+  const n1 = normalizeRecipe(v1);
+  let same = true;
+  for (const raw of [{}, { m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, topRule: 'braid', rowsMode: 'untilEquator' }]) {
+    const a = fresh(recipe, raw), b = fresh(v1, raw);
+    for (const k of ['layout', 'rowPlan', 'path']) if (hash(a[k]) !== hash(b[k])) same = false;
+    if (a.marking.stamp !== b.marking.stamp) same = false;
+  }
+  const bad = (mut) => { const x = JSON.parse(JSON.stringify(rawV2)); mut(x); try { normalizeRecipe(x); return false; } catch { return true; } };
+  check(rawV2.schema === 2 && recipe.kiku.center === 'P.N' && recipe.kiku.stop === 'region(P.N, until=C.eq)' && recipe.work.sets.map((s) => s.start).join('|') === 'L(P.N, azimuth=0)|L(P.N, azimuth=1)'
+    && !recipe.deprecated && n1.deprecated && n1.schemaIn === 1 && same
+    && bad((x) => { x.work.sets[1].start = 'L(P.S, azimuth=1)'; }) && bad((x) => { x.kiku.halfLines = 'L[k]'; }) && bad((x) => { x.schema = 3; }),
+    'recipe schema v2 (kiku.center P.N, half-lines L(P.N, azimuth=k), stop region(P.N, until=C.eq), set starts as addresses); v1 accepted and marked deprecated; v1 and v2 give the same layout / rowPlan / path hashes (fan default, braid λ0.6); malformed v2 throws');
+  const A8 = fresh(recipe, { generator: 'C8' }), A0 = fresh(recipe, {});
+  check(A8.markingOnly && A8.marking.generator === 'C8' && A8.path === null && A8.marking.stats.V === 26 && A8.marking.stamp !== A0.marking.stamp && A0.marking.generator === 'S_N' && !('generator' in A0.marking.inputs),
+    'generator param: C8 / C10 / C6 build the marking only (no pattern; the generator joins the marking inputs); S_N inputs and stamps unchanged');
+}
+
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');
