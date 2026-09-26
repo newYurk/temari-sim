@@ -581,7 +581,8 @@ function renderLegend() {
       return `<span${shown.has(r.id) ? '' : ' style="opacity:.4"'}><span class="sw" style="background:#${roundColor(i).toString(16).padStart(6, '0')}"></span>${t('legend.round', { id: r.id, colour: roundColorName(i), thread: r.thread, row: r.row, pending })}</span>`;
     }).join('') + liftNote;
   } else if (R3.opts.color === 'u') {
-    $('legend').innerHTML = Object.values(A.path.threads).map((thr) => `${t('legend.u', { id: thr.id })}<div class="bar" style="background:${grad(thr.id === 'B' ? warm : viridis)}"></div>${f(thr.uEnd, 1)} ${t('unit.mm')}`).join('<br>');
+    $('legend').innerHTML = Object.values(A.path.threads).map((thr) =>
+      `<div class="legend-u-line"><span>${t('legend.u', { id: thr.id })}</span><div class="bar" style="background:${grad(thr.id === 'B' ? warm : viridis)}"></div><span>${f(thr.uEnd, 1)} ${t('unit.mm')}</span></div>`).join('');
   } else if (R3.opts.color === 'set') {
     $('legend').innerHTML = Object.entries(SET_COLORS).map(([k2, c]) => `<span><span class="sw" style="background:#${c.toString(16).padStart(6, '0')}"></span>${t('legend.set', { k: k2 })}</span>`).join('') + liftNote;
   } else {
