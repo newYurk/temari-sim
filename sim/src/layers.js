@@ -7,6 +7,7 @@ import { normalizeParams } from './params.js';
 import { buildWork, stageLastOp } from './path.js';
 import { generateSN, generateC8, generateC10, generateC6, graphStats, resolve } from './marking.js';
 import { normalizeRecipe } from './recipe.js';
+import { kiku } from './program.js';
 
 /** Marking generators (#52 commit 3). S_N builds the full pipeline; the combination markings are drawn without a pattern. */
 export const GENERATORS = { S_N: null, C8: generateC8, C10: generateC10, C6: generateC6 };
@@ -63,22 +64,21 @@ export function layerLayout(recipe, P, base, marking) {
   // from the centre along the own half-line. side: null — the bite is the stitch centre on the line; its hole sides ±1 are
   // placed by G3 in path (needleSides depends on w, which is not a layout input). Stop region: region(P.N, until=C.eq).
   // #52 commit 3: centre and stop from the recipe addresses (schema v2; v1 implies P.N and region(P.N, until=C.eq)).
+  // #53 commit 1 (spec §3.2): the kiku is a program — kiku(P, v, sets, grow, layer) produces the round templates (bites and
+  // lays) and the row-1 bites; the path layer executes the program. S8 = kiku(P.N, 8). The program depends only on the
+  // layout inputs and the recipe, so it rides in the layout layer (stamps unchanged).
   const center = recipe.kiku.center;
-  if (!marking.graph.points[center]) throw new Error(`layout: kiku centre «${center}» is not a point of the marking`);
-  const v = marking.graph.points[center].valence;
-  const at = (k, s) => resolve(marking, `on(L(${center},azimuth=${k}), ${s}, from=${center})`);
-  const bites = [];
-  for (const st of recipe.work.sets) for (let j = 0; j < v / 2; j++) for (const [role, off, s] of /** @type {const} */ ([['top', 0, sTop], ['bottom', 1, sBot]])) {
-    const k = (((st.startLine + 2 * j + off) % v) + v) % v, q = at(k, s);
-    bites.push({ set: st.set, role, row: 1, anchor: center, line: `L(${center},azimuth=${k})`, k, s, side: null, address: q.id, p: q.xyz });
-  }
   const regionAddr = recipe.kiku.stop;
   const reg = resolve(marking, regionAddr);
   if (reg.type !== 'region') throw new Error(`recipe: kiku.stop «${regionAddr}» is not a region(...) address`);
   const region = { address: regionAddr, sMax: reg.sMax };
+  const program = kiku(marking, { center, v: recipe.kiku.v, grow: recipe.kiku.grow, layer: recipe.kiku.layer, sTop, sBot, stop: region,
+    sets: recipe.work.sets.map((st) => ({ set: st.set, thread: st.thread, startLine: st.startLine, begin1: st.row1.begin, beginN: st.next.begin })) });
+  const v = program.v, bites = program.bites;
+  const at = (k, s) => resolve(marking, `on(L(${center},azimuth=${k}), ${s}, from=${center})`);
   const pins = Array.from({ length: v }, (_, k) => ({ line: k, s: sBot, p: at(k, sBot).xyz }));
   return { id: 'layout', inputs, parents, stamp: hash({ inputs, parents }), sTop, sBot, pins, topBasis: P.topMode === 'mm' ? 'мм от СП (GT14)' : 'доля Q',
-    center, bites, region };
+    center, bites, region, program };
 }
 
 /** План уровней рядов по замыслу (только уровни s_top/s_bot; путь в 2a/2b — лишь ряд 1). Повторяет calc.py rows_geometry. */

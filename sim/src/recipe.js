@@ -37,6 +37,13 @@ export function normalizeRecipe(raw) {
   if (!k || typeof k.center !== 'string' || typeof k.stop !== 'string') throw new Error('recipe v2: kiku.center and kiku.stop are required');
   const hl = /^L\(\s*([^,()]+?)\s*,\s*azimuth\s*=\s*k\s*\)$/.exec(k.halfLines || '');
   if (!hl || hl[1] !== k.center) throw new Error(`recipe v2: kiku.halfLines must be «L(${k.center}, azimuth=k)» (step 1: kiku half-lines by azimuth about the centre)`);
+  // #53: kiku program — kiku(<center>, v) with v the valence of the centre; growth g and layer order (defaults +1, over)
+  if (k.program !== undefined) {
+    const pm = /^kiku\(\s*([^,()]+?)\s*,\s*v\s*\)$/.exec(k.program);
+    if (!pm || pm[1] !== k.center) throw new Error(`recipe v2: kiku.program must be «kiku(${k.center}, v)»`);
+  }
+  if (k.grow !== undefined && k.grow !== 1 && k.grow !== -1) throw new Error(`recipe v2: kiku.grow ${k.grow} (1 or −1)`);
+  if (k.layer !== undefined && k.layer !== 'over' && k.layer !== 'under') throw new Error(`recipe v2: kiku.layer «${k.layer}» (over | under)`);
   for (const s of r.work.sets) {
     const m = /^L\(\s*([^,()]+?)\s*,\s*azimuth\s*=\s*(\d+)\s*\)$/.exec(s.start || '');
     if (!m || m[1] !== k.center) throw new Error(`recipe v2: set ${s.set}: start must be «L(${k.center}, azimuth=j)»`);

@@ -2566,6 +2566,57 @@ if (G('8v'))
 }
 
 
+// 8w. #53 commit 1: kiku(P, v, …) as a program generator (spec stage3-arch §3.2); S8 = kiku(P.N, 8) executed by the path
+// layer (bit-identity vs 5ab64fe is checked outside the suite on 96 builds; here the structure, execution and symmetry).
+if (G('8w'))
+{
+  console.log('\n## #53 kiku program generator');
+  const M = await import('../src/marking.js');
+  const { kiku, roundBites, rotAbout } = await import('../src/program.js');
+  const { computeAll: fresh } = await import('../src/layers.js');
+  const { normalizeRecipe } = await import('../src/recipe.js');
+  const A = computeAll(recipe, {}), PG = A.layout.program, v = PG.v;
+  const seqOk = PG.sets.every((S) => [S.row1, S.next].every((items, r) => items.length === 2 * v + 2 && items[0].kind === (r ? 'resume' : 'hidden') && items[items.length - 1].kind === 'park'
+    && items.slice(1, -1).every((x, q) => x.kind === (q % 2 ? 'bite' : 'leg'))
+    && items.filter((x) => x.kind === 'bite').every((b, q) => b.i === q + 1 && b.k === (S.startLine + q + 1) % v && b.role === (b.i % 2 ? 'bottom' : 'top') && b.closing === (b.i === v)
+      && b.line === `L(P.N,azimuth=${b.k})` && b.anchor === 'P.N' && b.cluster.kiku === PG.id && b.cluster.set === S.set && b.cluster.line === b.line && b.around === 'own-bundle' && b.layer === 'over' && b.grow === 1 && b.side === null
+      && b.rule === (b.closing ? 'closingIsNextRowTop' : r === 0 ? 'row1' : b.role === 'top' ? 'belowPrevChannel' : 'packing-root')
+      && (b.rule === 'row1' ? b.s === (b.role === 'top' ? A.layout.sTop : A.layout.sBot) : b.s === null))));
+  check(PG.family === 'kiku' && PG.call === 'kiku(P.N, 8)' && v === 8 && PG.sets.map((S) => `${S.set}${S.startLine}`).join() === 'A0,B1' && seqOk
+    && PG.symmetry.axis.join() === '0,0,1' && PG.symmetry.petalShift === 2 && PG.symmetry.sets.A.shift === 0 && PG.symmetry.sets.B.shift === 1 && A.layout.bites === PG.bites,
+    'S8 = kiku(P.N, 8): per set a round template [hidden|resume, (leg, bite) × 8, park]; bite i on h_(start+i), bottoms odd / tops even, closing on the start half-line = next-row top (12′); levels row1 → s_T/s_B, then T1 / packing root; own cluster (kiku, set, line), around own-bundle, layer over, g = +1; symmetry about P.N by 2·2π/8, B = A shifted by 1');
+  // the path executes the program: every round's stitches follow its bites (half-line, level, closing)
+  const execOk = A.path.rounds.every((r) => { const bs = roundBites(PG, r.set, r.row), st = r.stitchIdx.map((q) => A.path.stitches[q]);
+    return st.length === bs.length && st.every((x, q) => x.line === bs[q].k && x.level === bs[q].role && x.closing === bs[q].closing && x.i === bs[q].i); });
+  check(execOk && A.path.rounds.length >= 8, `path executes the program: ${A.path.rounds.length} rounds, every stitch on its bite's half-line with its role and closing flag`);
+  // the generator is not tied to the pole or to v = 8: programs on P.S (S8) and on a 6-valent face centre of C8 are
+  // built and symmetric under their own rotation (bite points of petal j → petal j+1); the S8 rotation is exactly rotZ.
+  const R = A.base.R;
+  const mkOf = (g) => ({ graph: g, R, Q: A.base.Q });
+  const sets = recipe.work.sets.map((st) => ({ set: st.set, thread: st.thread, startLine: st.startLine, begin1: 'hiddenStart', beginN: 'resume' }));
+  const progSym = (mk, center) => { const pg = kiku(mk, { center, sets, sTop: 5, sBot: 12, stop: { address: 'n/a', sMax: 20 } });
+    const rot = rotAbout(pg.symmetry.axis, pg.symmetry.petalShift * 2 * Math.PI / pg.v);
+    const d = Math.max(...pg.bites.map((b) => { const t = pg.bites.find((c) => c.set === b.set && c.role === b.role && c.k === (b.k + 2) % pg.v); return Math.hypot(...rot(b.p).map((x, i) => x - t.p[i])); }));
+    return { pg, d }; };
+  const s8 = M.generateSN(8, R), c8 = M.generateC8(R);
+  const pS = progSym(mkOf(s8), 'P.S'), pF = progSym(mkOf(c8), 'P.v6[0]'), pN = progSym(mkOf(s8), 'P.N');
+  const a = 2 * (2 * Math.PI / 8), q = [1.25, -0.5, 3], rz = rotAbout([0, 0, 1], a)(q);
+  check(pS.pg.v === 8 && pF.pg.v === 6 && roundBites(pF.pg, 'A', 1).length === 6 && pF.pg.bites.filter((b) => b.set === 'A' && b.role === 'top').length === 3
+    && pS.d < 1e-12 * R && pF.d < 1e-12 * R && pN.d < 1e-12 * R && rz[0] === q[0] * Math.cos(a) - q[1] * Math.sin(a) && rz[1] === q[0] * Math.sin(a) + q[1] * Math.cos(a) && rz[2] === q[2],
+    `generator on other centres: kiku(P.S, 8) and kiku(P.v6[0], 6) on C8 (3 petals per set) build; row-1 bites map petal → next petal under the program rotation (max ${Math.max(pS.d, pF.d, pN.d).toExponential(1)} mm); about ±ẑ the rotation is the exact z-rotation`);
+  const throws = (f) => { try { f(); return false; } catch { return true; } };
+  const mk8 = mkOf(s8);
+  const base = { center: 'P.N', sets, sTop: 5, sBot: 12, stop: { address: 'n/a', sMax: 20 } };
+  const bad = (mut) => { const x = JSON.parse(JSON.stringify(recipe)); delete x.schemaIn; mut(x); try { normalizeRecipe(x); return false; } catch { return true; } };
+  check(throws(() => kiku(mk8, { ...base, v: 6 })) && throws(() => kiku(mk8, { ...base, grow: -1 })) && throws(() => kiku(mk8, { ...base, layer: 'under' })) && throws(() => kiku(mk8, { ...base, center: 'P.v6[0]' }))
+    && throws(() => kiku(mk8, { ...base, sets: [{ ...sets[0], begin1: 'resume' }] }))
+    && recipe.kiku.program === 'kiku(P.N, v)' && recipe.kiku.grow === 1 && recipe.kiku.layer === 'over'
+    && bad((x) => { x.kiku.program = 'kiku(P.S, v)'; }) && bad((x) => { x.kiku.grow = 2; }) && bad((x) => { x.kiku.layer = 'side'; })
+    && throws(() => fresh({ ...recipe, kiku: { ...recipe.kiku, grow: -1 } }, {})),
+    'loud refusals: v ≠ valence of the centre, sakasa g = −1 (not yet, #53 case 3), shitagake, a centre not in the marking, a begin rule the program does not know; recipe kiku.program «kiku(P.N, v)», grow ±1, layer over|under checked');
+}
+
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');

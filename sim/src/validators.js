@@ -9,6 +9,7 @@ import { tubeMesh } from './tube.js';
 import { resolveBowLambda } from './params.js';
 import { widthDecomposition, u14Onset } from './diag-width.js';
 import { EPS_C, DEG_MAX_W } from './path.js';
+import { rotAbout } from './program.js';
 
 /** Test hook (#26 mutation): V16 fan onset over ALL threads (future ones included) instead of the causal prefix. */
 let V16_ACAUSAL = false;
@@ -327,7 +328,6 @@ function ptPolyDist(p, B) {
   for (let j = 1; j < B.length; j++) d = Math.min(d, segSegDist(p, p, B[j - 1], B[j]).d);
   return d;
 }
-const rotZ = (a) => (p) => [p[0] * Math.cos(a) - p[1] * Math.sin(a), p[0] * Math.sin(a) + p[1] * Math.cos(a), p[2]];
 
 /** stage: klyuch recipe.stages ('2a' | '2b' | 'B1' | 'A2') ili chislo (indeks operatsii). ref — calc_reference.json (ili null). */
 /**
@@ -395,9 +395,11 @@ export function eLineRoot({ R, phi, eOff, prevPts, s0, w, ds = 0.05, sMax = 12 }
   return NaN;
 }
 export function v6Metrics(A, rounds) {
-  const path = A.path, w = A.params.w_mm, N = A.marking.N;
+  // #53 commit 1: the symmetry classes come from the program — petals of a set repeat under the rotation about the kiku
+  // centre by petalShift·2π/v; set B = set A rotated by its start-line shift (S8: the z-rotations by 2·2π/8 and 2π/8).
+  const path = A.path, w = A.params.w_mm, SY = A.layout.program.symmetry, N = SY.v;
   const segById = new Map(path.segs.map((s) => [s.id, s]));
-  const r2 = rotZ(2 * (2 * Math.PI / N)), r1 = rotZ(2 * Math.PI / N);
+  const r2 = rotAbout(SY.axis, SY.petalShift * (2 * Math.PI / N));
   const stOf = (r) => { const o = {}; for (const k of r.stitchIdx) o[path.stitches[k].i] = path.stitches[k]; return o; };
   const legOf = (st) => segById.get(st.legId);
   const cluOf = (pk) => (pk?.cluster || []).map((c) => c.seg).join(',') + (pk?.virtualCluster?.length ? ` +virtual ${pk.virtualCluster.map((c) => c.seg).join(',')}` : '');
@@ -415,8 +417,10 @@ export function v6Metrics(A, rounds) {
       if (d > clean) { clean = d; cleanAt = `stitch ${i}→${i + 2}`; }
     }
     let bVsA = null;
-    if (r.set === 'B') {
-      const ra = rounds.find((q) => q.set === 'A' && q.row === r.row);
+    const shB = SY.sets[r.set];
+    if (shB && shB.shift) {
+      const ra = rounds.find((q) => q.set === shB.from && q.row === r.row);
+      const r1 = rotAbout(SY.axis, shB.shift * (2 * Math.PI / N));
       if (ra) {
         const sa = stOf(ra);
         bVsA = 0;
@@ -1426,7 +1430,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       const tolSym = 0.01 * w;
       const tolLen = 0.01 * w;
       for (const [ra, rb] of pairs) {
-        const rot = rotZ((rb.startLine - ra.startLine) * 2 * Math.PI / N);
+        const rot = rotAbout(A.layout.program.symmetry.axis, (rb.startLine - ra.startLine) * 2 * Math.PI / N);   // #53: about the kiku centre
         const sa = ra.stitchIdx.map((i) => path.stitches[i]), sb = rb.stitchIdx.map((i) => path.stitches[i]);
         let dP = 0, dL = 0;
         const diffSt = [];

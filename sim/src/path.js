@@ -11,6 +11,7 @@ import {
   pointOnLine, offsetOnLine, alongLine, acrossLine, rotateHalfLine,
 } from './geom.js';
 import { resolve } from './marking.js';
+import { roundBites } from './program.js';
 import { Chain, arcGC, arcSmall, offsetChain, ang, arcPoint, arcEnd, arcTangent, arcLen } from './arcs.js';
 
 /** Default polyline samples per visible leg. Tools may override via setLegSamples — default layout unchanged. */
@@ -1546,7 +1547,10 @@ export function roundSequence(recipe, P) {
  * сегмента — нить (thread), обход (round), набор (set), ряд (row) и координата длины u своей нити.
  */
 export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
-  const R = base.R, N = marking.N, w = P.w_mm, m = P.m_mm, Q = base.Q;
+  // #53 commit 1 (spec §3.2): the round templates come from the layout's program (kiku(P, v, …)); N = stitches per round = v.
+  const PG = layout.program;
+  if (!PG) throw new Error('path: the layout carries no program');
+  const R = base.R, N = PG.v, w = P.w_mm, m = P.m_mm, Q = base.Q;
   const T = recipe.kagari, conv = recipe.conventions, LV = recipe.levels;
   // Shoulder form: param overrides recipe convention; tip-drop Δ is always derived (never a free input).
   const shoulderForm = resolveShoulderForm(P.shoulderForm || conv.shoulderForm?.value || conv.lay?.value || 'geodesic');
@@ -1612,10 +1616,13 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     if (!setSpec || W.stopped[letter]) continue;
     const row = (rowsDone[letter] || 0) + 1;
     const tmpl = row === 1 ? setSpec.row1 : setSpec.next;
+    const bites = roundBites(PG, letter, row);
+    const begin0 = (row === 1 ? PG.sets.find((x) => x.set === letter).row1 : PG.sets.find((x) => x.set === letter).next)[0];
+    if ((begin0.kind === 'hidden' ? 'hiddenStart' : begin0.kind) !== tmpl.begin) throw new Error(`path: program ${PG.id} round ${letter}${row} begins with «${begin0.kind}», recipe «${tmpl.begin}»`);
     const spec = { id: `${letter}${row}`, set: letter, thread: setSpec.thread, row, startLine: setSpec.startLine, begin: tmpl.begin, basis: tmpl.basis };
     const prevRound = row > 1 ? W.rounds.find((r) => r.set === spec.set && r.row === row - 1) : null;
     // кончик этого ряда до шитья: первый стежок обхода — нижний, его уровень зависит только от уже уложенного
-    const firstK = lineIdx(spec.startLine + 1);
+    const firstK = bites[0].k;
     const tip = row === 1 ? { s: biteOf(letter, 'bottom', firstK).s } : bottomLevel(firstK, prevRound);
     // §3.2(12), §6.2(г): no packing root is a construction failure (fail: true → V12 fail), never a silent stop.
     if (!tip || tip.fail) { W.stopped[letter] = { row, fail: true, reason: tip?.reason || 'laid parallel + GC tangent does not meet the E-line (packing root missing)' }; continue; }
@@ -1692,14 +1699,14 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
 
     // ---------- 2. Round stitches ----------
     let roundAbort = false;
-    for (let i = 1; i <= N; i++) {
-      const closing = i === N;
-      const k = lineIdx(L0 + i);
-      const level = T.pattern[(i - 1) % T.pattern.length];
+    for (const bite of bites) {
+      // the program's bite: half-line, role, level rule, closing (12′); the recipe pattern must agree (loud, never silent)
+      const i = bite.i, closing = bite.closing, k = bite.k, level = bite.role;
+      if (level !== T.pattern[(i - 1) % T.pattern.length] || k !== lineIdx(L0 + i)) throw new Error(`path: program ${PG.id} bite ${spec.id}.i${i} (${level} on h${k}) disagrees with the recipe pattern`);
       // (а) уровень стежка: ряд 1 — замысел; ряд n ≥ 2 — вывод из уже уложенного
       let s, levelInfo;
       if (level === 'top') {
-        if (closing) {
+        if (bite.rule === 'closingIsNextRowTop') {
           // Spec (12′) (#45): the closing stitch of round n on L0 IS the top stitch of row n+1 on L0 — one thread width
           // lower (and wider, by its own cluster) than the previous stitch on L0: the round-1 start hole X₀ at s_T(1), then
           // the closing stitches of earlier rounds. No separate round-start stitch on L0, no parking, no transition step.
@@ -1707,15 +1714,16 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
           const sPrev = Math.max(biteOf(spec.set, 'top', k).s, ...prevCh);
           s = sPrev + w;
           levelInfo = { rule: 'closingIsNextRowTop', sPrev, dS: w, rowTop: spec.row + 1, basis: `${LV.top.next.basis}; spec (12′) #45` };
-        } else if (spec.row === 1) { s = biteOf(spec.set, 'top', k).s; levelInfo = { rule: 'row1', basis: LV.top.row1.basis }; }
-        else {
+        } else if (bite.rule === 'row1') { s = biteOf(spec.set, 'top', k).s; levelInfo = { rule: 'row1', basis: LV.top.row1.basis }; }
+        else if (bite.rule === 'belowPrevChannel') {
           const prevCh = W.stitches.filter((st) => st.line === k && st.level === 'top');
           const sPrev = Math.max(...prevCh.map((st) => st.s));
           s = sPrev + w;
           levelInfo = { rule: 'belowPrevChannel', sPrev, dS: s - sPrev, basis: LV.top.next.basis };
-        }
-      } else if (spec.row === 1) { s = biteOf(spec.set, 'bottom', k).s; levelInfo = { rule: 'row1', basis: LV.bottom.row1.basis }; }
+        } else throw new Error(`path: top bite rule «${bite.rule}»`);
+      } else if (bite.rule === 'row1') { s = biteOf(spec.set, 'bottom', k).s; levelInfo = { rule: 'row1', basis: LV.bottom.row1.basis }; }
       else {
+        if (bite.rule !== 'packing-root') throw new Error(`path: bottom bite rule «${bite.rule}»`);
         const bl = bottomLevel(k, prevRound);
         if (!bl || bl.fail) {
           W.stopped[letter] = { row: spec.row, fail: true, reason: bl?.reason || 'packing root missing' };
