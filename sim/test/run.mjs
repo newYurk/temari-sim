@@ -6,7 +6,7 @@ import { computeAll as computeAllDefault, G, finish, validatorStatuses } from '.
 const computeAll = (r, raw = {}) => computeAllDefault(r, { topRule: 'fan', ...raw });
 import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan, geodesicAlphaAt, tipLevelMm } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
-import { stageLastOp, setLegSamples, getLegSamples, tangencyOk, TANGENCY_SIN_MAX, TANGENCY_RES_W } from '../src/path.js';
+import { stageLastOp, setLegSamples, getLegSamples, tangencyOk, TANGENCY_SIN_MAX, TANGENCY_RES_W, halfLineGraph, holeClearances, k12Cap } from '../src/path.js';
 import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS, liftFromDist, DISPLAY_STACK_LIFT_W, DISPLAY_STACK_LIFT_MAX_W, LIFT_DIST_EPS, DIVE_W } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
 import { norm, unit, mul, sub, add, dot, angle, cross } from '../src/geom.js';
@@ -2669,9 +2669,9 @@ if (G('8x'))
     && Math.abs(Gm.fSAz(R, G2, p).phi - 0.61) < 1e-12 && Math.abs(Gm.fS(R, G2, p) - 17.3) < 1e-12 * R,
     'kiku frame (geom.js): at P.N fPoint / fPerp / fToward / fEast / fSAz / fS are point / perpPt / ePole / eEast / toSPhi bit for bit; the generic frame formulas agree to 1e-12');
   const throwsU = () => { try { recipeUrl('nope'); return false; } catch { return true; } };
-  check(Object.keys(RECIPE_PRESETS).join() === 'kiku-s8,kiku-s8-south' && south.id === 'kiku-s8-south' && south.kiku.center === 'P.S' && south.kiku.program === 'kiku(P.S, v)'
+  check(Object.keys(RECIPE_PRESETS).join() === 'kiku-s8,kiku-s8-south,kiku-c8-face' && south.id === 'kiku-s8-south' && south.kiku.center === 'P.S' && south.kiku.program === 'kiku(P.S, v)'
     && south.work.sets.map((s) => s.start).join('|') === 'L(P.S, azimuth=0)|L(P.S, azimuth=1)' && throwsU() && !south.deprecated,
-    'recipe presets: kiku-s8 (default) and kiku-s8-south (centre P.S, half-lines L(P.S, azimuth=k), stop region(P.S, until=C.eq)); ?recipe=<id> in the UI; unknown preset throws');
+    'recipe presets: kiku-s8 (default), kiku-s8-south (centre P.S, half-lines L(P.S, azimuth=k), stop region(P.S, until=C.eq)); ?recipe=<id> in the UI; unknown preset throws');
   const calcRef = await loadJSON('../data/calc_reference.json');
   const v3 = runValidators(S0, '2b', calcRef).find((x) => x.id === 'V3');
   check(v3.status === 'pass', `V3 on P.S: calc.py (the P.N kiku) mapped into the kiku frame (x·z0 + y·e2 + z·c) — ${v3.status}`);
@@ -2706,10 +2706,13 @@ if (G('8y'))
     && Af.path.stitches.filter((st) => st.row === 1 && st.level === 'bottom').every((st) => Math.abs(st.s - L.sBotK[st.line]) <= 1e-9 * R),
     `per-half-line row-1 bottoms ℓ_h·(1 − bottomFromEq): ${L.sBotK.map((x) => x.toFixed(3)).join(' / ')} mm; every row-1 bottom on its own level`);
   const lim = Af.path.limitK;
-  check(Array.isArray(lim) && lim.every((x, k) => Math.abs(x - (L.region.sMaxK[k] + m / 2)) <= 1e-12 * R)
+  // #54 (Fable 54b §1): K12 = V5 in advance — edge-midpoint ends (only the 90° edge line) ℓ + m/2; vertex ends (45° lines of v8)
+  // ℓ − (c(45°) + e·cos 45°)/sin 45°, c(φ) = m/2 + (w/2)·cos φ, e = (m+w)/2 (35.17 mm for ℓ = 36.49 at the defaults)
+  const w12 = Af.params.w_mm, c45 = Math.SQRT1_2, capV = (l) => l - (m / 2 + (w12 / 2) * c45 + ((m + w12) / 2) * c45) / c45;
+  check(Array.isArray(lim) && lim.every((x, k) => Math.abs(x - (k % 2 ? capV(L.region.sMaxK[k]) : L.region.sMaxK[k] + m / 2)) <= 1e-9 * R)
     && [Af, Ab].every((A) => A.path.stitches.filter((st) => st.level === 'bottom').every((st) => st.s <= A.path.limitK[st.line] + 1e-9))
     && ['A', 'B'].every((s) => Af.path.stopped[s] && Af.path.stopped[s].reason.includes('limit')),
-    `K12 per half-line: limit_k = ℓ_k + m/2 (untilEquator); every bottom within its line's limit (fan and braid); A row ${Af.path.stopped.A.row} and B row ${Af.path.stopped.B.row} would pass their limits (stopped)`);
+    `K12 per half-line (V5 in advance, Fable 54b §1): edge-midpoint ends ℓ_k + m/2, vertex ends ℓ_k − (c(45°) + e·cos 45°)/sin 45° (${lim.map((x) => x.toFixed(3)).join(' / ')} mm); every bottom within its line's limit (fan and braid); A row ${Af.path.stopped.A.row} and B row ${Af.path.stopped.B.row} would pass their limits (stopped)`);
   const g = Af.marking.graph, cc = PG.frame.c;
   check(PG.call === 'kiku(P.v6[0], 6)' && PG.symmetry.petalShift === 2 && PG.symmetry.sets.A.shift === 0 && PG.symmetry.sets.B.shift === null
     && markingSymmetric(g, cc, 2 * 2 * Math.PI / 6) && !markingSymmetric(g, cc, 2 * Math.PI / 6),
@@ -2752,8 +2755,8 @@ if (G('8y'))
     'kiku.bottom: unknown mode, missing mm, a level outside (sTop, ℓ) and fraction with mm throw');
 }
 
-// 8y3. #54 (spec v3.3 §5.3, §6.10, §6.11): V5 by the marking graph (every hole ≥ (m+w)/2 from foreign lines, the region
-// boundary line of its half-line exempt), V17 start-line / last-closing asymmetries as diagnostics, V23 shoulder coverage
+// 8y3. #54 (spec v3.3 §5.3, §6.10, §6.11): V5 by the marking graph (Fable 54b: every hole ≥ c(φ) = m/2 + (w/2)·cos φ
+// from every foreign line, no exemption; K12 = V5 in advance), V17 by the span (out of span = diagnostic), V23 rail / tail
 // within the set, V24 fan a priori overrun (β_T at the hole, ρ_top printed without status).
 if (G('8y'))
 {
@@ -2766,7 +2769,7 @@ if (G('8y'))
   const byId = (A) => Object.fromEntries(runValidators(A, 'all', null).map((v) => [v.id, v]));
   const cfg = (lam, x = {}) => ({ rowsMode: 'untilEquator', shoulderForm: lam ? 'bow' : 'geodesic', bowLambda: lam || undefined, muWrap: 0.32, ...x });
   setLegSamples(96);
-  // S8: V5 by the graph passes (equator exempt), V17 / V23 pass, fan and braid
+  // S8: V5 by the graph passes (equator at φ 90°), V17 / V23 pass, fan and braid
   for (const tr of ['fan', 'braid']) {
     const V = byId(computeAll(recipe, cfg(0.32, { topRule: tr })));
     check(V.V5.status === 'pass' && V.V5.numbers.reach === 0 && V.V5.numbers.minClear > (0.5 + 0.714) / 2 && V.V17.status === 'pass' && V.V17.numbers.diag === 0 && V.V23.status === 'pass' && V.V23.numbers.pts > 0 && V.V23.numbers.dMaxW <= 1.01,
@@ -2780,14 +2783,23 @@ if (G('8y'))
     const V = byId(A);
     check(V.V23.status === 'fail' && V.V23.numbers.bad.some((x) => x.startsWith(b.id)), `V23 mutation: ${b.id} on the row-3 track fails (${V.V23.numbers.bad[0]})`);
   }
-  // C8 face centre: V17 start-line asymmetry as a diagnostic, V5 names the foreign line at the vertex
+  // C8 face centre (Fable 54b §1, §2): V5 and K12 one clearance c(φ) — V5 passes by construction; V17 by the span (set B's
+  // row-1 legs leave the span: out of span, printed with β_T)
   {
     const A = fresh(c8(), cfg(0, { topRule: 'braid' }));
     const V = byId(A);
-    check(V.V17.status === 'pass' && V.V17.numbers.diag > 0 && V.V17.numbers.diagList.some((x) => /start line/.test(x)),
-      `C8 braid λ0: V17 pass, start-line legs without an arriving leg are diagnostics (${V.V17.numbers.diagList.join('; ')})`);
-    check(V.V5.status === 'fail' && V.V5.numbers.reachList.length > 0 && V.V5.numbers.reachList.every((x) => / → L[.[]/.test(x)),
-      `C8 braid λ0: V5 by the graph names the foreign line at the vertex end (${V.V5.numbers.reachList[0]})`);
+    check(V.V17.status === 'pass' && V.V17.numbers.outSpan > 0 && /out of span/.test(V.V17.value) && /β_T/.test(V.V17.value),
+      `C8 braid λ0: V17 pass, legs that left the span before s_T(n) are «out of span» (${V.V17.numbers.outSpan}), printed with β_T`);
+    check(V.V5.status === 'pass' && V.V5.numbers.reach === 0 && V.V5.numbers.minMarg >= 0,
+      `C8 braid λ0: V5 by c(φ) pass — least margin ${fmt(V.V5.numbers.minMarg, 3)} mm (K12 = V5 in advance)`);
+    // one formula (the cap is the planar form; on the sphere it is exact to < 1 µm): a last-row hole at the vertex cap has zero margin to the 45° line, a hole 0.2 mm lower fails naming the line
+    const { offsetOnLine, halfLineAt } = await import('../src/geom.js');
+    const g = A.marking.graph, PG = A.layout.program, R = A.base.R, m = A.params.m_mm, w = A.params.w_mm, k = 1, ell = A.layout.region.sMaxK[k];
+    const hl = halfLineGraph(g, R, PG.frame, PG.az[k], ell), cap = k12Cap(hl, ell, m, w), e = (m + w) / 2;
+    const at = (s) => Math.min(...[e, -e].map((y) => Math.min(...holeClearances(g, R, offsetOnLine(R, halfLineAt(PG.frame.c, PG.frame.z0, PG.az[k]), s, y), hl, m, w).map((c) => c.d - c.need))));
+    const bad = holeClearances(g, R, offsetOnLine(R, halfLineAt(PG.frame.c, PG.frame.z0, PG.az[k]), cap + 0.2, e), hl, m, w).concat(holeClearances(g, R, offsetOnLine(R, halfLineAt(PG.frame.c, PG.frame.z0, PG.az[k]), cap + 0.2, -e), hl, m, w)).filter((c) => !c.ok);
+    check(Math.abs(cap - (ell - 1.317)) < 0.01 && Math.abs(at(cap)) < 1e-3 && bad.length > 0 && bad.every((c) => /^L[.[]/.test(c.id) && Math.abs(c.cos - Math.SQRT1_2) < 1e-6),
+      `K12 = V5 in advance at a C8 vertex: cap ${fmt(cap, 3)} mm (ℓ ${fmt(ell, 2)} − 1.317); margin at the cap ${at(cap).toExponential(1)} mm; 0.2 mm lower fails on ${bad.map((c) => c.id).join(', ')} (φ ${bad.map((c) => (Math.acos(c.cos) * 180 / Math.PI).toFixed(2)).join(', ')}°: the edge line and the equator through the vertex)`);
   }
   // V24: β_T at the hole (grid-free), ρ_top printed without status, H_N; C8 fan overruns before laying, braid only prints
   {

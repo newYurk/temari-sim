@@ -814,19 +814,72 @@ export function graphDistances(graph, R, H, skip = new Set()) {
   for (const [id, C] of Object.entries(graph.circles || {})) if (!C.onLine && !skip.has(id)) out.push({ id, d: R * Math.abs(angle(u, C.c) - C.rho) });
   return out;
 }
-/** #54 (Fable §6 V5, K12; coordinator answer 3a): the marking lines of half-line k. own = the line of the half-line (through
- *  the centre); at the half-line's end on the region boundary, exempt = the boundary line most perpendicular to it (S8: the
- *  equator; C8 face: the edge through the end point) — the row bottom lies on it (K12 stays ℓ + m/2, spec v3.3 §3.2 (12));
- *  checked = the other lines through the end point (a vertex: the 45° lines of v8) — V5 by the graph catches holes there. */
+/** #54 (Fable 54b §1, spec 3.3.2 §6.11): the marking lines of half-line k. own = the line of the half-line (through the
+ *  centre); ends = the foreign lines through its end point on the region boundary with cos φ to the own line (S8: the equator
+ *  at 90°; C8 face: the edge at 90° at an edge midpoint, the 45° lines of v8 at a vertex). No line is exempt: V5 and K12 use
+ *  one clearance c(φ) = m/2 + (w/2)·cos φ (holeClearances, k12Cap). */
 export function halfLineGraph(graph, R, F, az, ell) {
   const C = unit(fPoint(R, F, 0, az)), P = unit(fPoint(R, F, ell, az)), Pin = unit(fPoint(R, F, ell - 1e-3 * R, az));
   const t = unit(sub(P, Pin));
   const lines = Object.entries(graph.lines);
   const own = lines.find(([, L]) => Math.abs(dot(L.n, C)) < 1e-9 && Math.abs(dot(L.n, P)) < 1e-7)?.[0] ?? null;
   const through = lines.filter(([id, L]) => id !== own && Math.abs(dot(L.n, P)) < 1e-7);
-  let exempt = null, best = -1;
-  for (const [id, L] of through) { const c = Math.abs(dot(L.n, t)); if (c > best) { best = c; exempt = id; } }
-  return { own, exempt, checked: through.map(([id]) => id).filter((id) => id !== exempt) };
+  // #54 (Fable 54b §1): the own line's normal and the foreign lines through the end point with cos φ (φ = angle between the
+  // lines); the ones crossing at 90° (the boundary line of S8 / a C8 edge) carry the last row's bottom on their thread.
+  const nOwn = own ? graph.lines[own].n : unit(cross(C, t));
+  const ends = through.map(([id, L]) => ({ id, cos: Math.abs(dot(L.n, nOwn)) }));
+  return { own, C, nOwn, ends, perpEnd: ends.filter((x) => x.cos < 1e-9).map((x) => x.id) };
+}
+/** #54 (Fable 54b §1, spec 3.3.2 §6.11): clearance of a hole H on half-line hl (halfLineGraph) from the foreign marking —
+ *  c(φ) = m/2 + (w/2)·cos φ, φ the angle between the own line and the foreign line / circle at their intersection (φ = 0 →
+ *  (m+w)/2 as G3; φ = 90° → m/2). A line crossing the own half-line at 90° at its end (the region boundary) may carry the
+ *  last row's hole on its thread up to the far edge: signed overshoot past its axis ≤ m/2 (old K12 ℓ + m/2; S8 unchanged).
+ *  Returns [{ id, d, need, cos, ok, boundary }] for every foreign line / circle (d = surface distance, need = c(φ); for the
+ *  boundary line d is signed, + toward the centre, and need = −m/2). */
+export function holeClearances(graph, R, H, hl, m, w) {
+  const u = unit(H), out = [], perp = new Set(hl.perpEnd || []);
+  for (const [id, L] of Object.entries(graph.lines)) {
+    if (id === hl.own) continue;
+    const cos = Math.min(1, Math.abs(dot(L.n, hl.nOwn))), dAbs = R * Math.asin(Math.min(1, Math.abs(dot(L.n, u))));
+    if (perp.has(id)) {
+      const d = Math.sign(dot(L.n, u)) === Math.sign(dot(L.n, hl.C)) || dAbs === 0 ? dAbs : -dAbs;
+      out.push({ id, d, need: -m / 2, cos, ok: d >= -m / 2 - 1e-9, boundary: true });
+    } else {
+      const need = m / 2 + (w / 2) * cos;
+      out.push({ id, d: dAbs, need, cos, ok: dAbs >= need - 1e-9, boundary: false });
+    }
+  }
+  for (const [id, Cc] of Object.entries(graph.circles || {})) {
+    if (Cc.onLine) continue;
+    // φ at the intersection of the own great circle with the circle nearest H (none → φ = 0)
+    const a = hl.C, b = unit(cross(hl.nOwn, a)), A = dot(a, Cc.c), B = dot(b, Cc.c), r = Math.hypot(A, B), cr = Math.cos(Cc.rho);
+    let cos = 1;
+    if (r >= Math.abs(cr) && r > 1e-15) {
+      const t0 = Math.atan2(B, A), dt = Math.acos(Math.max(-1, Math.min(1, cr / r)));
+      let bestD = Infinity;
+      for (const tt of [t0 + dt, t0 - dt]) {
+        const X = add(mul(a, Math.cos(tt)), mul(b, Math.sin(tt))), dX = angle(X, u);
+        if (dX < bestD) { bestD = dX; const T1 = add(mul(a, -Math.sin(tt)), mul(b, Math.cos(tt))), T2 = unit(cross(Cc.c, X)); cos = Math.min(1, Math.abs(dot(T1, T2))); }
+      }
+    }
+    const need = m / 2 + (w / 2) * cos, d = R * Math.abs(angle(u, Cc.c) - Cc.rho);
+    out.push({ id, d, need, cos, ok: d >= need - 1e-9, boundary: false });
+  }
+  return out;
+}
+/** #54 (Fable 54b §1, spec 3.3.2 §3.2 (12)): stop K12 as V5 in advance — the lowest allowed bottom level on half-line hl of
+ *  length ℓ over the foreign lines through its end point at φ < 90°: s ≤ ℓ − (c(φ) + e·cos φ)/sin φ, e = (m+w)/2; lines at
+ *  90° give ℓ + m/2 (the caller's base). Infinity when there are none (S8). */
+export function k12Cap(hl, ell, m, w) {
+  let cap = Infinity;
+  const e = (m + w) / 2;
+  for (const x of hl.ends || []) {
+    if (x.cos < 1e-9) continue;
+    const sn = Math.sqrt(Math.max(0, 1 - x.cos * x.cos));
+    if (sn < 1e-12) continue;
+    cap = Math.min(cap, ell - (m / 2 + (w / 2) * x.cos + e * x.cos) / sn);
+  }
+  return cap;
 }
 /** (9б′) largest |d_n| of a legal degenerate entry, in w. */
 export const DEG_MAX_W = 0.1;   // §2 class (iii): axis position budget 0.1·w (coordinator, #46)
@@ -1604,8 +1657,17 @@ function buildWorkIn(recipe, P, base, marking, layout, rowPlan) {
   // #53 case 2: region(P, until=graph) — the K12 limit of a bottom on half-line k is that half-line's length to the nearest
   // marking point (+ the same rowsMode rule); a uniform region keeps the single limit (S8: W unchanged).
   const sMaxK = layout.region.sMaxK || null;
-  const limitOf = (k) => (sMaxK ? (P.rowsMode === 'untilOly7' ? sMaxK[k] - 7 : sMaxK[k]) + (P.rowsMode === 'untilEquator' ? m / 2 : 0) : limit);
-  if (sMaxK) W.limitK = sMaxK.map((_, k) => limitOf(k));
+  const limitOf0 = (k) => (sMaxK ? (P.rowsMode === 'untilOly7' ? sMaxK[k] - 7 : sMaxK[k]) + (P.rowsMode === 'untilEquator' ? m / 2 : 0) : limit);
+  // #54 (Fable 54b §1): stop K12 = V5 in advance — at an end point where foreign lines cross the half-line at φ < 90° (a C8
+  // vertex) the last bottom must keep c(φ) from them: s ≤ ℓ − (c(φ) + e·cos φ)/sin φ. S8 (only the 90° equator): unchanged.
+  const capK = new Map();
+  const capOf = (k) => {
+    const j = ((k % N) + N) % N;
+    if (!capK.has(j)) { const ell = sMaxK ? sMaxK[j] : sMax; capK.set(j, P.rowsMode === 'untilEquator' ? k12Cap(halfLineGraph(marking.graph, R, FR, PG.az[j], ell), ell, m, w) : Infinity); }
+    return capK.get(j);
+  };
+  const limitOf = (k) => { const b = limitOf0(k), c = capOf(k); return c < b ? c : b; };
+  if (sMaxK || Array.from({ length: N }, (_, k) => capOf(k)).some(Number.isFinite)) W.limitK = Array.from({ length: N }, (_, k) => limitOf(k));
   const lineIdx = (k) => ((k % N) + N) % N;
   // #52 commit 2: lines by address — half-line k of the kiku centre (layout.center), resolved once. #53 case 1: the (s, φ)
   // helpers work in the kiku frame (s from the centre, φ = the half-line azimuth phiOf; = phis[k] at P.N exactly).

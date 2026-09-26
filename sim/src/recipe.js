@@ -1,6 +1,6 @@
 // Загрузка рецепта (JSON) в браузере и в node — один источник данных.
 /** Recipe presets (#53): id → file in sim/data. The UI picks one with ?recipe=<id> (default kiku-s8). */
-export const RECIPE_PRESETS = { 'kiku-s8': 'recipe.kiku-s8.json', 'kiku-s8-south': 'recipe.kiku-s8-south.json' };
+export const RECIPE_PRESETS = { 'kiku-s8': 'recipe.kiku-s8.json', 'kiku-s8-south': 'recipe.kiku-s8-south.json', 'kiku-c8-face': 'recipe.kiku-c8-face.json' };
 export const RECIPE_DEFAULT = 'kiku-s8';
 /** URL of a recipe preset by id (unknown ids throw). */
 export function recipeUrl(id = RECIPE_DEFAULT) {
