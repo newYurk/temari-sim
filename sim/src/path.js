@@ -1589,7 +1589,7 @@ function buildWorkIn(recipe, P, base, marking, layout, rowPlan) {
   const shoulderForm = resolveShoulderForm(P.shoulderForm || conv.shoulderForm?.value || conv.lay?.value || 'geodesic');
   const muWrap = P.muWrap ?? P.mu ?? 0;
   const bowSide = P.bowSide === 'equator' ? 'equator' : 'pole';
-  // #50 stage A: top rule flag (default fan = G3). k_top, ℓ_braid,max TEMPORARY until the §7a coordinates (#51).
+  // #50 stage A: top rule flag (#54: default braid; fan = G3, the S8 regression / stress mode). k_top, ℓ_braid,max TEMPORARY until the §7a coordinates (#51).
   const BRAID = P.topRule === 'braid';
   const K_TOP = Number.isFinite(Number(P.kTop)) && P.kTop !== '' ? Number(P.kTop) : 0.5;
   // Commanded λ resolved per-leg once γ known; keep a preview using pin chord for tipDrop report.

@@ -1,6 +1,9 @@
 // Безбраузерные тесты: генератор пути + валидаторы. Запуск: node sim/test/run.mjs  (код выхода 0 = всё прошло)
 import { loadRecipe, loadJSON } from '../src/recipe.js';
-import { computeAll, G, finish, validatorStatuses } from './harness.mjs'; // memoized computeAll + group gates / parallel runner (#34)
+import { computeAll as computeAllDefault, G, finish, validatorStatuses } from './harness.mjs'; // memoized computeAll + group gates / parallel runner (#34)
+// #54: braid is the engine default top rule; the pinned S8 regression numbers of this suite are the fan mode, so every build
+// here runs topRule 'fan' explicitly unless the call names its own topRule (computeAllDefault = the engine default).
+const computeAll = (r, raw = {}) => computeAllDefault(r, { topRule: 'fan', ...raw });
 import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan, geodesicAlphaAt, tipLevelMm } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
 import { stageLastOp, setLegSamples, getLegSamples, tangencyOk, TANGENCY_SIN_MAX, TANGENCY_RES_W } from '../src/path.js';
@@ -2061,7 +2064,7 @@ if (G('8p'))
   {
     setDegMaxW(0.01);
     let A;
-    try { A = computeRaw(recipe, cfg(0.6, 0.5)); } finally { setDegMaxW(null); }
+    try { A = computeRaw(recipe, { ...cfg(0.6, 0.5), topRule: 'fan' }); } finally { setDegMaxW(null); }
     const V = Object.fromEntries(runValidators(A, 'all', null).map((v) => [v.id, v]));
     const inv = A.path.invalidFrom;
     const excl = ['V5', 'V6', 'V8', 'K16'].filter((id) => V[id].value.includes(`build invalid from row ${inv?.row}`));
@@ -2069,7 +2072,7 @@ if (G('8p'))
     check(inv && inv.row === 6 && V.V22.status === 'fail' && V.V22.value.includes('BUILD INVALID from row 6') && V.V22.value.includes('contradiction')
       && A.path.rowsValid.A === 5 && A.path.rowsValid.B === 5 && excl.length === 4,
       `#46 contradiction: V22 fail with leg, d_n and clearance; build invalid from row ${inv?.row}; rows ≥ 6 left out of ${excl.join('/')}; rowsValid A ${A.path.rowsValid?.A} B ${A.path.rowsValid?.B}`);
-    const B0 = computeRaw(recipe, cfg(0.6, 0.5));
+    const B0 = computeRaw(recipe, { ...cfg(0.6, 0.5), topRule: 'fan' });
     check(!B0.path.invalidFrom, '#46 hook reset: the default build is valid again');
   }
 }
@@ -2253,14 +2256,14 @@ if (G('8r'))
   const cfg = (lam, m, x = {}) => ({ C_mm: 240, w_mm: 0.714, m_mm: m, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: lam, muWrap: Math.max(0.32, lam), ...x });
   const st = (A) => Object.fromEntries(runValidators(A, 'all', null).map((v) => [v.id, v]));
   const w = 0.714;
-  // fan identity: explicit topRule=fan is the default, bit for bit, with no braid records
+  // #54: the engine default is braid, bit for bit (A0 = no topRule, A1 = explicit braid); explicit fan has no braid records
   {
-    const A0 = computeAll(recipe, cfg(0.32, 1.0)), A1 = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'fan' }));
+    const A0 = computeAllDefault(recipe, cfg(0.32, 1.0)), A1 = computeAllDefault(recipe, cfg(0.32, 1.0, { topRule: 'braid' })), AF = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'fan' }));
     const legs = (A) => A.path.segs.filter((q) => q.type === 'leg');
     const same = legs(A0).length === legs(A1).length && legs(A0).every((q, i) => q.pts.length === legs(A1)[i].pts.length && q.pts.every((p, k) => p.every((c, j) => c === legs(A1)[i].pts[k][j])));
     const s0 = st(A0), s1 = st(A1), flips = Object.keys(s0).filter((k) => s0[k].status !== s1[k]?.status);
-    check(same && flips.length === 0 && !('K17' in s1) && A1.path.stitches.every((x) => !x.sides.braid),
-      `fan: topRule=fan ≡ default bit for bit (legs, statuses, no K17, no braid records); flips ${flips.join(',') || 'none'}`);
+    check(same && flips.length === 0 && A0.params.topRule === 'braid' && defaults().topRule === 'braid' && A0.path.stitches.some((x) => x.sides.braid) && !('K17' in st(AF)) && AF.path.stitches.every((x) => !x.sides.braid),
+      `#54: default = braid bit for bit (legs, statuses); explicit fan: no K17, no braid records; flips ${flips.join(',') || 'none'}`);
   }
   const B = computeAll(recipe, cfg(0.32, 1.0, { topRule: 'braid' })), VB = st(B), F = st(computeAll(recipe, cfg(0.32, 1.0)));
   // T1 / K17 / T4
