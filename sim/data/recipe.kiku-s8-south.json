@@ -1,0 +1,295 @@
+{
+  "id": "kiku-s8-south",
+  "schema": 2,
+  "title": "Кику S8 на южном полюсе P.S (#53, случай 1) — Кику S8 (八重菊, 2 набора × N/2 лепестков) — 上掛け千鳥かがり, по TemariKai GT14; порядок рядов — замысел (по ряду GT14 / блоками Suess 2014)",
+  "derivedFrom": "samples/kiku-s8/recipe.md (шаги 3–9), thread-path.md (шаги 1–9)",
+  "note": "Рецепт хранит ЗАМЫСЕЛ и операции иглы, а не координаты. Все координаты выводит генератор пути из параметров и из того, что уже лежит на шаре (последовательное шитьё). Ширины захвата и сдвигов верха/низа здесь нет (D16, D24): E/X, уровни рядов n ≥ 2 и порядок над/под выводятся.",
+  "conventions": {
+    "travel": {
+      "value": "+phi",
+      "text": "обход против часовой стрелки при взгляде снаружи на рабочий полюс",
+      "basis": "TK-GT14 «Move 1 marking line to the right»; A16",
+      "tag": "a"
+    },
+    "needle": {
+      "value": "againstTravel",
+      "text": "игла против хода: вход E справа (+φ), выход X слева (−φ)",
+      "basis": "OLY-BASIC «※かがる向きは、進行方向とは常に逆方向です»",
+      "tag": "a"
+    },
+    "perpendicular": {
+      "value": true,
+      "text": "игла ⟂ линии разметки",
+      "basis": "OLY-BASIC «針は地割り糸と垂直に交わるように»; TK-LITTLE «perpendicular (right angle)»",
+      "tag": "a"
+    },
+    "channel": {
+      "value": "straightChord",
+      "text": "скрытый участок — прямой канал иглы (хорда) между E и X",
+      "basis": "model/spec.md Ф5: игла — жёсткий прямой стержень",
+      "tag": "a+b"
+    },
+    "sides": {
+      "value": "besideOccupied",
+      "text": "E — вплотную справа от самой правой уже уложенной нити у линии (включая нить разметки), X — вплотную слева от самой левой; нить не расщепляет и не сдвигает разметку; зазор < w не пропускает нить",
+      "basis": "TK-LITTLE «the jiwari should not be split, or moved out of place by the stitching thread»; prior #105 (между нитями, не сквозь); OLY-TM7-V «自然に交わる所»",
+      "tag": "a+b"
+    },
+    "lay": {
+      "value": "geodesic",
+      "text": "Default visible-arm idealization: great-circle geodesic (taut thread). Overridden near the tip by conventions.shoulderForm / param shoulderForm.",
+      "basis": "model/spec.md Φ3; geometry.md §7",
+      "tag": "b"
+    },
+    "shoulderForm": {
+      "value": "geodesic",
+      "text": "Arm tip / shoulder form: geodesic | bow (alias bowToMarking→bow). bow = small-circle arc λ=bowFrac·μWrap with curvature center on the pole side (bulge away from pole). Tip-drop Δ = s_B(row2)−s_B(row1) is a derived packThenPierce result — never a free Δ=2 mm input (D40; do not merge GT14 fixed 2 mm as the geometric law).",
+      "basis": "model/spec.md Φ3; samples/kiku-s8/leg-shape-spec.md; D40 (supersedes D33); D26",
+      "tag": "b"
+    },
+    "crossing": {
+      "value": "laterOver",
+      "text": "свободное плечо, уложенное позже, лежит сверху всех ранее уложенных нитей, если рецепт не велит пройти под (замыкание) ; игла (захват) проходит под всем кластером у линии",
+      "basis": "model/spec.md G8; prior #102 (поздняя ветвь поверх ранней); TK-GT14 «The working thread is always take[n] over the previously placed threads before taking the top stitch»; TK-UWA «carry the thread over the previously laid threads, and take a stitch around all of them»; SUESS «stitch under and around all previous stitches»; TK-GT14 «interweave … kousa style» — переплетение наборов как СЛЕДСТВИЕ хронологии",
+      "tag": "a+b"
+    },
+    "closingUnder": {
+      "value": "roundFirstLeg",
+      "text": "замыкающее плечо обхода проходит ПОД первым плечом этого же обхода (у верхней точки уходящая ветвь сверху — как во всех остальных верхних точках)",
+      "basis": "TK-LITTLE «Carry the working thread under the starting thread … then complete the stitch» — сказано для первого ряда (a); для рядов n ≥ 2 — перенос того же приёма (b), чтобы у каждой верхней точки уходящая ветвь была сверху (A14)",
+      "tag": "a+b"
+    }
+  },
+  "layers": [
+    {
+      "id": "base",
+      "type": "ball",
+      "inputs": [
+        "C_mm",
+        "baseWrap",
+        "wrapColor",
+        "wrapThread",
+        "wrapCompliance"
+      ]
+    },
+    {
+      "id": "marking",
+      "type": "graph",
+      "generator": "S_N",
+      "inputs": [
+        "N",
+        "m_mm"
+      ],
+      "basis": "TK-SIMPLE; TK-GT14 «Simple 8 division»"
+    },
+    {
+      "id": "layout",
+      "type": "kikuPins",
+      "inputs": [
+        "topMode",
+        "sTop_mm",
+        "sTopFrac",
+        "bottomFromEq"
+      ],
+      "basis": "TK-GT14: верх «5 mm down from the NP»; булавки «1/3 of this distance up from the equator»; TK-KIKU"
+    },
+    {
+      "id": "rowPlan",
+      "type": "kikuRows",
+      "inputs": [
+        "rowsMode",
+        "rowsCount",
+        "spacingMode",
+        "pitch_mm",
+        "w_mm"
+      ],
+      "basis": "TK-GT14 «Work to the equator»; TK-STRETCH/OLY-TM7-V (уложить → колоть в пересечении); TK-UWA «about 2mm»",
+      "note": "План уровней по формуле (замысел «сколько рядов»). Фактические уровни рядов n ≥ 2 выводит генератор пути (levels.next) и сверяет с планом."
+    }
+  ],
+  "kiku": {
+    "center": "P.S",
+    "halfLines": "L(P.S, azimuth=k)",
+    "stop": "region(P.S, until=C.eq)",
+    "program": "kiku(P.S, v)",
+    "grow": 1,
+    "layer": "over",
+    "text": "кику на южном полюсе P.S (#53 случай 1): тот же рецепт S8, центр P.S; азимут на P.S — против часовой стрелки при взгляде снаружи (зеркальный порядок, k → φ_{−k}); стоп K12 — экватор",
+    "basis": "TK-GT14 «Simple 8 division», «Work to the equator»; spec stage3-arch §1.2"
+  },
+  "stages": {
+    "2a": {
+      "text": "один проход: скрытый старт A → нижний стежок у L1 → подход к первой верхней точке L2",
+      "throughOp": {
+        "round": "A1",
+        "kind": "lay",
+        "stitch": 2
+      }
+    },
+    "2b": {
+      "text": "обход A1 (N стежков, замыкание через стартовый участок), парковка A",
+      "throughOp": {
+        "round": "A1",
+        "kind": "park"
+      }
+    },
+    "B1": {
+      "text": "+ обход B1 (нить B, лепестки на соседних линиях), парковка B",
+      "throughOp": {
+        "round": "B1",
+        "kind": "park"
+      }
+    },
+    "A2": {
+      "text": "+ обход A2 (нить A продолжена от парковки; первый верх «поверх» ряда 1)",
+      "throughOp": {
+        "round": "A2",
+        "kind": "park"
+      }
+    },
+    "all": {
+      "text": "вся работа (все обходы в заданном порядке)",
+      "throughOp": {
+        "round": "*",
+        "kind": "end"
+      }
+    }
+  },
+  "kagari": {
+    "start": {
+      "exit": {
+        "line": "start",
+        "level": "top",
+        "side": "left",
+        "text": "выход нити вплотную слева от занятого у линии старта на уровне верха",
+        "basis": "TK-GT14 «enter … just to the left of one marking line, 5 mm down from the NP»",
+        "tag": "a"
+      },
+      "rules": {
+        "TK-ANCHOR": {
+          "runs": 2,
+          "text": "проход под обмоткой, выход, вход в то же отверстие, второй проход",
+          "basis": "TK-ANCHOR «Insert the needle in the exact same place that the thread exits … Pull the thread through again»",
+          "tag": "a"
+        },
+        "OLY-BASIC": {
+          "runs": 1,
+          "text": "вход в 2–3 см, узла нет",
+          "basis": "OLY-BASIC «糸は、２～３㎝ほど離れた所から…※糸に玉とめなどはしません»",
+          "tag": "a"
+        }
+      },
+      "direction": {
+        "value": "towardPrevSectorBisectorAtPins",
+        "text": "проходы — в плоскости большого круга от выхода к биссектрисе предыдущего сектора на уровне булавок; оба прохода в линию (для каждого набора — от своей линии старта)",
+        "basis": "в источниках направление НЕ указано; выбор модели влияет только на скрытую геометрию, не на мотив и не на длину",
+        "tag": "E"
+      }
+    },
+    "pattern": [
+      "bottom",
+      "top"
+    ],
+    "patternBasis": "TK-GT14: «Move 1 marking line to the right and take small stitch just below pin. Move 1 line to the right, and take a small top stitch»",
+    "closing": {
+      "line": "start",
+      "level": "top",
+      "passUnder": [
+        "roundFirstLeg"
+      ],
+      "complete": true,
+      "text": "последнее плечо проходит ПОД стартовым участком нити, затем стежок завершается",
+      "basis": "TK-LITTLE «Carry the working thread under the starting thread to achieve this, and then complete the stitch»; TK-GT14 «until you return to the starting point», «Complete the stitch but then allow the thread to park»",
+      "tag": "a"
+    },
+    "end": {
+      "op": "park",
+      "basis": "TK-GT14 «Park the thread»",
+      "tag": "a"
+    }
+  },
+  "levels": {
+    "top": {
+      "row1": {
+        "value": "layout.sTop",
+        "text": "верх ряда 1 — замысел (мм от СП)",
+        "basis": "TK-GT14 «5 mm down from the NP»; для B: «Keep to the same 5mm distance from the NP»",
+        "tag": "a"
+      },
+      "next": {
+        "value": "belowPrevChannel",
+        "text": "верх ряда n ≥ 2 — первое свободное место на линии НИЖЕ канала предыдущего верхнего стежка: каналы иглы — трубки ширины w и не пересекаются (игла не прокалывает нить) ⇒ сдвиг = w; ширина — из занятости (снаружи крайних уже лежащих нитей)",
+        "basis": "TK-GT14 «place needle about 1 thread width wider and below previous stitch» — направление «ниже» (a); расстояние w — следствие адъюнктности каналов (b); «шире» — НЕ вход, проверяется V13",
+        "tag": "a+b"
+      }
+    },
+    "bottom": {
+      "row1": {
+        "value": "layout.sBot",
+        "text": "низ ряда 1 — у булавки",
+        "basis": "TK-GT14 «take small stitch (kagari) just below pin»",
+        "tag": "a"
+      },
+      "next": {
+        "value": "packThenPierce",
+        "text": "низ ряда n ≥ 2: уложенная нить идёт вплотную (ось на расстоянии w) снаружи плеча предыдущего ряда того же набора; колоть там, где она пересекает линию разметки",
+        "basis": "OLY-TM7-V «白ピンの所では糸と地割り糸が自然に交わる所をかがります»; TK-STRETCH; наблюдение владелицы (prior #94, 22.09) «сначала уложить нить вплотную к прежнему ряду… потом колоть в естественном пересечении с линией»; GT14 «stretch … an extra 1-2 mm» и TK-UWA «about 2mm» — числа расходятся (A1)",
+        "tag": "a+b"
+      }
+    }
+  },
+  "work": {
+    "text": "Работа = последовательность обходов (рядов) двух наборов. Обходы НЕ перечислены числами: генератор пути строит их из шаблонов наборов, замысла «сколько рядов» (rowsMode/rowsCount) и замысла порядка (order). Каждый обход шьётся по тем же правилам поверх того, что уже на шаре.",
+    "sets": [
+      {
+        "set": "A",
+        "thread": "A",
+        "start": "L(P.S, azimuth=0)",
+        "row1": {
+          "begin": "hiddenStart",
+          "basis": "TK-GT14 «With Color A, enter … just to the left of one marking line, 5 mm down from the NP»; recipe.md шаги 4–9"
+        },
+        "next": {
+          "begin": "resume",
+          "basis": "TK-GT14 «Return to Color A. Stitch a second row, laying thread parallel to first round»; TK-UWA «Thread is taken over previous rounds»"
+        }
+      },
+      {
+        "set": "B",
+        "thread": "B",
+        "start": "L(P.S, azimuth=1)",
+        "row1": {
+          "begin": "hiddenStart",
+          "basis": "TK-GT14 «Enter a length of Color B on a marking line that has a bottom stitch of Color A. Keep to the same 5mm distance from the NP … Repeat the Chidori sequence … Complete the stitch but then allow the thread to park»"
+        },
+        "next": {
+          "begin": "resume",
+          "basis": "TK-GT14 «Continue to alternate rounds» (нить B продолжена из своей парковки, как A: G9, TK-UWA); Suess 2014 — ряды B кладутся поверх рядов A тем же способом"
+        }
+      }
+    ],
+    "orders": {
+      "alternate": {
+        "text": "по ряду: A1, B1, A2, B2, … (обход каждого набора по очереди)",
+        "basis": "TK-GT14 «Park the thread … Enter a length of Color B … Return to Color A. Stitch a second row … Continue to alternate rounds»; SUESS-2014 на шаре 16 делений — тоже по ряду",
+        "tag": "a"
+      },
+      "blocks": {
+        "text": "блоками: k рядов набора A подряд, затем k рядов набора B (и так далее, пока наборы не кончатся)",
+        "basis": "SUESS-2014 (Barbara B. Suess, TemariChallenge stitch along «kiku herringbone», 2014, youtube ceyC3uYHPxQ), разминочный шар S8: 5 рядов A подряд, затем 5 рядов B поверх; затем ещё по ряду каждого набора другим цветом — здесь не моделируется",
+        "tag": "a"
+      },
+      "sequence": {
+        "text": "явная последовательность наборов, например AAAAABBBBB: каждая буква — следующий ряд этого набора",
+        "basis": "замысел пользователя (обобщение двух порядков выше)",
+        "tag": "intent"
+      }
+    },
+    "rows": {
+      "text": "сколько рядов в наборе: «ровно N» — N рядов, даже если кончики уйдут за экватор (V12 warn, толщина нити не уменьшается); «до экватора» — ряд не шьётся, если его кончик (низ, выведенный из занятости) лёг бы ниже предела; «последовательность» — число букв набора",
+      "basis": "TK-GT14 «Work to the equator»; SUESS-2014 «5 rows» (разминочный шар); next-stage.md §5 (не подгонять число рядов толщиной)",
+      "tag": "a+intent"
+    },
+    "tag": "a"
+  }
+}

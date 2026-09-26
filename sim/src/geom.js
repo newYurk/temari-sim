@@ -230,3 +230,36 @@ export function wrapPi(a) {
 export function perpPt(R, s, phi, d) {
   return offsetOnLine(R, meridian(phi), s, d);
 }
+
+// #53 case 1: the kiku frame — polar coordinates about the kiku centre c with zero direction z0 (s = arc from c, az
+// counterclockwise about the outward normal at c, the marking's azimuth rule). Everything that used the fixed pole
+// (point, perpPt, toSPhi, ePole, eEast, R·acos(z)) goes through a frame. At P.N (c = Z, z0 = X0) each function is the
+// old one, bit for bit; any other centre uses the same expressions with c in place of Z.
+/** @param {number[]} c unit centre @param {number[]} z0 unit zero direction (tangent at c) */
+export function frameAt(c, z0) {
+  const atN = c[0] === 0 && c[1] === 0 && c[2] === 1 && z0[0] === 1 && z0[1] === 0 && z0[2] === 0;
+  return { c: c.slice(), z0: z0.slice(), e2: cross(c, z0), atN };
+}
+export const FRAME_N = frameAt(Z, X0);
+/** Point at arc s from the centre on the half-line of azimuth az. */
+export function fPoint(R, F, s, az) { return F.atN ? point(R, s, az) : pointOnLine(R, halfLineAt(F.c, F.z0, az), s); }
+/** Point d mm across the half-line az at arc s (+ = toward increasing az). */
+export function fPerp(R, F, s, az, d) { return F.atN ? perpPt(R, s, az, d) : offsetOnLine(R, halfLineAt(F.c, F.z0, az), s, d); }
+/** Frame coordinates { s, phi } of p (phi = azimuth about the centre). */
+export function fSAz(R, F, p) {
+  if (F.atN) return toSPhi(R, p);
+  const u = unit(p);
+  return { s: R * Math.acos(clamp(dot(u, F.c))), phi: Math.atan2(dot(u, F.e2), dot(u, F.z0)) };
+}
+/** Arc from the centre to p (mm). */
+export function fS(R, F, p) { return F.atN ? R * Math.acos(clamp(unit(p)[2])) : R * Math.acos(clamp(dot(unit(p), F.c))); }
+/** Unit tangent at p toward the centre (at P.N: ePole). */
+export function fToward(F, p) {
+  if (F.atN) return ePole(p);
+  const u = unit(p);
+  return unit(sub(F.c, mul(u, dot(u, F.c))));
+}
+/** Unit tangent at p toward increasing azimuth (at P.N: eEast). */
+export function fEast(F, p) { return F.atN ? eEast(p) : unit(cross(F.c, unit(p))); }
+/** Height of p along the centre axis (at P.N: p[2]). */
+export function fZ(F, p) { return F.atN ? p[2] : dot(p, F.c); }

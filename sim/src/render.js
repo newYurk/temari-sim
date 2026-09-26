@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import { point, unit, mul, add, sub, norm, dist, cross } from './geom.js';
+import { point, unit, mul, add, sub, norm, dist, cross, fPoint } from './geom.js';
 import { tubeMesh } from './tube.js';
 import { displayGeometry } from './display.js';
 import { t } from './i18n.js';
@@ -221,6 +221,8 @@ export class Renderer {
       this.staticLabels.add(this.label(t('label.equator'), point(R + 1.5, Q, -Math.PI / 2 + 0.25), 'lbl line'));
     } else for (const P of Object.values(G.points)) this.staticLabels.add(this.label(String(P.valence), mul(P.p, R + 1.4), 'lbl line'));
     this.staticLabels.add(this.label(t('label.NP'), point(R + 1.6, 1.6, -3 * Math.PI / 8), 'lbl pole'));
+    // #53: a kiku on the south pole gets its own centre label (the NP label shows through the ball in the view from below)
+    if (A.layout?.center === 'P.S') this.staticLabels.add(this.label(t('label.SP'), [0, 0, -(R + 1.6)], 'lbl pole'));
     g.add(this.staticLabels);
     this.static = g;
     this.world.add(g);
@@ -319,9 +321,9 @@ export class Renderer {
     for (const idx of curRound.stitchIdx) {
       const st = path.stitches[idx];
       if (!ids.has(st.pickupId)) continue;
-      const phi = A.marking.phis[st.line];
+      const PG = A.layout.program, phi = PG.az[st.line];   // #53: about the kiku centre
       const sL = st.level === 'bottom' ? st.s + 3.2 : st.s + 4.2;   // верх: снаружи «V» между плечами
-      this.threadLabels.add(this.label(`${st.round}·${st.i}`, point(R + 1.2, sL, phi), 'lbl stitch'));
+      this.threadLabels.add(this.label(`${st.round}·${st.i}`, fPoint(R + 1.2, PG.frame, sL, phi), 'lbl stitch'));
     }
     if (cur && cur.segIds.length) {
       const s = path.segs.find((x) => x.id === cur.segIds[0]);

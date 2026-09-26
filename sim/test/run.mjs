@@ -2421,8 +2421,8 @@ if (G('8t'))
     'azimuth rule: P.S order mirrored vs P.N (φ₀, φ₋₁, φ₋₂ …); equator point: zero toward P.N, counterclockwise from outside, opposite = P.S');
   const reg = resolve(mk, 'region(P.N, until=C.eq)'), ceq = resolve(mk, 'C.eq'), leq = resolve(mk, `L[${mk.N / 2}]`);
   check(Math.abs(reg.sMax - mk.Q) < 1e-12 * R && ceq.onLine === 'L.eq' && leq.id === 'L.eq' && Math.abs(resolve(mk, 'on(L[2], 0.25Q, from=P.N)').xyz[1] - point(R, mk.Q / 4, mk.phis[2])[1]) < 1e-12 * R
-    && ['P.X', 'L(P.N, azimuth=8)', 'X(L[0], L[1])', 'on(L[0], 3)', 'region(P.S, until=C.eq)'].every((ad) => { try { resolve(mk, ad); return false; } catch { return true; } }),
-    'addresses: C.eq on the equator line, L[N/2] = L.eq, region(P.N, until=C.eq) reaches Q, s as a fraction of Q; unknown / ambiguous addresses throw');
+    && ['P.X', 'L(P.N, azimuth=8)', 'X(L[0], L[1])', 'on(L[0], 3)', 'region(P.eq[0], until=C.eq)'].every((ad) => { try { resolve(mk, ad); return false; } catch { return true; } }),
+    'addresses: C.eq on the equator line, L[N/2] = L.eq, region(P.N, until=C.eq) reaches Q, s as a fraction of Q; unknown / ambiguous addresses throw (#53: region(P.S, until=C.eq) is legal — antipodal centre — a non-centre point throws)');
 }
 
 
@@ -2616,6 +2616,63 @@ if (G('8w'))
     'loud refusals: v ≠ valence of the centre, sakasa g = −1 (not yet, #53 case 3), shitagake, a centre not in the marking, a begin rule the program does not know; recipe kiku.program «kiku(P.N, v)», grow ±1, layer over|under checked');
 }
 
+
+// 8x. #53 case 1: kiku on P.S — the pole-based constructions and checks work in the kiku frame (polar coordinates about
+// the kiku centre); the P.S build equals the P.N build rotated by 180° about x (the azimuth at P.S is mirrored), V2–V22
+// with the same statuses, symmetry classes from the program, K12 at the region boundary (the equator).
+if (G('8x'))
+{
+  console.log('\n## #53 case 1: kiku on P.S');
+  const Gm = await import('../src/geom.js');
+  const { computeAll: fresh } = await import('../src/layers.js');
+  const { loadRecipe: loadR, recipeUrl, RECIPE_PRESETS } = await import('../src/recipe.js');
+  const south = await loadR(recipeUrl('kiku-s8-south'));
+  const rot = (p) => [p[0], -p[1], -p[2]];
+  const cmp = (N, S) => {
+    let d = 0, dl = 0, ds = 0, bad = '';
+    if (N.path.segs.length !== S.path.segs.length || N.path.stitches.length !== S.path.stitches.length) return { d: Infinity, bad: 'counts' };
+    N.path.segs.forEach((g, i) => { const h = S.path.segs[i]; if (g.type !== h.type || g.pts.length !== h.pts.length) { d = Infinity; bad = g.id; return; }
+      g.pts.forEach((p, j) => { d = Math.max(d, Math.hypot(...rot(p).map((v, q) => v - h.pts[j][q]))); }); dl = Math.max(dl, Math.abs(g.length - h.length)); });
+    N.path.stitches.forEach((st, i) => { const u = S.path.stitches[i]; if (st.line !== u.line || st.level !== u.level) bad = `stitch ${i}`;
+      d = Math.max(d, Math.hypot(...rot(st.E).map((v, q) => v - u.E[q])), Math.hypot(...rot(st.X).map((v, q) => v - u.X[q]))); ds = Math.max(ds, Math.abs(st.s - u.s), Math.abs(st.eOff - u.eOff), Math.abs(st.xOff - u.xOff)); });
+    const vN = runValidators(N, 'all', null), vS = runValidators(S, 'all', null);
+    return { d, dl, ds, bad, cross: N.path.crossings.map((c) => `${c.kind}${c.over === c.a ? '>' : '<'}`).join() === S.path.crossings.map((c) => `${c.kind}${c.over === c.a ? '>' : '<'}`).join(),
+      st: vN.map((v) => `${v.id}:${v.status}`).join(' '), stS: vS.map((v) => `${v.id}:${v.status}`).join(' '), vS };
+  };
+  const R = computeAll(recipe, {}).base.R;
+  const res = [];
+  for (const raw of [{}, { m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, topRule: 'braid', rowsMode: 'untilEquator' }]) {
+    const N = fresh(recipe, raw), S = fresh(south, raw), c = cmp(N, S);
+    res.push({ raw, N, S, c });
+    const v = (id) => c.vS.find((x) => x.id === id)?.status;
+    check(c.d <= 1e-9 * R && c.dl <= 1e-9 * R && c.ds <= 1e-9 * R && !c.bad && c.cross && c.st === c.stS && ['V6', 'V15'].every((id) => v(id) === 'pass'),
+      `P.S = rot_x(180°)(P.N) ${JSON.stringify(raw)}: ${S.path.rounds.length} rounds, points max ${c.d.toExponential(1)} mm, lengths ${c.dl.toExponential(1)}, s/offsets ${c.ds.toExponential(1)} (≤ 1e-9·R); same crossings; V2–V22 statuses identical (${c.stS.split(' ').length} checks), V6 / V15 pass`);
+  }
+  // program on P.S: mirrored azimuth order, symmetry about P.S, frame not the pole frame; K12 at the equator
+  const S0 = res[0].S, N0 = res[0].N, PG = S0.layout.program;
+  const hlS = (k) => PG.frame && Gm.halfLineAt(PG.frame.c, PG.frame.z0, PG.az[k]).dir, hlN = (k) => Gm.halfLineAt(N0.layout.program.frame.c, N0.layout.program.frame.z0, N0.layout.program.az[k]).dir;
+  const mirror = [0, 1, 2, 3, 4, 5, 6, 7].every((k) => Math.hypot(...rot(hlN(k)).map((x, q) => x - hlS(k)[q])) < 1e-15 && PG.az[k] === 2 * Math.PI * k / 8);
+  const lim = S0.rowPlan.limit;
+  check(PG.call === 'kiku(P.S, 8)' && !PG.frame.atN && N0.layout.program.frame.atN && PG.symmetry.axis.join() === '0,0,-1' && mirror
+    && S0.layout.region.sMax === S0.base.Q && lim === N0.rowPlan.limit && S0.path.stitches.every((st) => st.s <= S0.path.limit + 1e-9)
+    && JSON.stringify(S0.path.stopped) === JSON.stringify(N0.path.stopped),
+    `program kiku(P.S, 8): half-line k at P.S = rot_x(180°)(half-line k at P.N) (azimuth counterclockwise from outside = mirrored longitude), az exact k·2π/8; symmetry about P.S; K12: region(P.S, until=C.eq) sMax = Q (antipodal circle centre), every stitch within the limit, same stops as P.N`);
+  // frame helpers: at P.N the old functions bit for bit; a generic frame (same centre, not flagged) agrees to 1e-12
+  const F = Gm.FRAME_N, G2 = { ...Gm.frameAt([0, 0, 1], [1, 0, 0]), atN: false }, p = Gm.point(R, 17.3, 0.61), eq = (a, b) => a.every((x, i) => x === b[i]);
+  const near = (a, b, t = 1e-12) => a.every((x, i) => Math.abs(x - b[i]) <= t * R);
+  check(F.atN && eq(Gm.fPoint(R, F, 17.3, 0.61), p) && eq(Gm.fPerp(R, F, 17.3, 0.61, 0.4), Gm.perpPt(R, 17.3, 0.61, 0.4)) && eq(Gm.fToward(F, p), Gm.ePole(p)) && eq(Gm.fEast(F, p), Gm.eEast(p))
+    && Gm.fSAz(R, F, p).s === Gm.toSPhi(R, p).s && Gm.fS(R, F, p) === Gm.toSPhi(R, p).s
+    && near(Gm.fPoint(R, G2, 17.3, 0.61), p) && near(Gm.fPerp(R, G2, 17.3, 0.61, 0.4), Gm.perpPt(R, 17.3, 0.61, 0.4)) && near(Gm.fToward(G2, p), Gm.ePole(p)) && near(Gm.fEast(G2, p), Gm.eEast(p))
+    && Math.abs(Gm.fSAz(R, G2, p).phi - 0.61) < 1e-12 && Math.abs(Gm.fS(R, G2, p) - 17.3) < 1e-12 * R,
+    'kiku frame (geom.js): at P.N fPoint / fPerp / fToward / fEast / fSAz / fS are point / perpPt / ePole / eEast / toSPhi bit for bit; the generic frame formulas agree to 1e-12');
+  const throwsU = () => { try { recipeUrl('nope'); return false; } catch { return true; } };
+  check(Object.keys(RECIPE_PRESETS).join() === 'kiku-s8,kiku-s8-south' && south.id === 'kiku-s8-south' && south.kiku.center === 'P.S' && south.kiku.program === 'kiku(P.S, v)'
+    && south.work.sets.map((s) => s.start).join('|') === 'L(P.S, azimuth=0)|L(P.S, azimuth=1)' && throwsU() && !south.deprecated,
+    'recipe presets: kiku-s8 (default) and kiku-s8-south (centre P.S, half-lines L(P.S, azimuth=k), stop region(P.S, until=C.eq)); ?recipe=<id> in the UI; unknown preset throws');
+  const calcRef = await loadJSON('../data/calc_reference.json');
+  const v3 = runValidators(S0, '2b', calcRef).find((x) => x.id === 'V3');
+  check(v3.status === 'pass', `V3 on P.S: calc.py (the P.N kiku) mapped into the kiku frame (x·z0 + y·e2 + z·c) — ${v3.status}`);
+}
 
 if (G('9'))
 {

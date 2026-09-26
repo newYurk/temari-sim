@@ -6,13 +6,18 @@
 import { resolveBowLambda,  parseSequence } from './params.js';
 import { t, fmtNum } from './i18n.js';
 import {
-  point, offsetPt, slerp, lineSeg, geodLen, dist, rotateToward, toSPhi, wrapPi, tangentTo, ePole, dot,
-  closeZones, angle, unit, add, sub, mul, cross, eEast, perpPt, segSegDist, polyLen,
+  slerp, lineSeg, geodLen, dist, rotateToward, wrapPi, tangentTo, dot,
+  closeZones, angle, unit, add, sub, mul, cross, segSegDist, polyLen,
   pointOnLine, offsetOnLine, alongLine, acrossLine, rotateHalfLine,
+  FRAME_N, fPoint, fPerp, fSAz, fToward, fEast, fZ,
 } from './geom.js';
 import { resolve } from './marking.js';
 import { roundBites } from './program.js';
 import { Chain, arcGC, arcSmall, offsetChain, ang, arcPoint, arcEnd, arcTangent, arcLen } from './arcs.js';
+
+/** #53 case 1: the kiku frame of the build in progress (polar coordinates about the kiku centre; geom.js frameAt).
+ *  buildWork sets it from the program for the duration of the build; exported helpers called on their own see P.N. */
+let FR = FRAME_N;
 
 /** Default polyline samples per visible leg. Tools may override via setLegSamples — default layout unchanged. */
 const LEG_SAMPLES_DEFAULT = 96;
@@ -226,13 +231,13 @@ const endsAt = (seg, H) => dist(seg.from, H) < 1e-9 || dist(seg.to, H) < 1e-9;
 export function setCollisions({ R, s, phi, holes, foreignUnder, laid, stitches, set }) {
   const out = [];
   if (!foreignUnder || !foreignUnder.length) return out;
-  const C = point(R, s, phi);
-  const uC = unit(C), eL = eEast(C), n = ePole(C);
+  const C = fPoint(R, FR, s, phi);
+  const uC = unit(C), eL = fEast(FR, C), n = fToward(FR, C);
   const coord = (p) => { const q = unit(p); return { f: R * Math.asin(Math.max(-1, Math.min(1, dot(q, n)))), y: R * Math.atan2(dot(q, eL), dot(q, uC)) }; };
   const segById = new Map(laid.map((x) => [x.id, x]));
   const laidIds = new Set(laid.map((x) => x.id));
   const spans = stitches.filter((st) => st.level === 'top' && st.set !== set && Math.abs(st.s - s) < 1e-6 && laidIds.has(st.pickupId))
-    .map((st) => ({ st, a: toSPhi(R, st.X).phi, b: toSPhi(R, st.E).phi }));
+    .map((st) => ({ st, a: fSAz(R, FR, st.X).phi, b: fSAz(R, FR, st.E).phi }));
   const chartDist = (yh, seg) => {
     if (seg.type === 'hidden-start') return Math.min(...[seg.from, seg.to].map((p) => { const q = coord(p); return Math.hypot(q.y - yh, q.f); }));
     let best = Infinity;
@@ -247,7 +252,7 @@ export function setCollisions({ R, s, phi, holes, foreignUnder, laid, stitches, 
   for (const [side, { y, H }] of Object.entries(holes)) {
     const segIds = [...new Set(foreignUnder.filter((o) => o.lo < y && y < o.hi).map((o) => o.seg))];
     if (!segIds.length) continue;
-    const ph = toSPhi(R, H).phi;
+    const ph = fSAz(R, FR, H).phi;
     const span = spans.find(({ a, b }) => { const lo = wrapPi(a - ph), hi = wrapPi(b - ph); return Math.min(lo, hi) <= 0 && Math.max(lo, hi) >= 0 && Math.abs(hi - lo) < Math.PI; });
     for (const id of segIds) {
       const L = segById.get(id);
@@ -396,12 +401,12 @@ function smallCircleCenter(a, b, rho, side = 'pole') {
     unit(add(mul(mid, Math.cos(t)), mul(n, -Math.sin(t)))),
   ];
   const xe = cross(ua, ub);
-  const poleSign = Math.sign(dot([0, 0, 1], xe)) || 1;
+  const poleSign = Math.sign(dot(FR.c, xe)) || 1;   // #53: «pole» = the kiku centre side
   // Fable v2: production = pole side; equator side is the direction negative-test mutation.
   const wantSign = side === 'equator' ? -poleSign : poleSign;
   const match = cands.filter((p) => (Math.sign(dot(p, xe)) || 1) === wantSign);
-  if (match.length) return match.sort((p, q) => q[2] - p[2])[0];
-  return cands.sort((p, q) => (side === 'equator' ? p[2] - q[2] : q[2] - p[2]))[0];
+  if (match.length) return match.sort((p, q) => fZ(FR, q) - fZ(FR, p))[0];
+  return cands.sort((p, q) => (side === 'equator' ? fZ(FR, p) - fZ(FR, q) : fZ(FR, q) - fZ(FR, p)))[0];
 }
 
 /** Rodrigues rotation of v about unit axis k by angle t. */
@@ -516,7 +521,7 @@ function layLeg(R, from, to, phiMark, shoulderForm, lambdaCmd = 0, bowSide = 'po
 function outwardSide(arcs) {
   const ch = new Chain(1, arcs, 1);
   const { q, T } = ch.at(ch.len / 2);
-  return dot(cross(q, T), ePole(q)) > 0 ? -1 : 1;
+  return dot(cross(q, T), fToward(FR, q)) > 0 ? -1 : 1;
 }
 
 /** Analytic arcs of a laid leg (every leg carries them; sampled pts are output only). */
@@ -1467,7 +1472,7 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
     // §3.2(12): the tail great circle is continued to the first root with the E-line, without a length limit. Past
     // the sampled extension g is the exact offset from that great circle (continuedLateral), not the distance to
     // the extension's end signed by a near-zero dot (#40; the root is the same point, now of a continuous g).
-    const gHit = (s) => rail.continuedLateral(unit(perpPt(R, s, phiK, sidesAt(s).eOff)));
+    const gHit = (s) => rail.continuedLateral(unit(fPerp(R, FR, s, phiK, sidesAt(s).eOff)));
     const g = (s) => gHit(s).signedMm;
     // First transversal root with s > sInside. Skip spurious early roots (dense-grid chatter)
     // that would shrink Δ below ~0.7·expected (6a.12 / 6a.17 packing stability on 96/192/384).
@@ -1495,23 +1500,23 @@ function packThenPierce(R, prevArm, phiK, sInside, w, sMax, sidesAt) {
     }
     if (s == null || hit == null) return null; // no root — caller hard-fails (no silent sChan fallback)
     // Conditioning of the root: sin of the angle between the E-line (meridian direction) and the rail.
-    const Es = unit(perpPt(R, s, phiK, sidesAt(s).eOff));
-    const crossSin = Math.abs(dot(ePole(Es), hit.N));
+    const Es = unit(fPerp(R, FR, s, phiK, sidesAt(s).eOff));
+    const crossSin = Math.abs(dot(fToward(FR, Es), hit.N));
     return { s, sPrevCross: null, sLaidCross: s, sigma: 1, method: 'tangentParallel', crossSin, onExt: hit.s < rail.coreS0 || hit.s > rail.coreS1, skipped };
   }
   // --- geodesic / GC packing-plane parallel at distance w ---
   let n = armPackNormal(prevArm);
-  if (dot(n, [0, 0, 1]) < 0) n = n.map((v) => -v);
+  if (dot(n, FR.c) < 0) n = n.map((v) => -v);   // toward the kiku centre
   const sigma = -1;
   const target = sigma * Math.sin(w / R);
-  const g = (s) => dot(n, unit(perpPt(R, s, phiK, sidesAt(s).eOff))) - target;
+  const g = (s) => dot(n, unit(fPerp(R, FR, s, phiK, sidesAt(s).eOff))) - target;
   let lo = sInside, glo = g(lo), hi = null;
   for (let s = sInside + h; s <= sMax; s += h) { const gs = g(s); if (glo * gs <= 0) { hi = s; break; } lo = s; glo = gs; }
   if (hi === null) return null;
   for (let it = 0; it < 60; it++) { const mid = (lo + hi) / 2, gm = g(mid); if (glo * gm <= 0) hi = mid; else { lo = mid; glo = gm; } }
   const s = (lo + hi) / 2;
   const axisCross = (tg) => {
-    const f = (t) => dot(n, unit(point(R, t, phiK))) - tg;
+    const f = (t) => dot(n, unit(fPoint(R, FR, t, phiK))) - tg;
     let a = sInside, fa = f(a);
     for (let t = sInside + h; t <= sMax; t += h) {
       const ft = f(t);
@@ -1547,6 +1552,11 @@ export function roundSequence(recipe, P) {
  * сегмента — нить (thread), обход (round), набор (set), ряд (row) и координата длины u своей нити.
  */
 export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
+  if (!layout.program?.frame) throw new Error('path: the layout carries no program frame');
+  FR = layout.program.frame;
+  try { return buildWorkIn(recipe, P, base, marking, layout, rowPlan); } finally { FR = FRAME_N; }
+}
+function buildWorkIn(recipe, P, base, marking, layout, rowPlan) {
   // #53 commit 1 (spec §3.2): the round templates come from the layout's program (kiku(P, v, …)); N = stitches per round = v.
   const PG = layout.program;
   if (!PG) throw new Error('path: the layout carries no program');
@@ -1569,8 +1579,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [], setCollisions: [], virtualArrive: {}, startTop: {},
     shoulderForm, tipDrop: null };
   const lineIdx = (k) => ((k % N) + N) % N;
-  // #52 commit 2: lines by address — half-line k of the kiku centre (layout.center), resolved once; φ only where the
-  // not-yet-migrated (s, φ) helpers still take it (phiOf = the half-line azimuth, = phis[k] on S_N exactly).
+  // #52 commit 2: lines by address — half-line k of the kiku centre (layout.center), resolved once. #53 case 1: the (s, φ)
+  // helpers work in the kiku frame (s from the centre, φ = the half-line azimuth phiOf; = phis[k] at P.N exactly).
   const hlCache = new Map();
   const hlOf = (k) => {
     const j = lineIdx(k);
@@ -1851,7 +1861,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
             kind = 'rail-parallel'; rule = 'rail parallel of prev row at distance w (Errata 6a.11 packing); flush contact expected';
             allowed = true;
           } else { kind = 'contact'; rule = 'contact closer than w without crossing — not allowed by rule'; allowed = false; }
-          const sp = toSPhi(R, z.min.cp);
+          const sp = fSAz(R, FR, z.min.cp);
           const c = { id: `c${W.crossings.length}`, a: leg.id, b: other.id, over: passUnder ? other.id : leg.id, under: passUnder ? leg.id : other.id,
             kind, rule, allowed, at: z.min.cp, s: sp.s, phiDeg: sp.phi * 180 / Math.PI, dmin: z.min.d,
             angleDeg: crossAngleDeg(legPts, z.min.i, other.pts, z.min.j), iA: z.min.i, iB: z.min.j, lenMm: z.lenMm,

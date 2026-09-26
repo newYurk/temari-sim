@@ -2,7 +2,7 @@
 // Validators — pure functions over the pipeline result (or its prefix up to operation k).
 // Each: id, name (English canonical; UI translates via i18n), criterion from criteria.md / basis,
 // status pass|fail|warn|info|n/a, numbers. Work may span several rounds and threads (A1, B1, A2 …).
-import { dist, norm, toSPhi, dot, unit, sub, mul, ePole, eEast, haversineLen, point, cross, segSegDist, angle, add as vadd, clamp, wrapPi } from './geom.js';
+import { dist, norm, dot, unit, sub, mul, haversineLen, cross, segSegDist, angle, add as vadd, clamp, wrapPi, halfLineAt, FRAME_N, fPoint, fSAz, fS, fToward, fEast } from './geom.js';
 import { prefix } from './layers.js';
 import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
 import { tubeMesh } from './tube.js';
@@ -10,6 +10,10 @@ import { resolveBowLambda } from './params.js';
 import { widthDecomposition, u14Onset } from './diag-width.js';
 import { EPS_C, DEG_MAX_W } from './path.js';
 import { rotAbout } from './program.js';
+
+/** #53 case 1: the kiku frame of the build under validation (polar coordinates about the kiku centre, geom.js frameAt).
+ *  runValidators sets it from A.layout.program for its duration; helpers called on their own see P.N. */
+let VF = FRAME_N;
 
 /** Test hook (#26 mutation): V16 fan onset over ALL threads (future ones included) instead of the causal prefix. */
 let V16_ACAUSAL = false;
@@ -197,10 +201,13 @@ export function gcAlphaAt(N, at) {
   const tLen = Math.hypot(T[0], T[1], T[2]);
   if (!(tLen > 1e-15)) return 0;
   T = [T[0] / tLen, T[1] / tLen, T[2] / tLen];
-  const th = Math.acos(clamp(P[2]));
-  const phi = Math.atan2(P[1], P[0]);
-  const eS = [Math.cos(th) * Math.cos(phi), Math.cos(th) * Math.sin(phi), -Math.sin(th)];
-  const eP = [-Math.sin(phi), Math.cos(phi), 0];
+  let eS, eP;
+  if (VF.atN) {
+    const th = Math.acos(clamp(P[2]));
+    const phi = Math.atan2(P[1], P[0]);
+    eS = [Math.cos(th) * Math.cos(phi), Math.cos(th) * Math.sin(phi), -Math.sin(th)];
+    eP = [-Math.sin(phi), Math.cos(phi), 0];
+  } else { eS = mul(fToward(VF, P), -1); eP = fEast(VF, P); }   // #53: the meridian of the kiku centre through P
   return Math.atan2(Math.abs(dot(T, eP)), Math.abs(dot(T, eS)));
 }
 
@@ -221,7 +228,7 @@ export function legAlphaAt(L, hole, atEnd) {
 
 /** Polar tip level s = R·acos(z) (same as independent K16b audit). */
 export function tipLevelMm(p, R) {
-  return R * Math.acos(clamp(unit(p)[2]));
+  return fS(R, VF, p);   // #53: arc from the kiku centre
 }
 
 /**
@@ -349,16 +356,16 @@ const maxPtDev = (a, b, f) => { if (a.length !== b.length) return Infinity; let 
 /** Point at arc offset d (mm) from the marking line at (s, φ) along the needle line (the great circle through the point
  *  in the east direction) — the y coordinate of needleSides. */
 function needlePt(R, s, phi, d) {
-  const c = point(R, s, phi), u = unit(c), t = eEast(c);
+  const c = fPoint(R, VF, s, phi), u = unit(c), t = fEast(VF, c);
   return mul(vadd(mul(u, Math.cos(d / R)), mul(t, Math.sin(d / R))), R);
 }
 /** Own cluster edge on the X side (y < 0) of the needle line at (s, φ): marking [−m/2, m/2] grown by own threads (axis
  *  closer than w/2) while the gap is < w (§5.3 (1)). threads: [{ pts, disk }] — polylines, or points (hidden-start holes).
  *  Sampled every h mm; returns { lo, ids }. */
 export function ownClusterLo({ R, s, phi, m, w, threads, yMax, h = 0.0025 }) {
-  const C = point(R, s, phi), rad = (yMax || 10) + 2 * w;
+  const C = fPoint(R, VF, s, phi), rad = (yMax || 10) + 2 * w;
   // only links reaching the band |f| < w/2 around the needle plane can occupy it (speed only; the result is the same)
-  const nP = unit(cross(unit(C), eEast(C))), band = Math.sin(w / 2 / R) * 1.001;
+  const nP = unit(cross(unit(C), fEast(VF, C))), band = Math.sin(w / 2 / R) * 1.001;
   const f0 = (p) => dot(p, nP) / norm(p);
   const inBand = (a, b) => { const fa = f0(a), fb = f0(b); return !((fa > band && fb > band) || (fa < -band && fb < -band)); };
   const near = [];
@@ -466,10 +473,15 @@ export function v6Judge(M6, w) {
   return { status: fails.length ? 'fail' : 'pass', reasons: fails };
 }
 export function runValidators(A, stage = '2b', ref = null) {
+  if (!A.layout?.program?.frame) throw new Error('validators: the layout carries no program frame');
+  VF = A.layout.program.frame;
+  try { return runValidatorsIn(A, stage, ref); } finally { VF = FRAME_N; }
+}
+function runValidatorsIn(A, stage, ref) {
   const path = A.path;
   const kEnd = typeof stage === 'number' ? stage : path.stageEnd[stage];
   const { ops, segs, ids } = prefix(path, kEnd);
-  const R = A.base.R, w = A.params.w_mm, m = A.params.m_mm, N = A.marking.N;
+  const R = A.base.R, w = A.params.w_mm, m = A.params.m_mm, N = A.layout.program.v;
   const out = [];
   // (9б′) (#46): V5, V6, V8, K16 of an invalid build print the exclusion (invTxt, defined below, read at call time).
   const add = (v) => { if (invTxt && ['V5', 'V6', 'V8', 'K16'].includes(v.id) && typeof v.value === 'string' && !v.value.includes('build invalid')) v.value += invTxt; out.push(v); };
@@ -545,7 +557,7 @@ export function runValidators(A, stage = '2b', ref = null) {
         polyMax = Math.max(polyMax, Math.abs(sph - Lexpect) - tolChord);
       } else {
         nGeo++;
-        const a = toSPhi(R, s.from), b = toSPhi(R, s.to);
+        const a = fSAz(R, VF, s.from), b = fSAz(R, VF, s.to);
         hvMax = Math.max(hvMax, Math.abs(haversineLen(R, a.s, a.phi, b.s, b.phi) - s.length));
       }
     }
@@ -568,10 +580,12 @@ export function runValidators(A, stage = '2b', ref = null) {
     else {
       // (12′)–(12″) (#45): the round-1 closing stitch is the L0 top of row 2 (placed by the own cluster) — it and its leg
       // are left out; the start stitch (hidden start ending at E₀, channel E₀ → X₀) is part of row 1.
-      const Nn = A.marking.N;
-      let dXY = dist(A1.start.X0, e.X0);
-      if (A1.start.E0 && e.E0) dXY = Math.max(dXY, dist(A1.start.E0, e.E0));
-      for (const st of a1St) { if (st.i === Nn) continue; const r = e.stitches[st.i - 1]; dXY = Math.max(dXY, dist(st.E, r.E), dist(st.X, r.X)); }
+      const Nn = A.layout.program.v;
+      // #53: calc.py computes the kiku about P.N; its points are mapped into the kiku frame (identity at P.N)
+      const toF = VF.atN ? (p) => p : (p) => [0, 1, 2].map((i) => p[0] * VF.z0[i] + p[1] * VF.e2[i] + p[2] * VF.c[i]);
+      let dXY = dist(A1.start.X0, toF(e.X0));
+      if (A1.start.E0 && e.E0) dXY = Math.max(dXY, dist(A1.start.E0, toF(e.E0)));
+      for (const st of a1St) { if (st.i === Nn) continue; const r = e.stitches[st.i - 1]; dXY = Math.max(dXY, dist(st.E, toF(r.E)), dist(st.X, toF(r.X))); }
       const rowSegs = a1Segs.filter((s) => s.type !== 'hidden-start' && s.stitch !== Nn);
       const rowLen = rowSegs.reduce((a, s) => a + s.length, 0);
       const full = kEnd >= A1.opLast;
@@ -603,10 +617,10 @@ export function runValidators(A, stage = '2b', ref = null) {
   {
     let maxDev = 0, wrongSide = 0, notUnder = 0;
     for (const st of stitchesDone) {
-      const C = point(R, st.s, A.marking.phis[st.line]);
+      const C = fPoint(R, VF, st.s, A.layout.program.az[st.line]);
       const chord = unit(sub(st.X, st.E));
-      maxDev = Math.max(maxDev, Math.abs(90 - Math.acos(Math.min(1, Math.abs(dot(chord, ePole(C))))) * 180 / Math.PI));
-      if (!(dot(st.E, eEast(C)) > 0 && dot(st.X, eEast(C)) < 0)) wrongSide++;
+      maxDev = Math.max(maxDev, Math.abs(90 - Math.acos(Math.min(1, Math.abs(dot(chord, fToward(VF, C))))) * 180 / Math.PI));
+      if (!(dot(st.E, fEast(VF, C)) > 0 && dot(st.X, fEast(VF, C)) < 0)) wrongSide++;
       if (norm(st.E.map((v, i) => (v + st.X[i]) / 2)) >= R) notUnder++;
     }
     const ok = maxDev < TOL_PERP_DEG && wrongSide === 0 && notUnder === 0;
@@ -737,7 +751,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       let h;
       if (typeof cpOrS === 'number') h = Math.abs((st.s ?? 0) - cpOrS);
       else if (cpOrS && Array.isArray(cpOrS)) {
-        const sp = toSPhi(R, cpOrS);
+        const sp = fSAz(R, VF, cpOrS);
         h = Math.abs((st.s ?? 0) - sp.s);
       } else return null;
       if (!(h > 0 && h < hxTip)) return null;
@@ -794,7 +808,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     const crossoverOk = (P, Q, cp) => {
       if (!braid8 || !cp || P?.type !== 'leg' || Q?.type !== 'leg' || P.set !== Q.set || Math.abs(P.row - Q.row) !== 1) return false;
       const hi = P.row > Q.row ? P : Q;
-      const sT = Math.min(toSPhi(R, hi.from).s, toSPhi(R, hi.to).s), sc = toSPhi(R, cp).s;
+      const sT = Math.min(fSAz(R, VF, hi.from).s, fSAz(R, VF, hi.to).s), sc = fSAz(R, VF, cp).s;
       if (sc > sT + lBraidW * w) return false;
       crossoverList.push({ a: P.id, b: Q.id, s: sc, belowTopMm: sc - sT });
       return true;
@@ -816,7 +830,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       } else if (expected.has(k)) {
         return expected.get(k);
       }
-      if (squeezeOk(P, Q, md)) { warnList.push(`${P.id}×${Q.id} s=${f(toSPhi(R, md.cp).s, 1)} d=${f(md.d, 3)} (tight spot, V19)`); return 'WARN: tight spot at pierce — threads must compress (V19)'; }
+      if (squeezeOk(P, Q, md)) { warnList.push(`${P.id}×${Q.id} s=${f(fSAz(R, VF, md.cp).s, 1)} d=${f(md.d, 3)} (tight spot, V19)`); return 'WARN: tight spot at pierce — threads must compress (V19)'; }
       const later = order.get(P.id) > order.get(Q.id) ? P : Q, earlier = later === P ? Q : P;
       const types = [P.type, Q.type].sort().join('+');
       if (types === 'leg+pickup') {
@@ -832,14 +846,14 @@ export function runValidators(A, stage = '2b', ref = null) {
           let iN = 0, dN = Infinity;
           for (let i = 0; i < L.pts.length; i++) { const dd = dist(unit(L.pts[i]), cpL); if (dd < dN) { dN = dd; iN = i; } }
           const T = unit(sub(L.pts[Math.min(L.pts.length - 1, iN + 1)], L.pts[Math.max(0, iN - 1)]));
-          const sinPsi = Math.abs(dot(T, eEast(cpL)));
+          const sinPsi = Math.abs(dot(T, fEast(VF, cpL)));
           const H = dist(cpL, unit(st.E)) <= dist(cpL, unit(st.X)) ? st.E : st.X;   // the channel's hole nearest the contact
-          const dS = Math.abs(toSPhi(R, cpL).s - toSPhi(R, H).s);
+          const dS = Math.abs(fSAz(R, VF, cpL).s - fSAz(R, VF, H).s);
           const zone = separateZoneMm(sinPsi, w);
           if (dS <= zone) {
-            const ph = toSPhi(R, H).phi;
+            const ph = fSAz(R, VF, H).phi;
             const span = stitchesDone.find((x) => x.level === 'top' && x.set !== K.set && Math.abs(x.s - st.s) < 1e-6 && order.get(x.pickupId) < order.get(K.id)
-              && (() => { const lo = wrapPi(toSPhi(R, x.X).phi - ph), hi = wrapPi(toSPhi(R, x.E).phi - ph); return Math.min(lo, hi) <= 0 && Math.max(lo, hi) >= 0 && Math.abs(hi - lo) < Math.PI; })());
+              && (() => { const lo = wrapPi(fSAz(R, VF, x.X).phi - ph), hi = wrapPi(fSAz(R, VF, x.E).phi - ph); return Math.min(lo, hi) <= 0 && Math.max(lo, hi) >= 0 && Math.abs(hi - lo) < Math.PI; })());
             separateList.push({ leg: L.id, legRound: L.round, channel: K.id, channelRound: st.round, d: md.d, dW: md.d / w, dS, zone, psiDeg: Math.asin(Math.min(1, sinPsi)) * 180 / Math.PI,
               dHoleMm: R * angle(cpL, unit(H)), inSpan: !!span, spanOf: span ? span.pickupId : null });
             return 'separate: foreign channel pushes the leg aside at its hole (U14 set collision, §5.3 (2)(3))';
@@ -867,7 +881,7 @@ export function runValidators(A, stage = '2b', ref = null) {
         if (nearHole && later === L) return 'leg over hidden-start hole';
         return null;
       }
-      if (types === 'hidden-start+pickup') { warnList.push(`${P.id}×${Q.id} s=${f(toSPhi(R, md.cp).s, 1)} d=${f(md.d, 3)}`); return 'WARN: needle channel near hidden start (in wrap)'; }
+      if (types === 'hidden-start+pickup') { warnList.push(`${P.id}×${Q.id} s=${f(fSAz(R, VF, md.cp).s, 1)} d=${f(md.d, 3)}`); return 'WARN: needle channel near hidden start (in wrap)'; }
       if (types === 'leg+leg') {
         // 6a.13 tipCross first (height window); pair-level expected must not stamp mid-leg contacts.
         const tipLab = tipCrossAt(P, Q, md.cp);
@@ -914,7 +928,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       const md = minDist(axis[i], axis[j]);
       if (md.d >= w - 1e-9) continue;
       const why = classify(segs[i], segs[j], md);
-      const sp = toSPhi(R, md.cp);
+      const sp = fSAz(R, VF, md.cp);
       (why ? found : bad).push({ a: segs[i].id, b: segs[j].id, d: md.d, s: sp.s, at: md.cp, why: why || 'UNEXPECTED' });
     }
     // Seed tipCross from path.crossings at c.at (global minDist often sits mid-leg, missing the tip diamond).
@@ -953,7 +967,7 @@ export function runValidators(A, stage = '2b', ref = null) {
             if (bot) {
               let h;
               if (typeof cpOrS === 'number') h = Math.abs((bot.s ?? 0) - cpOrS);
-              else if (at) h = Math.abs((bot.s ?? 0) - toSPhi(R, at).s);
+              else if (at) h = Math.abs((bot.s ?? 0) - fSAz(R, VF, at).s);
               if (h != null && h > 0 && h < hxTip + tipBand) return 'tip zone / over bite (6a.13)';
             }
           }
@@ -968,7 +982,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       }
       // Near bottom tip (bite diamond) or upper tip (uwagake / set meet) → tip-zone class (6a.13 / 6a.18).
       if (P?.type === 'leg' && Q?.type === 'leg' && at) {
-        const sp = toSPhi(R, at);
+        const sp = fSAz(R, VF, at);
         const nearSt = stitchesDone.filter((s) => !s.closing
           && (s.set === P.set || s.set === Q.set)
           && (s.row === P.row || s.row === Q.row || s.row === Math.min(P.row, Q.row)));
@@ -1041,7 +1055,7 @@ export function runValidators(A, stage = '2b', ref = null) {
         const t = [Q[0] - E[0], Q[1] - E[1], Q[2] - E[2]];
         const k = t[0] * E[0] + t[1] * E[1] + t[2] * E[2];
         const tt = [t[0] - k * E[0], t[1] - k * E[1], t[2] - k * E[2]];
-        const nz = [-E[0] * E[2], -E[1] * E[2], 1 - E[2] * E[2]]; // toward the pole (+z) in the tangent plane
+        const nz = VF.atN ? [-E[0] * E[2], -E[1] * E[2], 1 - E[2] * E[2]] : fToward(VF, E); // toward the kiku centre in the tangent plane
         const a = Math.hypot(...tt), b = Math.hypot(...nz);
         if (!(a > 1e-15 && b > 1e-15)) continue;
         vals.push(Math.acos(clamp((tt[0] * nz[0] + tt[1] * nz[1] + tt[2] * nz[2]) / (a * b))));
@@ -1058,7 +1072,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     // Per-set row bottom s for Δ_n
     const rowS = (set, row) => {
       const st = bottoms.find((s) => s.set === set && s.row === row && !s.closing);
-      return st ? (st.s ?? toSPhi(R, unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2])).s) : null;
+      return st ? (st.s ?? fSAz(R, VF, unit([(st.E[0] + st.X[0]) / 2, (st.E[1] + st.X[1]) / 2, (st.E[2] + st.X[2]) / 2])).s) : null;
     };
     // Measure fix: subsample along leg edges — discrete pts alone miss the true closest approach
     // (e.g. B7/L6 dE 0.40 on verts vs 0.24 dense; threshold w/2·1.1 unchanged).
@@ -1483,7 +1497,7 @@ export function runValidators(A, stage = '2b', ref = null) {
     const surf = new Map(segs.filter((x) => x.type === 'pickup').map((x) => [x.id, x.pts.map((q) => { const n0 = norm(q); return q.map((v) => v * R / n0); })]));
     const before = (idxSeg) => segs.filter((x) => (x.type === 'leg' || x.type === 'pickup') && order.get(x.id) < idxSeg);
     const sTop0 = A.layout?.sTop ?? A.params.sTop_mm ?? 5;
-    const phis = A.marking?.phis || [];
+    const phis = A.layout?.program?.az || [];
     const foreignLatCache = new Map();
     /** Lateral |y| on the needle line at tip level to the nearest already laid other-set thread, legs and channels
      *  (6a.21 d(s_T); the same classes as checkHole — #38 follow-up). */
@@ -1492,8 +1506,8 @@ export function runValidators(A, stage = '2b', ref = null) {
       const key = `${ownSet}:${line}:${sT.toFixed(4)}:${idxSeg}`;
       if (foreignLatCache.has(key)) return foreignLatCache.get(key);
       const phi = phis[line];
-      const C = point(R, sT, phi);
-      const uC = unit(C), eL = eEast(C), n = ePole(C);
+      const C = fPoint(R, VF, sT, phi);
+      const uC = unit(C), eL = fEast(VF, C), n = fToward(VF, C);
       const coord = (p) => {
         const q = unit(p);
         return { f: R * Math.asin(Math.max(-1, Math.min(1, dot(q, n)))), y: R * Math.atan2(dot(q, eL), dot(q, uC)) };
@@ -1898,8 +1912,8 @@ export function runValidators(A, stage = '2b', ref = null) {
     const angleRows = [];
     const stickRows = [];
     for (const s of legs) {
-      const phi = A.marking.phis[((s.line % N) + N) % N];
-      const nMer = [-Math.sin(phi), Math.cos(phi), 0];
+      const phi = A.layout.program.az[((s.line % N) + N) % N];
+      const nMer = VF.atN ? [-Math.sin(phi), Math.cos(phi), 0] : halfLineAt(VF.c, VF.z0, phi).n;   // #53: the half-line's great circle
       const nLast = s.pts.length - 1;
       const signedLat = (i) => {
         const u = unit(s.pts[i]);
@@ -1945,7 +1959,7 @@ export function runValidators(A, stage = '2b', ref = null) {
         const u2 = Math.min(1, uGeo + 1e-5);
         const Cgeo2 = unit(vadd(mul(X, Math.sin((1 - u2) * angXE) / Math.sin(angXE)), mul(E, Math.sin(u2 * angXE) / Math.sin(angXE))));
         const Tgeo = unit(sub(Cgeo2, mul(Cgeo, dot(Cgeo2, Cgeo))));
-        const TmerG = unit(sub(ePole(Cgeo), mul(Cgeo, dot(ePole(Cgeo), Cgeo))));
+        const TmerG = unit(sub(fToward(VF, Cgeo), mul(Cgeo, dot(fToward(VF, Cgeo), Cgeo))));
         if (Math.hypot(...Tgeo) > 1e-12 && Math.hypot(...TmerG) > 1e-12) {
           alphaGeo = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(Tgeo), unit(TmerG))))));
         }
@@ -1995,7 +2009,7 @@ export function runValidators(A, stage = '2b', ref = null) {
           const C = pt(uHit);
           const C2 = pt(Math.min(1, uHit + 1e-5));
           const Tarc = unit(sub(C2, mul(C, dot(C2, C))));
-          const Tmer = unit(sub(ePole(C), mul(C, dot(ePole(C), C))));
+          const Tmer = unit(sub(fToward(VF, C), mul(C, dot(fToward(VF, C), C))));
           if (Math.hypot(...Tarc) > 1e-12 && Math.hypot(...Tmer) > 1e-12) {
             alphaExp = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(Tarc), unit(Tmer))))));
           }
@@ -2026,7 +2040,7 @@ export function runValidators(A, stage = '2b', ref = null) {
                 T = unit(cross(p, nMer));
               }
               let N = unit(cross(p, T));
-              if (dot(N, ePole(p)) > 0) N = mul(N, -1);
+              if (dot(N, fToward(VF, p)) > 0) N = mul(N, -1);
               off.push(unit(vadd(mul(p, Math.cos(alphaOff)), mul(N, Math.sin(alphaOff)))));
             }
             if (off.length >= 2) {
@@ -2057,7 +2071,7 @@ export function runValidators(A, stage = '2b', ref = null) {
             const Tpath = unit(sub(s.pts[Math.min(iRef, nLast)], s.pts[Math.max(0, iRef - 1)]));
             Tref = unit(sub(Tpath, mul(C, dot(Tpath, C))));
           }
-          const TmerC = unit(sub(ePole(C), mul(C, dot(ePole(C), C))));
+          const TmerC = unit(sub(fToward(VF, C), mul(C, dot(fToward(VF, C), C))));
           if (Math.hypot(...Tref) > 1e-12 && Math.hypot(...TmerC) > 1e-12) {
             alphaExp = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(Tref), unit(TmerC))))));
           }
@@ -2065,7 +2079,7 @@ export function runValidators(A, stage = '2b', ref = null) {
           const C = unit(vadd(mul(unit(s.pts[Math.max(0, iRef - 1)]), 1 - tRef), mul(unit(s.pts[Math.min(iRef, nLast)]), tRef)));
           const Tpath = unit(sub(s.pts[Math.min(iRef, nLast)], s.pts[Math.max(0, iRef - 1)]));
           const TpathT = unit(sub(Tpath, mul(C, dot(Tpath, C))));
-          const TmerC = unit(sub(ePole(C), mul(C, dot(ePole(C), C))));
+          const TmerC = unit(sub(fToward(VF, C), mul(C, dot(fToward(VF, C), C))));
           if (Math.hypot(...TpathT) > 1e-12 && Math.hypot(...TmerC) > 1e-12) {
             alphaExp = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(TpathT), unit(TmerC))))));
           }
@@ -2112,7 +2126,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       const C = unit(vadd(mul(unit(s.pts[Math.max(0, iMeet - 1)]), 1 - tMeet), mul(unit(s.pts[Math.min(iMeet, nLast)]), tMeet)));
       const Tpath = unit(sub(s.pts[Math.min(iMeet, nLast)], s.pts[Math.max(0, iMeet - 1)]));
       const TpathT = unit(sub(Tpath, mul(C, dot(Tpath, C))));
-      const TmerC = unit(sub(ePole(C), mul(C, dot(ePole(C), C))));
+      const TmerC = unit(sub(fToward(VF, C), mul(C, dot(fToward(VF, C), C))));
       let alpha = 0;
       if (Math.hypot(...TpathT) > 1e-12 && Math.hypot(...TmerC) > 1e-12) {
         alpha = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot(unit(TpathT), unit(TmerC))))));

@@ -616,9 +616,11 @@ export function resolve(mk, address) {
   if (fn === 'region') {
     const P = resolve(mk, pos[0]), until = resolve(mk, kw(args, 'until') ?? pos[1]);
     if (P.type !== 'point' || until.type !== 'circle') throw new Error(`marking: «${address}»: region(P, until=<circle>)`);
-    if (Math.abs(dot(P.p, until.c) - 1) > TOL) throw new Error(`marking: «${address}»: ${P.id} is not the centre of ${until.id}`);
+    // a small circle about c of radius ρ is the circle about −c of radius π − ρ (#53: region(P.S, until=C.eq))
+    const cs = dot(P.p, until.c), rho = Math.abs(cs - 1) <= TOL ? until.rho : Math.abs(cs + 1) <= TOL ? Math.PI - until.rho : NaN;
+    if (!Number.isFinite(rho)) throw new Error(`marking: «${address}»: ${P.id} is not the centre of ${until.id}`);
     // sMax = arc from the centre to the boundary = Q·ρ/(π/2) (Q = R·π/2; for C.eq exactly Q — the K12 stop, #52 commit 2)
-    return { type: 'region', id: a, center: P.id, until: until.id, sMax: mk.Q * (until.rho / (Math.PI / 2)) };
+    return { type: 'region', id: a, center: P.id, until: until.id, sMax: mk.Q * (rho / (Math.PI / 2)) };
   }
   throw new Error(`marking: address function «${fn}» not supported (P.*, L[k], L(P, azimuth), L(P, Q), on, offset, X, mid, C, P.center[F], F[i], region)`);
 }

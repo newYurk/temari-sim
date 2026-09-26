@@ -61,6 +61,9 @@ const ru = {
   'diag.packingNote': 'Упаковка / прокол — только контекст (Δ не вход).',
   'recipe.note': 'Редактируемая поверхность пресета (цвета). Размеры и порядок рядов — в «Параметрах» ниже. Шаг и полный прогон идут по одному массиву path.ops.',
   'recipe.meta': 'id: {id} · {title} · материал: {mat} [{matStatus}]',
+  'recipe.select': 'Пресет рецепта:',
+  'recipe.preset.kiku-s8': 'Кику S8 (центр — северный полюс P.N)',
+  'recipe.preset.kiku-s8-south': 'Кику S8 на южном полюсе P.S (#53)',
   'recipe.colors': 'Цвета:',
   'recipe.colorA': 'A',
   'recipe.colorB': 'B',
@@ -264,6 +267,7 @@ const ru = {
 
   // 3D labels (render.js)
   'label.NP': 'СП',
+  'label.SP': 'ЮП',
   'label.equator': 'экватор',
   'label.hiddenStart': '{round}: скрытый старт нити {thread} — {mode}',
   'label.hiddenStart.schematic': 'схема у поверхности (модель: прямая хорда)',
@@ -373,6 +377,9 @@ const en = {
   'diag.packingNote': 'Packing / pierce — read-only context (Δ is not an input).',
   'recipe.note': 'Editable preset surface (colors). Sizes and row order stay in Parameters below. Step and full run share the same path.ops array.',
   'recipe.meta': 'id: {id} · {title} · material: {mat} [{matStatus}]',
+  'recipe.select': 'Recipe preset:',
+  'recipe.preset.kiku-s8': 'Kiku S8 (centre: north pole P.N)',
+  'recipe.preset.kiku-s8-south': 'Kiku S8 on the south pole P.S (#53)',
   'recipe.colors': 'Colors:',
   'recipe.colorA': 'A',
   'recipe.colorB': 'B',
@@ -568,6 +575,7 @@ const en = {
   'legend.type.current': 'current operation',
 
   'label.NP': 'NP',
+  'label.SP': 'SP',
   'label.equator': 'equator',
   'label.hiddenStart': '{round}: hidden start of thread {thread} — {mode}',
   'label.hiddenStart.schematic': 'schematic near surface (model: straight chord)',

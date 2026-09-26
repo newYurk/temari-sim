@@ -1,5 +1,13 @@
 // Загрузка рецепта (JSON) в браузере и в node — один источник данных.
-export async function loadRecipe(url = new URL('../data/recipe.kiku-s8.json', import.meta.url)) {
+/** Recipe presets (#53): id → file in sim/data. The UI picks one with ?recipe=<id> (default kiku-s8). */
+export const RECIPE_PRESETS = { 'kiku-s8': 'recipe.kiku-s8.json', 'kiku-s8-south': 'recipe.kiku-s8-south.json' };
+export const RECIPE_DEFAULT = 'kiku-s8';
+/** URL of a recipe preset by id (unknown ids throw). */
+export function recipeUrl(id = RECIPE_DEFAULT) {
+  if (!(id in RECIPE_PRESETS)) throw new Error(`recipe preset «${id}» unknown (${Object.keys(RECIPE_PRESETS).join(', ')})`);
+  return new URL(`../data/${RECIPE_PRESETS[id]}`, import.meta.url);
+}
+export async function loadRecipe(url = recipeUrl(RECIPE_DEFAULT)) {
   if (typeof window === 'undefined') {
     const fs = await import('node:fs');
     return normalizeRecipe(JSON.parse(fs.readFileSync(url, 'utf8')));

@@ -1,5 +1,5 @@
 // UI: params → computeAll (pure pipeline) → render/validators. State persists in the URL.
-import { loadRecipe, loadJSON } from './recipe.js';
+import { loadRecipe, loadJSON, recipeUrl, RECIPE_PRESETS, RECIPE_DEFAULT } from './recipe.js';
 import { computeAll } from './layers.js';
 import { runValidators, summary, refKey } from './validators.js';
 import { runDiagnostics } from './diagnostics.js';
@@ -13,14 +13,17 @@ window.__sim = { ready: false, errors: [] };
 window.addEventListener('error', (e) => window.__sim.errors.push(String(e.message)));
 
 const q = new URLSearchParams(location.search);
+// #53: recipe preset from ?recipe=<id> (unknown id → default, reported in the console)
+const recipeId = q.has('recipe') && q.get('recipe') in RECIPE_PRESETS ? q.get('recipe') : RECIPE_DEFAULT;
+if (q.has('recipe') && !(q.get('recipe') in RECIPE_PRESETS)) console.warn(`[sim] unknown recipe preset «${q.get('recipe')}», using ${RECIPE_DEFAULT}`);
+const recipe = await loadRecipe(recipeUrl(recipeId));
 const state = {
   raw: { ...uiDefaults(paramsFromQuery(location.search)), ...paramsFromQuery(location.search) },   // #47: site default bow λ 0.32
   stage: ['2a', '2b', 'B1', 'A2', 'all'].includes(q.get('stage')) ? q.get('stage') : 'A2',   // 'all' = whole pattern (recipe stage, throughOp *)
   k: q.has('k') ? Number(q.get('k')) : null,
-  view: q.get('view') || 'top',
+  view: q.get('view') || (recipe.kiku?.center === 'P.S' ? 'bottom' : 'top'),   // #53: default view onto the kiku centre
   zoom: q.has('zoom') ? Number(q.get('zoom')) : 1,
 };
-const recipe = await loadRecipe();
 const recipePreset = await loadJSON('../data/recipes/kiku-s8.json');
 const materialPreset = await loadJSON('../data/materials/dmc-perle-5.json');
 const ref = await loadJSON('../data/calc_reference.json');
@@ -59,11 +62,21 @@ function syncLangToggle() {
 }
 
 
+/** #53: recipe preset selector — a change reloads the page with ?recipe=<id> (the recipe is fixed per page load). */
+function initRecipeSelect() {
+  const sel = $('recipe-select');
+  if (!sel) return;
+  sel.innerHTML = Object.keys(RECIPE_PRESETS).map((id) => `<option value="${id}">${t('recipe.preset.' + id, {}, id)}</option>`).join('');
+  sel.value = recipeId;
+  sel.onchange = () => { const u = new URLSearchParams(location.search); if (sel.value === RECIPE_DEFAULT) u.delete('recipe'); else u.set('recipe', sel.value); u.delete('view'); location.search = u.toString(); };
+}
+
 function renderRecipeMeta() {
+  initRecipeSelect();
   const meta = $('recipe-meta');
   if (!meta) return;
-  const id = recipePreset?.id || recipe.id;
-  const title = recipePreset?.title || recipe.title || id;
+  const id = recipe.id;
+  const title = (recipePreset?.id === recipe.id && recipePreset?.title) || recipe.title || id;
   const mat = recipePreset?.materialPreset || state.raw.materialPreset || '—';
   const matStatus = materialPreset?.status || '—';
   meta.textContent = t('recipe.meta', { id, title, mat, matStatus });
@@ -141,6 +154,7 @@ function readForm() {
 function syncURL() {
   const d = uiDefaults(state.raw), u = new URLSearchParams();
   for (const p of PARAM_SCHEMA) if (String(state.raw[p.key]) !== String(d[p.key])) u.set(p.key, state.raw[p.key]);
+  if (recipeId !== RECIPE_DEFAULT) u.set('recipe', recipeId);
   u.set('stage', state.stage); u.set('k', state.k); u.set('view', state.view);
   u.set('lang', getLocale());
   if (R3.opts.transparent) u.set('t', '1'); if (!R3.opts.hidden) u.set('h', '0');

@@ -17,7 +17,10 @@
 // 2. U14 onset n₀ (top holes under the other set's threads): observed (first row with a set-collision record, split
 //    by mechanism) vs causal geometric: first n with s_T(n) ≥ s_cross − (w/2)/sin ψ_cross, where the other set's legs
 //    reach the line at s_cross under angle ψ_cross (topmost such point), plus the span meet of the two sets' tops.
-import { unit, dot, sub, add, mul, dist, perpPt, point, ePole } from './geom.js';
+import { unit, dot, sub, add, mul, dist, halfLineAt, FRAME_N, fPoint, fPerp, fS, fToward } from './geom.js';
+
+/** #53 case 1: the kiku frame of the build being decomposed (set by widthDecomposition / u14Onset from A.layout.program). */
+let DF = FRAME_N;
 
 const TOL = 1e-9;
 
@@ -52,7 +55,7 @@ function angleToMeridian(pts, q) {
   const u = unit(q);
   const t = sub(pts[bi], pts[bi - 1]);
   const tt = sub(t, mul(u, dot(t, u)));
-  const mer = sub([0, 0, 1], mul(u, u[2]));     // toward the pole along the meridian
+  const mer = DF.atN ? sub([0, 0, 1], mul(u, u[2])) : fToward(DF, u);     // toward the kiku centre along its meridian
   const a = Math.hypot(...tt), b = Math.hypot(...mer);
   if (a < 1e-15 || b < 1e-15) return null;
   const c = Math.abs(dot(tt, mer)) / (a * b);
@@ -88,7 +91,7 @@ function sideTerms({ st, p, sgn, segById, R, phi, m }) {
   // the frame in which drift ≈ w·tan βT (the local meridian at the offset point is rotated by their convergence near the pole).
   let betaDeg = null;
   const g = segById.get(S);
-  if (g?.pts && o.kind !== 'marking') betaDeg = angleToDir(g.pts, perpPt(R, st.s, phi, yN), ePole(point(R, st.s, phi)));
+  if (g?.pts && o.kind !== 'marking') betaDeg = angleToDir(g.pts, fPerp(R, DF, st.s, phi, yN), fToward(DF, fPoint(R, DF, st.s, phi)));
   return { delta, drift, halfTrace: half, clearance, merge, remainder: delta - sum, edgeSeg: S, edgeKind: o.kind, edgeRound: g?.round ?? null,
     edgeStitch: g?.stitch ?? null, edgeRow: g?.row ?? null, source: kind, betaDeg, squeeze: squeeze ? { gap: squeeze.gap, noRoom: !!squeeze.noRoom } : null };
 }
@@ -97,7 +100,8 @@ function sideTerms({ st, p, sgn, segById, R, phi, m }) {
 export function widthDecomposition(A) {
   const P = A.path, R = A.base.R, w = A.params.w_mm, m = A.params.m_mm;
   const segById = new Map(P.segs.map((s) => [s.id, s]));
-  const phiOf = (k) => A.marking.phis[((k % A.marking.N) + A.marking.N) % A.marking.N];
+  const PG = A.layout.program, phiOf = (k) => PG.az[((k % PG.v) + PG.v) % PG.v];   // #53: half-line azimuths about the kiku centre
+  DF = PG.frame;
   const out = [];
   for (const set of [...new Set(P.rounds.map((r) => r.set))]) {
     const rounds = P.rounds.filter((r) => r.set === set).sort((a, b) => a.row - b.row);
@@ -119,7 +123,8 @@ export function widthDecomposition(A) {
 
 /** Topmost point where legs of `otherSet` reach the meridian of line phi (crossing or touching it), with angle ψ. */
 function reachLine(P, otherSet, phi, R) {
-  const nMer = [-Math.sin(phi), Math.cos(phi), 0], toward = [Math.cos(phi), Math.sin(phi), 0];
+  const hl = DF.atN ? null : halfLineAt(DF.c, DF.z0, phi);
+  const nMer = DF.atN ? [-Math.sin(phi), Math.cos(phi), 0] : hl.n, toward = DF.atN ? [Math.cos(phi), Math.sin(phi), 0] : hl.dir;
   let best = null;
   for (const g of P.segs) {
     if (g.type !== 'leg' || g.set !== otherSet || !g.pts || g.pts.length < 2) continue;
@@ -131,7 +136,7 @@ function reachLine(P, otherSet, phi, R) {
       const t = onA ? 0 : onB ? 1 : a / (a - b);
       const q = add(mul(g.pts[i - 1], 1 - t), mul(g.pts[i], t));
       if (dot(unit(q), toward) <= 0) continue;           // the other half of the great circle
-      const s = R * Math.acos(Math.max(-1, Math.min(1, unit(q)[2])));
+      const s = fS(R, DF, q);
       const psi = angleToMeridian(g.pts, q);
       if (psi == null) continue;
       if (!best || s < best.s - 1e-9) best = { s, psiDeg: psi, seg: g.id, round: g.round, stitch: g.stitch, level: g.level };
@@ -175,7 +180,8 @@ const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], 
 export function u14Onset(A) {
   const P = A.path, R = A.base.R, w = A.params.w_mm;
   const sets = [...new Set(P.rounds.map((r) => r.set))];
-  const phiOf = (k) => A.marking.phis[((k % A.marking.N) + A.marking.N) % A.marking.N];
+  const PG = A.layout.program, phiOf = (k) => PG.az[((k % PG.v) + PG.v) % PG.v];   // #53: half-line azimuths about the kiku centre
+  DF = PG.frame;
   const out = [];
   for (const set of sets) {
     const other = sets.find((x) => x !== set);
@@ -209,7 +215,7 @@ export function u14Onset(A) {
         // last row can already cover its hole within (w/2)/sin ψ.
         if (tr.length >= 2) {
           const a = tr[tr.length - 2].q, b = tr[tr.length - 1].q;
-          track.push({ p: perpPt(R, 2 * b.s - a.s, phiOf(b.line), 2 * b[offKey] - a[offKey]), s: 2 * b.s - a.s });
+          track.push({ p: fPerp(R, DF, 2 * b.s - a.s, phiOf(b.line), 2 * b[offKey] - a[offKey]), s: 2 * b.s - a.s });
         }
         for (const h of crossTrack(P, other, track)) hits.push({ ...h, side, sThr: h.s - (w / 2) / Math.sin(h.psiDeg * Math.PI / 180) });
       }
