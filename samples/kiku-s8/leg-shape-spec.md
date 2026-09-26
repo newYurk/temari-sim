@@ -134,3 +134,18 @@ Reading the table:
 
 A2 tip-width growth `(W−Wp)/w` under bow is physics (row-1 footprint), not a bug. Locked rates (±0.1 w, monotonic): geodesic +0.21; λ 0.2/0.32/0.45/0.6 → +0.43/+0.59/+0.75/+0.92 w.
 Same metric as V13; V13’s own ≥~0.5 w pass band still **warns** at λ=0.2 (+0.43 w). Do not retune thresholds — ask Fable whether the warn floor should align with pass-from-0.2.
+
+## Errata v3.4.2 — V20 tangency tolerance and (10″) free-graze (Fable, 2026-09-26)
+
+Source: Fable's reply on V20 (spec-vs-code-3fe6f3d item 2); implemented in b080c58 (path.js (10″), validators.js `tangentJoinTol`), V8 print in 9e9e7ef. The canonical v3.4 text lives outside the repo; these are the edits (§ — was — now).
+
+- **§6.4 tangency tolerance** — was: "turn at T₁ ≤ 3·h·λ_r/R (class (ii); ≈ 1° at 96 and λ = 0.6, ≈ 0.26° at 384; analytically 0)" and "at tangency points (T₁, T₂, rail end) ≤ 3·h·λ_r/R" — now: "turn at a tangency point (T₁, T₂, rail end) ≤ 3·h_T·λ_r/R, where h_T is the polyline link adjoining the point on the curved piece, λ_r = |cot ρ| **of the piece carrying the point** (corner arc of radius w: λ_r = R/w; great circle: 0); class (ii), discrete turn estimate h_T·λ_r/(2R), margin 6. The illustration '≈ 1° at 96 and λ = 0.6' is dropped together with the code's 1° constant; asin(0.01) of (13b) is not part of the tolerance — it is the tangency detection threshold, the tangency point after it is exact (class (i))."
+- **§3.2 (10″) Tangency without a rail** (after (10′)): after computing T₁ by (10′) and T₂ by (12), take Δs = s(T₂) − s(T₁) along the rail. Δs ≤ 0 (class (i): ≤ 1e-9·R): there is no rail piece; the leg is one great circle X_n → E, class free, entryKind/exitKind = free-graze; print Δs, the maximal chord gap to the rail (expected (Δs)²·λ_r/(8R)) and d to the thread of row n−1 (≥ w, V23 for free); there is no vertex T, V20 checks only κ_g = 0. A splice "join + tail" with a vertex is not allowed: a kink at a point without contact, V20 fail. 0 < Δs < h: a rail piece shorter than a link — both T₁ and T₂ stay polyline vertices, the piece is one link; the turn at each is ≤ Δs·λ_r/(2R) < 3·h·λ_r/R and passes the local tolerance without a special case. V22 does not apply (the chord is a solution), V23 — d ≥ w(1 − ε_c) with the departure printed, V21 — the free leg's own great circle.
+- **§6.4 free legs** — add to "No tangency and the chord is clear — a free leg …": "the tangents crossed (Δs ≤ 0) — the same: chord X_n → E, (10″); a splice join + tail with a kink |Δs|·λ_r/R — fail".
+- **§6.12 V8** — the free-graze class: a free leg with its chord gap to the rail printed (and how many pass closer than 0.01 w); no contact is set.
+- **§6.16** — negative tests: the mutation "keep join + tail at Δs ≤ 0" → V20 fail "kink at a free point" on fan g96 m 0.5 λ 0.1 (s84/s100), fan m 0.5 λ 0.32 (s276/s292), braid m 1 λ 0.2 (s244/s260); the mutation "tolerance 1°" (or asin 0.01 = 0.573°) passes them — which is why neither is a bound (test group '20g').
+- **spec-vs-code-3fe6f3d item 2** — closed: the 1° constant → local class (ii) + (10″).
+
+Measured (b080c58): all 11 configurations that failed under the literal formula pass V20; worst tangency turn 0.167 (fan) / 0.433 (braid) of the bound; (10″) occurs in 13 of 96 configurations, 26 legs, Δs −1.39 … −3.11 mm (Fable expected −0.5 … −1.4), chord gap to the rail 0.022–0.042 mm (expected ≈ 0.001), d to row n−1 1.03–1.10 w.
+
+**Journal 3.3.3 (lift-spec v1.1 §6 step 7).** §6.10 V23 — reference to the bridge of model/lift-spec.md §1.8: the same class of phenomena (a free span that a taut thread cannot press to the ball); §7 measurement no. 17 — add "bridge length on the limb" (lift-spec §5.1).
