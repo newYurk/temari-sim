@@ -72,7 +72,7 @@ const GROUP_COST = {
   '8c': { cost: 45, uses: [0, 1, 2, 3, 5, 6, 7, 11] }, '8d0': { cost: 1 }, '8d0a': { cost: 4, uses: [1, 5, 6] }, '8d0c': { cost: 1, uses: [4, 6, 8] },
   '8d0f': { cost: 2, uses: [6, ...stabilityBuilds().map((_, j) => 13 + j)] },
   '8d0b': { cost: 5 }, '8d': { cost: 14, uses: [6] }, '8e': { cost: 7, uses: [7, 11] }, '8f': { cost: 4, uses: [6] }, '8g': { cost: 8 },
-  '8h': { cost: 20 }, '8i': { cost: 45, uses: [5, 6] }, 9: { cost: 3 },
+  '8h': { cost: 20 }, '8i': { cost: 45, uses: [5, 6] }, '8j': { cost: 8 }, 9: { cost: 3 },
 };
 // --quick skips the fine grids (192/384) and the long untilEquator λ sweeps.
 const QUICK_SKIP = new Set(['8c', '8d0a', '8d0c', '8d0f', '8d', '8e', '8i']);

@@ -43,7 +43,7 @@ function mmAtW(mm, w) { return mm * ((w || W0_MM) / W0_MM); }
  * только ширины m и w и геометрия уже уложенного. Окно — до соседних линий разметки (дальше кластер расти
  * не может, не охватив соседнюю разметку — это ловит V5).
  */
-export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwagakeRow = 0 }) {
+export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwagakeRow = 0, topSet = null }) {
   const C = point(R, s, phi);
   const uC = unit(C), eL = eEast(C), n = ePole(C);        // n — нормаль плоскости линии иглы
   const r = R * Math.sin(s / R);
@@ -109,6 +109,18 @@ export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwaga
       if (P.f * Qp.f < 0 || (P.f === 0) !== (Qp.f === 0)) { run.cross = true; run.yCross = P.f === Qp.f ? P.y : P.y + (P.f / (P.f - Qp.f)) * (Qp.y - P.y); }
     }
     flush();
+  }
+  // Top hole cluster (spec v3.2 §5.3, #38): the top bite is a small stitch under the bundle of its OWN set; the needle
+  // enters the mari and passes UNDER a foreign surface thread. Foreign segments of any class (legs, hole-entry /
+  // hole-exit, channels, hidden starts) never enter the cluster or the gap logic and never move the hole; a bite
+  // under a foreign thread is recorded by the caller as U14 «set collision».
+  const foreignUnder = [];
+  if (topSet) {
+    const segOf = new Map((laid || []).map((seg) => [seg.id, seg]));
+    for (let i = occ.length - 1; i >= 0; i--) {
+      const seg = occ[i].seg === 'marking' ? null : segOf.get(occ[i].seg);
+      if (seg && seg.set !== topSet) { foreignUnder.push({ seg: seg.id, kind: occ[i].kind, lo: occ[i].lo, hi: occ[i].hi }); occ.splice(i, 1); }
+    }
   }
   let lo = -m / 2, hi = m / 2;
   const used = [{ lo, hi, seg: 'marking', kind: 'marking' }];
@@ -177,10 +189,46 @@ export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwaga
   };
   const R_ = side(1), L_ = side(-1);
   const squeeze = [R_.squeeze && { side: 'E', ...R_.squeeze }, L_.squeeze && { side: 'X', ...L_.squeeze }].filter(Boolean);
-  return { eOff: R_.off, xOff: L_.off, cluster: used, ignored: rest, spacing, window: win, bisector: yBis, squeeze };
+  return { eOff: R_.off, xOff: L_.off, cluster: used, ignored: rest, spacing, window: win, bisector: yBis, squeeze, foreignUnder };
 }
 
 const endsAt = (seg, H) => dist(seg.from, H) < 1e-9 || dist(seg.to, H) < 1e-9;
+
+/** Distance from point p to a polyline (chords of dense surface samples). */
+function ptPolyline(p, pts) {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+    const L2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+    const t = L2 > 0 ? Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / L2)) : 0;
+    best = Math.min(best, Math.hypot(ap[0] - t * ab[0], ap[1] - t * ab[1], ap[2] - t * ab[2]));
+  }
+  return best;
+}
+
+/** §5.3 (2) (#38): U14 «set collision» records for top holes lying under a foreign (other-set) surface leg. */
+export function setCollisions({ R, w, s, holes, laid, set, phiOf }) {
+  const out = [];
+  const tops = laid.filter((x) => x.type === 'pickup' && x.level === 'top' && x.set !== set);
+  for (const [side, H] of Object.entries(holes)) {
+    for (const L of laid) {
+      if (L.type !== 'leg' || L.set === set) continue;
+      const d = ptPolyline(H, L.pts);
+      if (!(d < w / 2)) continue;
+      const ph = toSPhi(R, H).phi;
+      // span of a foreign top stitch on the same latitude circle s_T (both sets share the schedule)
+      const span = tops.find((pk) => {
+        const sE = toSPhi(R, pk.from), sX = toSPhi(R, pk.to);
+        if (Math.abs(sE.s - s) > 1e-6 || Math.abs(sX.s - s) > 1e-6) return false;
+        const c = phiOf(pk.line), a = wrapPi(sX.phi - c), b = wrapPi(sE.phi - c), h = wrapPi(ph - c);
+        return h >= Math.min(a, b) && h <= Math.max(a, b);
+      });
+      out.push({ side, seg: L.id, segRound: L.round, d, inSpan: !!span, spanOf: span ? span.id : null });
+    }
+  }
+  return out;
+}
 
 /** Интервал y на прямой f = 0, где расстояние до отрезка (y1,f1)–(y2,f2) ≤ h (капсула ∩ прямая), или null. */
 function capsuleOnLine(y1, f1, y2, f2, h) {
@@ -1205,7 +1253,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
   // Commanded λ resolved per-leg once γ known; keep a preview using pin chord for tipDrop report.
   const mu = muWrap; // tipDrop report field (compat); Φ3 uses muWrap
   const limit = rowPlan ? rowPlan.limit : (P.rowsMode === 'untilOly7' ? Q - 7 : Q);
-  const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [],
+  const W = { ops: [], segs: [], stitches: [], rounds: [], threads: {}, crossings: [], stopped: {}, beyond: [], limit, squeezes: [], setCollisions: [],
     shoulderForm, tipDrop: null };
   const lineIdx = (k) => ((k % N) + N) % N;
   const phiOf = (k) => marking.phis[lineIdx(k)];
@@ -1273,7 +1321,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     let cur;
     if (spec.begin === 'hiddenStart') {
       const sT = layout.sTop;
-      const side0 = needleSides({ R, s: sT, phi: phiOf(L0), m, w, N, laid: laid() });
+      const side0 = needleSides({ R, s: sT, phi: phiOf(L0), m, w, N, laid: laid(), topSet: spec.set });
       const X0 = perpPt(R, sT, phiOf(L0), side0.xOff);
       const rule = T.start.rules[P.startRule];
       const runs = rule.runs, Lrun = P.startRun_mm;
@@ -1334,10 +1382,16 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
         R, s, phi: phiOf(k), m, w, N, laid: laid(),
         uwagakeSet: level === 'top' && spec.row >= 2 ? spec.set : null,
         uwagakeRow: level === 'top' && spec.row >= 2 ? spec.row : 0,
+        topSet: level === 'top' ? spec.set : null,
       });
       const E = perpPt(R, s, phiOf(k), sides.eOff);
       const X = perpPt(R, s, phiOf(k), sides.xOff);
       for (const q of sides.squeeze) W.squeezes.push({ hole: q.side === 'E' ? E : X, set: spec.set, round: RD.id, line: k, i, ...q });
+      // §5.3 (2) (#38): a top bite under a foreign surface thread (axis closer than w/2) is a legal crossing «under» —
+      // U14 «set collision» (warn) with row, segment, distance and whether the bite lies inside the span
+      // [x_X(k); x_E(k)] of a foreign top stitch along the latitude circle s_T(k) (same schedule for both sets).
+      sides.setCollision = level === 'top' ? setCollisions({ R, w, s, holes: { E, X }, laid: laid(), set: spec.set, phiOf }) : [];
+      for (const q of sides.setCollision) W.setCollisions.push({ round: RD.id, set: spec.set, row: spec.row, line: k, i, s, ...q });
       // (в) lay thread: row 1 = geodesic/small-circle bow; row n≥2 = rail along previous arm (Fable v2)
       let legShape;
       if (spec.row === 1) {

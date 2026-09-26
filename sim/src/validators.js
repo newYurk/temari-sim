@@ -531,6 +531,10 @@ export function runValidators(A, stage = '2b', ref = null) {
         : c.kind === 'rail-parallel' ? 'rail parallel of prev row at distance w (6a.11)'
         : 'crossing (over/under by rule)');
     }
+    // §5.3 (#38): at a top hole the channel passes UNDER foreign threads on the needle line (not part of the catch)
+    for (const st of stitchesDone) for (const c of [...(st.sides.foreignUnder || []), ...(st.sides.setCollision || [])]) {
+      expected.set(pairKey(st.pickupId, c.seg), 'channel under foreign thread at top hole (U14 set collision, §5.3)');
+    }
     for (const st of stitchesDone) {
       for (const c of st.sides.cluster) {
         if (c.seg === 'marking') continue;
@@ -1038,7 +1042,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       const pst = prev.stitchIdx.map((i) => path.stitches[i]).filter((st) => st.level === 'top');
       for (const st of sts) {
         const p = pst.find((q) => q.line === st.line);
-        const foreign = st.sides.cluster.filter((c) => c.seg !== 'marking' && segById.get(c.seg).set !== st.set).map((c) => segById.get(c.seg).round);
+        const foreign = (st.sides.setCollision || []).map((c) => c.segRound);   // #38: U14 records (no foreign in cluster)
         rows.push({ r: r.id, set: r.set, row: r.row, line: st.line, closing: st.closing, dS: st.s - p.s, dE: st.eOff - p.eOff, dX: p.xOff - st.xOff, W: st.eOff - st.xOff, Wp: p.eOff - p.xOff, foreign });
       }
     }
@@ -1057,7 +1061,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       const inside = per.every((x) => x.ok);
       add({ id: 'V13', name: 'Row n+1 top “one thread lower and wider” as consequence (per row)', crit: 'TK-GT14 «about 1 thread width wider and below»; TK-UWA «about 1 thread-width wider and lower»; prior #100 («+w v summe») — check, not an input; tolerance band [0,5 w; 2,5 w] [A]',
         status: inside ? 'pass' : 'warn',
-        value: per.map((x) => `${x.r}: lower by ${f(x.dS, 3)}, wider by ${x.dWmin === x.dWmax ? f(x.dWmean, 3) : `${f(x.dWmin, 3)}…${f(x.dWmax, 3)}`} mm (${f(x.dWmean / w, 2)} w), width ${f(x.W, 3)}${x.ok ? '' : ' ⚠'}${x.foreign.length ? ` [foreign set thread in catch: ${x.foreign.join(',')}]` : ''}`).join('; ') +
+        value: per.map((x) => `${x.r}: lower by ${f(x.dS, 3)}, wider by ${x.dWmin === x.dWmax ? f(x.dWmean, 3) : `${f(x.dWmin, 3)}…${f(x.dWmax, 3)}`} mm (${f(x.dWmean / w, 2)} w), width ${f(x.W, 3)}${x.ok ? '' : ' ⚠'}${x.foreign.length ? ` [U14 set collision, bite under: ${[...new Set(x.foreign)].join(',')}]` : ''}`).join('; ') +
           `. Source readings: +w in total = ${f(w, 3)}, +w on each side = ${f(2 * w, 3)} mm. ${inside ? 'All rows within reading band.' : 'Rows marked ⚠ outside band: row 2 — row-1 legs cross the new top perpendicular near the line axis (small); rows ≥ 3 — legs diverge from the tip, needle must go around them outside (large); see A8, U3, U13.'}`,
         numbers: { rows, per } });
     }
@@ -1127,25 +1131,28 @@ export function runValidators(A, stage = '2b', ref = null) {
         const same = dP < tolSym && dL < tolSym && dLen < tolLen && dH < tolSym;
         pairNums.push({ a: ra.id, b: rb.id, dP, dL, dLen, dH, same });
         // asymmetry explanation: stitch catch contains OTHER-set thread (occupancy, not an error)
-        const foreignOf = (st) => [...st.sides.cluster.filter((c) => c.seg !== 'marking' && segById.get(c.seg).set !== st.set).map((c) => `${segById.get(c.seg).round}(${c.kind})`),
+        // spec v3.2 §6.10 (#38): V15 reads the U14 set-collision records, not the cluster (no foreign threads in it).
+        const foreignOf = (st) => [...(st.sides.setCollision || []).map((c) => `${c.segRound}(U14 ${c.side} d ${f(c.d, 3)}${c.inSpan ? ', in span' : ''})`),
           ...(st.sides.squeeze || []).filter((q) => q.seg !== 'marking').map((q) => `${segById.get(q.seg).round}(tight, gap ${f(q.gap, 3)})`)];
         const why = [...new Set([...diffSt, ...sa.filter((_, i) => diffSt.includes(sb[i]))].flatMap(foreignOf))];
         const firstDiff = sb.findIndex((st, i) => st.i && Math.max(dist(rot(sa[i].E), st.E), dist(rot(sa[i].X), st.X)) >= tolSym);
         const upstream = firstDiff < 0 || sb.slice(0, firstDiff + 1).some((st) => foreignOf(st).length) || sa.slice(0, firstDiff + 1).some((st) => foreignOf(st).length);
-        if (!same) { if (why.length || upstream) explained++; else unexplained++; }
-        parts.push(`${rb.id} vs ${ra.id}: ${same ? 'matches' : `DIFFERS — E/X Δmax ${f(dP, 3)} mm na ${diffSt.length} stezhchkh (${diffSt.map((st) => `L${st.line}`).join(',')}), legs Δmax ${f(dL, 3)} mm, dlina ${f(ra.length)} vs ${f(rb.length)} mm${why.length ? `; prichina — v catche thread drugogo seta: ${why.join(', ')}` : ''}`}`);
+        // §6.10: an unexplained residual > 0.1 w is a fail; below that it is reported (warn).
+        const big = Math.max(dP, dL, dH) > 0.1 * w;
+        if (!same) { if (why.length || upstream || !big) explained++; else unexplained++; }
+        parts.push(`${rb.id} vs ${ra.id}: ${same ? 'matches' : `DIFFERS — E/X Δmax ${f(dP, 3)} mm na ${diffSt.length} stezhchkh (${diffSt.map((st) => `L${st.line}`).join(',')}), legs Δmax ${f(dL, 3)} mm, dlina ${f(ra.length)} vs ${f(rb.length)} mm${why.length ? `; prichina — U14 set collision / tight: ${why.join(', ')}` : ''}`}`);
       }
       add({ id: 'V15', name: 'Bn = An rotated by 360°/N (per row)', crit: 'TK-GT14 (B on neighboring lines, same distancie ot SP); ravenstvo ozhidaetsya, poch thread drugogo seta ne popadaet v okno igly; otlichie s takoy prichinoy — rezultat zanyatosti (warn), bez prichiny — oshibch (fail)',
         status: unexplained ? 'fail' : explained ? 'warn' : 'pass', value: parts.join('; '), numbers: { pairs: pairNums, tolSym, tolLen } });
     }
   }
-  // V16 — needle does not pierce thread (6a.21 at upper holes).
+  // V16 — needle does not pierce thread; upper holes per spec v3.2 §6.9 (#38).
   // Each pierce ≥ w/2 from any already-laid axis (channels projected to the surface).
-  // Upper-hole offenders classified by WHOSE thread is under the hole (not by row number):
-  //   (1) own cluster (same line + set) → fail (G3/G11 bug)
-  //   (2) foreign + capture half-width W_n/2 ≥ d(s_T(n)) → warn U14 (fan), same mechanism as V19
-  //   (3) foreign but W_n/2 < d → fail (check that thread's path)
-  // s_T(n) = sTop + (n−1)·w; d = lateral distance to nearest other-set leg at that level.
+  // Upper-hole offenders classified by WHOSE thread is under the hole:
+  //   (1) own set (own cluster: same line + set; own set on another line likewise) → fail (G3/G11 bug)
+  //   (2) other set, any class → warn U14 «set collision»: the needle passes UNDER it (§5.3); never a fail.
+  // Causal diagnostics: geometric collision-start row on a line = first n with W_n/2 + w/2 ≥ d(s_T(n)), d = distance
+  // to the nearest other-set leg at that level over the ALREADY LAID polylines (#26); observed earlier → printed.
   {
     let minMargin = Infinity, worst = null, nHoles = 0;
     let failOwn = 0, failForeign = 0, warnU14 = 0, badNoRoom = 0;
@@ -1157,9 +1164,9 @@ export function runValidators(A, stage = '2b', ref = null) {
     const phis = A.marking?.phis || [];
     const foreignLatCache = new Map();
     /** Lateral |y| on the needle line at tip level to nearest other-set leg (6a.21 d(s_T)). */
-    const foreignLatAt = (line, sT, ownSet) => {
+    const foreignLatAt = (line, sT, ownSet, idxSeg = Infinity) => {
       if (!(line >= 0) || line >= phis.length || !(sT > 0)) return Infinity;
-      const key = `${ownSet}:${line}:${sT.toFixed(4)}`;
+      const key = `${ownSet}:${line}:${sT.toFixed(4)}:${idxSeg}`;
       if (foreignLatCache.has(key)) return foreignLatCache.get(key);
       const phi = phis[line];
       const C = point(R, sT, phi);
@@ -1170,7 +1177,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       };
       let dMin = Infinity;
       for (const L of segs) {
-        if (L.type !== 'leg' || L.set === ownSet || !L.pts || L.pts.length < 2) continue;
+        if (L.type !== 'leg' || L.set === ownSet || !L.pts || L.pts.length < 2 || !(order.get(L.id) < idxSeg)) continue;
         for (let i = 1; i < L.pts.length; i++) {
           const a = coord(L.pts[i - 1]), b = coord(L.pts[i]);
           if (!(a.f * b.f <= 0 || Math.min(Math.abs(a.f), Math.abs(b.f)) < w)) continue;
@@ -1194,15 +1201,10 @@ export function runValidators(A, stage = '2b', ref = null) {
         if (!(margin < -1e-9)) continue;
         if (noRoomHoles.some((h) => dist(h, p) < 1e-9)) badNoRoom++;
         // Non-upper / start holes: any pierce is a fail (unchanged).
-        if (!st || st.level !== 'top' || !(st.row >= 2)) { failForeign++; hitDetails.push({ side, st, L, kind: 'fail', margin }); continue; }
-        // 6a.21: classify by whose thread is under the upper hole.
-        const ownCluster = L.set === st.set && L.line === st.line;
-        if (ownCluster) { failOwn++; hitDetails.push({ side, st, L, kind: 'own', margin }); continue; }
-        const halfW = Math.abs((st.eOff ?? 0) - (st.xOff ?? 0)) / 2;
-        const sT = sTop0 + (st.row - 1) * w;
-        const dFan = foreignLatAt(st.line, sT, st.set);
-        if (halfW >= dFan - 1e-9) { warnU14++; hitDetails.push({ side, st, L, kind: 'U14', margin, halfW, dFan }); }
-        else { failForeign++; hitDetails.push({ side, st, L, kind: 'foreignEarly', margin, halfW, dFan }); }
+        if (!st || st.level !== 'top') { failForeign++; hitDetails.push({ side, st, L, kind: 'fail', margin }); continue; }
+        // §6.9: classify by whose thread is under the upper hole; other set → U14 warn, own set → fail.
+        if (L.set === st.set) { failOwn++; hitDetails.push({ side, st, L, kind: 'own', margin }); continue; }
+        warnU14++; hitDetails.push({ side, st, L, kind: 'U14', margin });
       }
     };
     for (const st of stitchesDone) {
@@ -1219,35 +1221,35 @@ export function runValidators(A, stage = '2b', ref = null) {
     // Geometric fan-start row per set/line: first n with W_n/2 ≥ d(s_T(n)); observed U14 must not be earlier.
     const geoFirst = {};
     const obsFirst = {};
-    for (const st of stitchesDone.filter((x) => x.level === 'top' && x.row >= 2)) {
+    for (const st of stitchesDone.filter((x) => x.level === 'top')) {
       const key = `${st.set}:${st.line}`;
       const halfW = Math.abs((st.eOff ?? 0) - (st.xOff ?? 0)) / 2;
-      const sT = sTop0 + (st.row - 1) * w;
-      const dFan = foreignLatAt(st.line, sT, st.set);
-      if (halfW >= dFan - 1e-9 && (geoFirst[key] == null || st.row < geoFirst[key])) geoFirst[key] = st.row;
+      const dFan = foreignLatAt(st.line, st.s, st.set, order.get(st.pickupId));
+      if (halfW + w / 2 >= dFan && (geoFirst[key] == null || st.row < geoFirst[key])) geoFirst[key] = st.row;
     }
     for (const h of hitDetails) {
       if (h.kind !== 'U14' || !h.st) continue;
       const key = `${h.st.set}:${h.st.line}`;
       if (obsFirst[key] == null || h.st.row < obsFirst[key]) obsFirst[key] = h.st.row;
     }
-    let earlyObs = 0;
+    const earlyList = [];
     for (const key of Object.keys(obsFirst)) {
-      if (geoFirst[key] != null && obsFirst[key] < geoFirst[key]) earlyObs++;
+      if (geoFirst[key] == null || obsFirst[key] < geoFirst[key]) earlyList.push(`${key} obs ${obsFirst[key]} < geo ${geoFirst[key] ?? '—'}`);
     }
-    const badFail = failOwn + failForeign + earlyObs;
+    const earlyObs = earlyList.length;   // §6.9: printed for analysis (a transition leg is a legal cause), not a fail
+    const badFail = failOwn + failForeign;
     const status = badFail ? 'fail' : (warnU14 ? 'warn' : 'pass');
     const geoB = Object.entries(geoFirst).filter(([k]) => k.startsWith('B:')).map(([, n]) => n);
     const geoBmin = geoB.length ? Math.min(...geoB) : null;
     add({ id: 'V16', name: 'Needle does not pierce thread (legs and channels)',
-      crit: 'prior #105; TK-LITTLE «jiwari should not be split»; 6a.21 upper: own→fail, foreign+fan→U14 warn, foreign early→fail',
+      crit: 'prior #105; TK-LITTLE «jiwari should not be split»; spec v3.2 §6.9 upper holes: own set → fail, other set → U14 «set collision» warn (needle passes under)',
       status,
       value: `pierces ${nHoles}; min margin ${f(minMargin, 3)} mm (${worst || '—'}); `
-        + `fail own-cluster ${failOwn}, fail foreign-early ${failForeign}, U14 fan warn ${warnU14}`
-        + (earlyObs ? `; observed U14 earlier than geometric fan-start: ${earlyObs}` : '')
+        + `fail own set ${failOwn}, fail other holes ${failForeign}, U14 set collision warn ${warnU14}`
+        + (earlyObs ? `; observed collision earlier than causal geometric start: ${earlyList.join(', ')}` : '')
         + (badNoRoom ? `; noRoom∩V16 ${badNoRoom}` : '')
         + (geoBmin != null ? `; geo fan-start B min row ${geoBmin}` : ''),
-      numbers: { failOwn, failForeign, warnU14, earlyObs, geoFirst, obsFirst, minMargin, badNoRoom } });
+      numbers: { failOwn, failForeign, warnU14, earlyObs, earlyList, geoFirst, obsFirst, minMargin, badNoRoom } });
   }
   // V17 — uwagake: at top points of row n ≥ 2 the needle passes UNDER ALL threads of prior rows at that point
   {

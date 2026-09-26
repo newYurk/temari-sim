@@ -1488,7 +1488,7 @@ if (G('8h'))
 // 8i. V16 6a.21: upper-hole offenders by whose thread; geo fan-start B4/B6/B8
 if (G('8i'))
 {
-  console.log('\n## V16 6a.21 upper holes: own fail / foreign fan U14 / foreign early fail');
+  console.log('\n## V16 §6.9 upper holes: own set fail / other set U14 set collision (warn)');
   // Early stage A2 must still pass (no late fan yet).
   {
     const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714 });
@@ -1505,7 +1505,9 @@ if (G('8i'))
     const v = runValidators(A, A.path.ops.length - 1, null).find((x) => x.id === 'V16');
     const n = v.numbers || {};
     check((n.failOwn || 0) === 0, `λ=${lambda}: no own-cluster V16 fails (G3/G11)`);
-    check((n.earlyObs || 0) === 0, `λ=${lambda}: observed U14 not earlier than geometric fan-start`);
+    // spec v3.2 §6.9 (#38): an observed collision earlier than the causal geometric start is printed for analysis
+    // (transition / closing legs are legal causes), not a fail.
+    if (n.earlyObs) console.log(`  λ=${lambda}: observed earlier than causal geo start (diagnostic): ${n.earlyList.join(', ')}`);
     // Foreign-early fails would be path bugs; allow 0. Status may be warn (U14) or pass.
     check(v.status === 'pass' || v.status === 'warn', `λ=${lambda}: V16 pass/warn not fail (got ${v.status}: ${v.value.slice(0, 120)})`);
     check((n.failForeign || 0) === 0, `λ=${lambda}: no foreign-early V16 fails (got ${n.failForeign})`);
@@ -1517,6 +1519,27 @@ if (G('8i'))
       `λ=${lambda}: geo fan-start B min row ≈ ${exp} (got ${geoBmin})`);
     console.log(`  λ=${lambda}: status=${v.status} failOwn=${n.failOwn} failForeign=${n.failForeign} U14=${n.warnU14} geoBmin=${geoBmin} (expect~${exp})`);
   }
+}
+
+// 8j. #38 / spec v3.2 §5.3: other-set threads at a top hole are not in the cluster (U14 set collision),
+// so the top width of a B stitch equals its A twin and V15 has no unexplained residual.
+if (G('8j'))
+{
+  console.log('\n## #38 §5.3 top-hole set collision: other set out of cluster');
+  const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'geodesic', bowLambda: 0, muWrap: 0, rowsMode: 'untilEquator' });
+  const top = (set, row) => A.path.stitches.filter((q) => q.level === 'top' && q.set === set && A.path.rounds.find((r) => r.id === q.round).row === row);
+  for (const row of [4, 5]) {
+    const wA = top('A', row).map((q) => q.eOff - q.xOff), wB = top('B', row).map((q) => q.eOff - q.xOff);
+    const dev = Math.max(...wB.map((x) => Math.abs(x - wA[0])), ...wA.map((x) => Math.abs(x - wA[0])));
+    check(wA.length > 0 && wB.length > 0 && dev < 1e-6, `geo m0.5 row ${row}: B top width = A top width (A ${wA[0]?.toFixed(3)}, max dev ${dev.toExponential(1)})`);
+  }
+  const segById = new Map(A.path.segs.map((x) => [x.id, x]));
+  const foreignInCluster = A.path.stitches.filter((q) => q.level === 'top').some((q) => q.sides.cluster.some((c) => c.seg !== 'marking' && segById.get(c.seg)?.set !== q.set));
+  check(!foreignInCluster, 'no other-set thread in any top-hole cluster');
+  check(Array.isArray(A.path.setCollisions) && A.path.setCollisions.length > 0, `setCollision records present (${A.path.setCollisions?.length})`);
+  const V = runValidators(A, A.path.ops.length - 1, null);
+  const v15 = V.find((x) => x.id === 'V15');
+  check(v15.status === 'pass', `V15 pass with set collisions explained (got ${v15.status})`);
 }
 
 // 9. Material preset (D34) + recipe scaffold (D35): provenance data + same path.ops for step/full
