@@ -86,6 +86,9 @@ function dashes(pts, dash, gap) {
   return out;
 }
 
+/** #33: label declutter on narrow views (phone portrait); desktop unchanged. */
+export const LABEL_NARROW_PX = 700, LABEL_GAP_PX = 3;
+
 export class Renderer {
   constructor(container) {
     this.container = container;
@@ -133,9 +136,10 @@ export class Renderer {
     this.world.remove(group);
   }
 
-  label(text, pos, cls = 'lbl') {
+  label(text, pos, cls = 'lbl', short = null) {
     const el = document.createElement('div');
     el.className = cls; el.textContent = text;
+    if (short) { el.dataset.full = text; el.dataset.short = short; }   // #33: shorter text on narrow screens
     const o = new CSS2DObject(el);
     o.position.set(pos[0], pos[1], pos[2]);
     return o;
@@ -256,8 +260,9 @@ export class Renderer {
         }
         if (s.type === 'hidden-start' && s.run === 1) {
           const mid = pts[Math.floor(pts.length / 2)];
-          this.hiddenGroup.add(this.label(t('label.hiddenStart', { round: s.round, thread: s.thread, mode: dg.schematic ? t('label.hiddenStart.schematic') : t('label.hiddenStart.chord') }), mul(unit(mid), R + 1.5), 'lbl small'));
-          this.hiddenGroup.add(this.label(t('label.threadEnd', { thread: s.thread }), mul(unit(s.from), R + 1.5), 'lbl small'));
+          this.hiddenGroup.add(this.label(t('label.hiddenStart', { round: s.round, thread: s.thread, mode: dg.schematic ? t('label.hiddenStart.schematic') : t('label.hiddenStart.chord') }), mul(unit(mid), R + 1.5), 'lbl small',
+            t('label.hiddenStart.short', { round: s.round, thread: s.thread })));
+          this.hiddenGroup.add(this.label(t('label.threadEnd', { thread: s.thread }), mul(unit(s.from), R + 1.5), 'lbl small', t('label.threadEnd.short', { thread: s.thread })));
         }
       }
       if (curIds.has(s.id)) g.add(new THREE.Mesh(tubeGeometry(pts, radius * 1.9, () => new THREE.Color(COLORS.current)), matCur));
@@ -360,5 +365,40 @@ export class Renderer {
   draw() {
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);
+    this.declutter();
+  }
+
+  /** #33: on narrow views (phone, ≤ 700 px) labels must not overlap or be clipped. Screen-space pass after each CSS2D
+   *  render: short texts (hidden start / thread end, wrapped), then greedy placement by priority — current operation >
+   *  pole > line (L0…, equator) > stitch > over/under > small — a label overlapping an already placed one (with a
+   *  minimum gap) or leaving the view is hidden. CSS2DRenderer owns style.display, so this uses visibility only.
+   *  Wide views (desktop) are untouched: nothing is changed there. */
+  declutter() {
+    const root = this.labels.domElement, W = root.clientWidth, H = root.clientHeight;
+    const narrow = W > 0 && W <= LABEL_NARROW_PX;
+    if (!narrow && !this._declutterOn) return;
+    const els = /** @type {HTMLElement[]} */ ([...root.children]);
+    if (!narrow) {   // back to wide: restore everything once
+      for (const el of els) { el.style.visibility = ''; if (el.dataset.full) el.textContent = el.dataset.full; }
+      root.classList.remove('labels-narrow'); this._declutterOn = false; return;
+    }
+    this._declutterOn = true; root.classList.add('labels-narrow');
+    const pri = (el) => { const c = el.classList; return c.contains('current') ? 0 : c.contains('pole') ? 1 : c.contains('line') ? 2 : c.contains('stitch') ? 3 : c.contains('cross') ? 4 : 5; };
+    const items = [];
+    els.forEach((el, k) => {
+      if (el.dataset.short && el.textContent !== el.dataset.short) el.textContent = el.dataset.short;
+      el.style.visibility = '';
+      if (el.style.display !== 'none') items.push({ el, p: pri(el), k });
+    });
+    items.sort((a, b) => a.p - b.p || a.k - b.k);
+    const vr = root.getBoundingClientRect(), G = LABEL_GAP_PX, placed = [];
+    for (const it of items) {
+      const r = it.el.getBoundingClientRect();
+      const b = { x0: r.left - vr.left, y0: r.top - vr.top, x1: r.right - vr.left, y1: r.bottom - vr.top };
+      const out = b.x0 < 0 || b.y0 < 0 || b.x1 > W || b.y1 > H;
+      const hit = placed.some((q) => b.x0 < q.x1 + G && q.x0 < b.x1 + G && b.y0 < q.y1 + G && q.y0 < b.y1 + G);
+      if ((out && it.p > 0) || hit) { it.el.style.visibility = 'hidden'; continue; }
+      placed.push(b);
+    }
   }
 }

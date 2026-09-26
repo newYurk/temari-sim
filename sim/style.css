@@ -50,6 +50,8 @@ form .st-default { color: #b35c00; } form .st-stored { color: #888; } form .st-s
 .lbl.current { background: #ff8c00; color: #fff; font-weight: bold; }
 .lbl.cross { background: #333; color: #fff; font-size: 10.5px; }
 .lbl.small { font-size: 10.5px; color: #555; }
+/* #33: narrow views — short labels may wrap instead of running off the view */
+.labels-narrow .lbl.small { white-space: normal; max-width: 42vw; }
 .caption { position: absolute; left: 10px; top: 8px; max-width: calc(100% - var(--panel-w) - 10px); z-index: 5; background: rgba(255,255,255,.85); border: 1px solid #cfd6df; border-radius: 4px; padding: 4px 8px; font-size: 12.5px; pointer-events: none; }
 
 /* Language toggle (RU | EN) */
