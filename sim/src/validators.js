@@ -8,7 +8,7 @@ import { displayGeometry, DISPLAY_STACK_LIFT_W } from './display.js';
 import { tubeMesh } from './tube.js';
 import { resolveBowLambda } from './params.js';
 import { widthDecomposition, u14Onset } from './diag-width.js';
-import { EPS_C, DEG_MAX_W, graphDistances, halfLineGraph, holeClearances } from './path.js';
+import { EPS_C, DEG_MAX_W, graphDistances, halfLineGraph, holeClearances, getLegSamples } from './path.js';
 import { arcEnd, arcTangent, arcPoint, Chain } from './arcs.js';
 import { rotAbout } from './program.js';
 
@@ -34,6 +34,41 @@ export function railParallelPair(P, Q, d, w) {
 }
 
 /** #23 / §5.3 (2)(3): half-length along s of the push-aside zone at a hole, w/sin ψ + w/2 (ψ = the leg's angle to the line). */
+/** Spec v3.4.2 §6.4 class (ii) (Fable V20, 2026-09-26): bound on the discrete turn at a tangency point of a rail leg,
+ *  3·h_T·λ_r/R in degrees — λ_r = |cot ρ| of the analytic piece CARRYING the point (a corner arc of radius w: λ_r = R/w; a
+ *  great circle: 0), h_T = the output link next to the point on that piece. which = 'T1' (entry: the piece and link after
+ *  T₁ = vertex mIdx) or 'T2' (exit / rail end: the piece and link before the start of the tangent tail). Returns
+ *  { tolDeg, turnDeg, branch: 'piece' | 'fallback' | null } — fallback = the leg's ρ and length/legSamples (printed);
+ *  null = the leg has no such point. */
+export function tangentJoinTol(s, R, which = 'T1') {
+  const arcs = s.arcs || [], pts = s.pts || [];
+  const fb = () => ({ lr: Number.isFinite(s.rho) ? Math.abs(1 / Math.tan(s.rho)) : 0, h: s.length / getLegSamples() });
+  let piece = null, iT = -1, h = null;
+  if (which === 'T1') {
+    if (arcs.length && arcs[0].cls !== 'splice') return { tolDeg: null, turnDeg: null, branch: null };   // no splice → no T₁ vertex
+    iT = Number.isInteger(s.mIdx) && s.mIdx > 0 && s.mIdx + 1 < pts.length ? s.mIdx : -1;
+    let acc = 0;
+    for (const a of arcs) { acc += a.psi * R; if (acc > (s.spliceMm ?? 0) + 1e-9 * R && a.psi * R > 1e-6) { piece = a; break; } }
+    if (iT > 0) h = R * angle(pts[iT], pts[iT + 1]);
+  } else {
+    const k = arcs.length - 1;
+    if (k < 1 || arcs[k].cls !== 'tail' || arcs[k].join !== 'tangent') return { tolDeg: null, turnDeg: null, branch: null };
+    for (let j = k - 1; j >= 0 && !piece; j--) if (arcs[j].psi * R > 1e-6) piece = arcs[j];   // skip round-off slivers (path liveMm)
+    const J = arcs[k].a;   // the tail's start = T₂, kept as a polyline vertex (#22)
+    if (J) for (let i = 1; i < pts.length - 1; i++) if (angle(pts[i], J) <= 1e-6) { iT = i; break; }   // acos floor ≈ 1e-8 rad; links ≥ 5e-4 rad
+    if (iT > 0) h = R * angle(pts[iT - 1], pts[iT]);
+  }
+  const ok = piece && Number.isFinite(piece.rho) && iT > 0 && h != null;
+  const { lr, h: hh } = ok ? { lr: Math.abs(1 / Math.tan(piece.rho)), h } : fb();
+  const turnDeg = iT > 0 && iT + 1 < pts.length ? turnAngleDeg(pts[iT - 1], pts[iT], pts[iT + 1]) : null;
+  return { tolDeg: 3 * hh * lr / R * 180 / Math.PI, turnDeg, branch: ok ? 'piece' : 'fallback' };
+}
+/** Turn (deg) of a polyline at b between the chords a→b and b→c (their tangents at b). */
+function turnAngleDeg(a, b, c) {
+  const bu = unit(b), t1 = unit(sub(sub(b, a), mul(bu, dot(sub(b, a), bu)))), t2 = unit(sub(sub(c, b), mul(bu, dot(sub(c, b), bu))));
+  return Math.acos(Math.max(-1, Math.min(1, dot(t1, t2)))) * 180 / Math.PI;
+}
+export const tangentJoinTolDeg = (s, R) => tangentJoinTol(s, R, 'T1').tolDeg;
 export function separateZoneMm(sinPsi, w) { return (sinPsi > 1e-12 ? w / sinPsi : Infinity) + w / 2; }
 
 const f = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d).replace('.', ',') : String(x));
@@ -1775,7 +1810,8 @@ function runValidatorsIn(A, stage, ref) {
     const legs = segs.filter((s) => s.type === 'leg' && s.pts && s.pts.length >= 3);
     let lambdaMax = 0;
     let worst = null;
-    let badKink = 0;
+    let badKink = 0, tolWorst = 0, nT2 = 0;
+    const tolBranch = {}, badTan = [], graze = [];
     const kinkRows = [];
     for (const s of legs) {
       if (s.layMode === 'rail') {
@@ -1785,7 +1821,17 @@ function runValidatorsIn(A, stage, ref) {
         const hole = Math.abs(s.holeTurnDeg ?? 0);
         const merge = Math.abs(s.mergeTurnDeg ?? s.turnAtTDeg ?? 0);
         kinkRows.push({ id: s.id, row: s.row, joinMode: s.joinMode, holeTurnDeg: hole, mergeTurnDeg: merge });
-        // 6a.19 / Codex block-B: splice checked by ANGLE — tangent ≤1°, climb ≤20°; hole ≤20°.
+        // v3.4.2 §6.4: the exit tangency T₂ (rail end → tangent tail), the same class (ii) bound read on the piece before it
+        {
+          const j2 = tangentJoinTol(s, R, 'T2');
+          if (j2.branch) {
+            tolBranch[j2.branch] = (tolBranch[j2.branch] || 0) + 1; nT2++;
+            if (j2.turnDeg != null) tolWorst = Math.max(tolWorst, j2.tolDeg > 0 ? j2.turnDeg / j2.tolDeg : j2.turnDeg > 1e-9 ? Infinity : 0);
+            if (j2.turnDeg != null && j2.turnDeg > j2.tolDeg + 1e-6) { badKink++; badTan.push(`${s.id} T₂ ${f(j2.turnDeg, 3)}° > ${f(j2.tolDeg, 3)}° (${j2.branch})`); }
+          }
+        }
+        if (s.entryKind === 'free-graze') graze.push(s);
+        // 6a.19 / Codex block-B: splice checked by ANGLE — tangent ≤ 3·h·λ_r/R (§6.4 class (ii)), climb ≤20°; hole ≤20°.
         // κ_g excludes a window of width w around the splice join (discrete kink ≠ free curvature).
         if (s.joinMode === 'climb') {
           if (hole > 20 + 1e-6 || merge > 20 + 1e-6) badKink++;
@@ -1803,9 +1849,18 @@ function runValidatorsIn(A, stage, ref) {
             if (hole > 20 + 1e-6) badKink++;
             continue;
           }
-          if (hole > 20 + 1e-6 || merge > 1 + 1e-6) badKink++; // exterior tangent ≤1°
+          // spec v3.3 §6.4 class (ii): the turn at T₁ is grid error ≤ 3·h·λ_r/R — was a bare 1°. Read locally: λ_r = |cot ρ| of
+          // the rail piece that carries T (the piece after the splice; a corner arc of radius w has λ_r ≈ R/w) and h = the
+          // output link after T on it (the splice before T is a great circle, κ_g = 0); the discrete turn is ≈ h·λ_r/(2R).
+          const j1 = tangentJoinTol(s, R, 'T1');
+          if (j1.branch) {
+            tolBranch[j1.branch] = (tolBranch[j1.branch] || 0) + 1;
+            tolWorst = Math.max(tolWorst, j1.tolDeg > 0 ? merge / j1.tolDeg : merge > 1e-9 ? Infinity : 0);
+          }
+          if (hole > 20 + 1e-6) badKink++;
+          else if (j1.branch && merge > j1.tolDeg + 1e-6) { badKink++; badTan.push(`${s.id} T₁ ${f(merge, 3)}° > ${f(j1.tolDeg, 3)}° (${j1.branch})`); }
           // #27: free κ_g on the whole exterior splice X_n → T except the pierce neighbourhood (≤ w at the hole, where the
-          // thread bends into the ball) and the vertex T itself (its turn is the join, checked by angle ≤ 1° above, (13б)).
+          // thread bends into the ball) and the vertex T itself (its turn is the join, checked by angle ≤ 3·h·λ_r/R above, (13б)).
           // No window around the join and no minimum span: every splice vertex beyond w from the hole is scored.
           const iT = Number.isInteger(s.mIdx) && s.mIdx > 0 ? s.mIdx : -1;
           const lam = iT >= 2 ? maxAbsGeodesicKg(s.pts.slice(0, iT + 1), R, wMm, 0) * R : 0;
@@ -1859,16 +1914,19 @@ function runValidatorsIn(A, stage, ref) {
     if (ratio > FAIL_RATIO - 1e-12 || cmdMismatch || badKink > 0) status = 'fail';
     else if (ratio > WARN_RATIO + 1e-9) status = 'warn';
     add({ id: 'V20', name: 'Friction cone Φ3 (λ ≤ μWrap)',
-      crit: 'Errata 6a.9.1/block-B: λ_max κ_g on FREE only (row1 excl ≤w holes; n≥2 exterior tangent splice excl ≤w at hole and the join vertex T, #27); rail+climb excluded; kink angles: hole≤20°, tangent splice≤1°, climb≤20°',
+      crit: 'Errata 6a.9.1/block-B: λ_max κ_g on FREE only (row1 excl ≤w holes; n≥2 exterior tangent splice excl ≤w at hole and the join vertex T, #27; (10″) free-graze chords as free); rail+climb excluded; kink angles: hole≤20°, climb≤20°, tangency points T₁, T₂ ≤ 3·h_T·λ_r/R (v3.4.2 §6.4 class (ii): λ_r of the piece carrying the point, h_T the link next to it)',
       status,
       value: `λ_max=${f(lambdaMax, 6)} · μWrap=${f(muW, 4)} · λ/μ=${f(ratio, 6)}` +
         ` [warn>${WARN_RATIO}, fail≥${FAIL_RATIO}; free-class κ_g]` +
-        (badKink ? `; badKink ${badKink} (hole/merge >20°)` : '') +
+        (badKink ? `; badKink ${badKink} (hole/climb > 20° or tangency > 3·h_T·λ_r/R${badTan.length ? ': ' + badTan.slice(0, 4).join(', ') : ''})` : '') +
+        `; tangency turns (T₁, T₂ ${nT2}) ≤ 3·h_T·λ_r/R: worst ${Number.isFinite(tolWorst) ? f(tolWorst, 3) : '∞'} of the bound, tolerance branch ${Object.entries(tolBranch).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}` +
+        (graze.length ? `; (10″) free-graze ${graze.length}: ${graze.slice(0, 3).map((s) => `${s.id} Δs ${f(s.grazeDsMm, 3)} mm, rail gap ${f(s.grazeGapMm, 4)} mm, d to row n−1 ${f(s.grazeMinGapW, 3)} w`).join('; ')}` : '') +
         (cmdMismatch ? `; CMD MISMATCH ${worstCmd.id} λ=${f(worstCmd.disc, 6)} vs cmd ${f(worstCmd.expect, 6)} (${cmdSource})` : '') +
         (worst ? ` (worst ${worst.id}/${worst.round})` : '') +
         (legs.length ? `; shoulders ${legs.length}` : ''),
       numbers: { lambdaMax, muWrap: muW, ratio, warnRatio: WARN_RATIO, failRatio: FAIL_RATIO,
-        bowLambda: A.params.bowLambda ?? null, cmdLambda, cmdSource, cmdMismatch, worstCmd, badKink, kinkRows } });
+        bowLambda: A.params.bowLambda ?? null, cmdLambda, cmdSource, cmdMismatch, worstCmd, badKink, kinkRows, tolBranch, tolWorst, badTan,
+        graze: graze.map((s) => ({ id: s.id, dsMm: s.grazeDsMm, gapMm: s.grazeGapMm, gapW: s.grazeMinGapW })) } });
   }
 
   // V22 — exitKind by construction (spec v3.2 §3.2(9г)). Lower legs (end at the packing root): λ > 0 only root (code
@@ -1896,7 +1954,7 @@ function runValidatorsIn(A, stage, ref) {
       // (10′) (#46): a lower λ > 0 leg with no tangency on any rail piece is free when its chord X_n → E_n⁰ clears row n−1
       // (≥ w(1 − εc)): the only lawful lower free at λ > 0. No tangency and a chord closer than that — fail (printed below).
       const lowerFree = role === 'lower' && !lam0 && s.entryKind === 'free' && (s.entryMinGapW ?? 0) >= 1 - EPS_C;
-      const ok = role === 'lower' ? (lam0 ? ['free'] : lowerFree ? ['free'] : ['atE']) : (lam0 ? ['drain', 'free'] : ['root', 'drain', 'free']);
+      const ok = role === 'lower' ? (lam0 ? ['free'] : lowerFree ? ['free'] : ['atE']) : (lam0 ? ['drain', 'free'] : ['root', 'drain', 'free', 'free-graze']);
       const key = `${role} λ${lam0 ? '=0' : '>0'} ${SPEC[s.exitKind] ?? s.exitKind}`;
       counts[key] = (counts[key] || 0) + 1;
       // (9б) diagnostic, not a fail: joinMode against the band of d_n (8′). At λ > 0 a station outside by d > 0.1 w with no
@@ -1933,7 +1991,7 @@ function runValidatorsIn(A, stage, ref) {
       }
     }
     add({ id: 'V22', name: 'Leg end kind by construction (9г)',
-      crit: 'spec v3.2 §3.2(9г): lower λ>0 root (code atE), lower λ=0 free; upper tangent (code root, λ>0) / drain / free; anything else fail',
+      crit: 'spec v3.2 §3.2(9г): lower λ>0 root (code atE), lower λ=0 free; upper tangent (code root, λ>0) / drain / free / free-graze ((10″) tangents crossed, v3.4.2); anything else fail',
       status: bad.length || entryBad.length ? 'fail' : 'pass',
       value: (entryBad.length ? `(10′) entry fail ${entryBad.length}: ${entryBad.slice(0, 6).join('; ')}; ` : '') + (bad.length ? `fail ${bad.length}: ` + bad.slice(0, 8).map((b) => `${b.id}/${b.round} ${b.role} λ${b.lam0 ? '=0' : '>0'} (${f(b.lambda, 3)}) exitKind ${b.exitKind} join ${b.joinMode} d=${f(b.dW, 3)} w`).join('; ') + '; ' : '')
         + Object.entries(counts).map(([k, v]) => `${k} ${v}`).join(', ')
@@ -2038,7 +2096,7 @@ function runValidatorsIn(A, stage, ref) {
       // α_exp from reference curve at crossing (6a.9.2). Each leg against its own construction class (#46, coordinator):
       // a (10′) free chord (λ > 0, entryKind free: the whole leg is the geodesic X_n → E_n⁰, exitKind free) is compared with
       // the geodesic angle, like the free legs at λ = 0; the rail angle (parallel of row n−1) applies only to legs on the rail.
-      const freeChord = s.row >= 2 && !s.lam0 && s.entryKind === 'free' && s.exitKind === 'free';
+      const freeChord = s.row >= 2 && !s.lam0 && ((s.entryKind === 'free' && s.exitKind === 'free') || s.entryKind === 'free-graze');
       let alphaExp = alphaGeo;
       {
         const splice = (s.layMode === 'rail') ? Math.max(0, s.spliceMm ?? 0) : 0;

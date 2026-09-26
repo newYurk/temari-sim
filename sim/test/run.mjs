@@ -306,6 +306,33 @@ if (G('5'))
   check(!PARAM_SCHEMA.some((p) => /bite|pickup/i.test(p.key)), 'параметры не содержат ширины захвата');
 }
 
+// 20g. V20 (Fable 2026-09-26, spec v3.4.2 §6.4, (10″)): tangency turns by the local class (ii) bound; tangents crossed → free-graze
+if (G('20g'))
+{
+  console.log('\n## V20: tangency turns ≤ 3·h_T·λ_r/R (piece carrying the point), (10″) free-graze (§6.16 negative tests)');
+  const { computeAll: computeRaw } = await import('../src/layers.js');
+  const { setGrazeRuleForTest } = await import('../src/path.js');
+  const cfg = (mode, m, lam) => ({ C_mm: 240, w_mm: 0.714, m_mm: m, startRun_mm: 35, rowsMode: 'untilEquator', shoulderForm: 'bow', bowLambda: lam, muWrap: Math.max(0.32, lam), topRule: mode });
+  const cases = [['fan', 0.5, 0.1, ['s84', 's100']], ['fan', 0.5, 0.32, ['s276', 's292']], ['braid', 1, 0.2, ['s244', 's260']]];
+  const g0 = getLegSamples(); setLegSamples(96);
+  try {
+    for (const [mode, m, lam, ids] of cases) {
+      const A = computeRaw(recipe, cfg(mode, m, lam)), V = Object.fromEntries(runValidators(A, 'all', null).map((v) => [v.id, v]));
+      const L = ids.map((id) => A.path.segs.find((q) => q.id === id));
+      const n = V.V20.numbers;
+      check(L.every((s) => s.entryKind === 'free-graze' && s.exitKind === 'free-graze' && s.joinMode === 'free' && s.arcs.length === 1 && s.grazeDsMm < 0 && s.grazeMinGapW >= 1 - 0.01)
+        && V.V20.status === 'pass' && n.badKink === 0 && !n.tolBranch.fallback && n.tolWorst <= 0.2 && V.V22.status === 'pass' && V.V23.status === 'pass',
+        `${mode} m${m} λ${lam}: ${ids.join('/')} free-graze chord X→E (Δs ${fmt(L[0].grazeDsMm, 3)} mm, rail gap ${fmt(L[0].grazeGapMm, 4)} mm, d ${fmt(L[0].grazeMinGapW, 3)} w); V20 pass, worst tangency turn ${fmt(n.tolWorst, 3)} of the bound, branch piece only; V22, V23 pass`);
+      setGrazeRuleForTest(false);
+      const B = computeRaw(recipe, cfg(mode, m, lam)), VB = runValidators(B, 'all', null).find((v) => v.id === 'V20'), LB = B.path.segs.find((q) => q.id === ids[0]);
+      setGrazeRuleForTest(true);
+      const turn = Math.abs(LB.mergeTurnDeg ?? 0);
+      check(VB.status === 'fail' && VB.numbers.badTan.some((t) => t.startsWith(ids[0] + ' T₁')) && turn < 1 && turn < Math.asin(0.01) * 180 / Math.PI,
+        `mutation «splice + tail at Δs ≤ 0»: V20 fail at ${ids[0]} T₁ (turn ${fmt(turn, 3)}° with no contact); a 1° or asin 0.01 = 0.573° tolerance would pass it — why neither is a bound`);
+    }
+  } finally { setGrazeRuleForTest(true); setLegSamples(g0); }
+}
+
 // 5m. #5 lift mechanics: pure functions (sim/test/mechanics.test.mjs)
 if (G('5m'))
 {
@@ -1178,8 +1205,8 @@ if (G('8d0c'))
     const by = {};
     for (const s of rail) by[s.exitKind] = (by[s.exitKind] || 0) + 1;
     console.log(`  λ=${lam}: rail legs ${rail.length} ${JSON.stringify(by)}`);
-    check(rail.length > 0 && rail.every((s) => ['root', 'atE', 'drain', 'free'].includes(s.exitKind)),
-      `λ=${lam}: every rail exit is root/atE/drain/free (no contradiction; got ${JSON.stringify(by)})`);
+    check(rail.length > 0 && rail.every((s) => ['root', 'atE', 'drain', 'free', 'free-graze'].includes(s.exitKind)),
+      `λ=${lam}: every rail exit is root/atE/drain/free/free-graze ((10″); no contradiction; got ${JSON.stringify(by)})`);
     // v3.1 §3.2(13б) (#39): an accepted tangency needs BOTH sin ≤ 0.01 AND residual ≤ 0.02·w (was OR); print both.
     const roots = rail.filter((s) => s.exitKind === 'root');
     const badRoot = roots.filter((s) => !(s.exitSin <= TANGENCY_SIN_MAX && s.exitResMm <= TANGENCY_RES_W * w));

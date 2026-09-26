@@ -885,6 +885,9 @@ export function k12Cap(hl, ell, m, w) {
 export const DEG_MAX_W = 0.1;   // §2 class (iii): axis position budget 0.1·w (coordinator, #46)
 /** Test hook (#46): overrides DEG_MAX_W (null → the rule value) to drive the contradiction branch on real geometry. */
 let DEG_MAX_OVR = null;
+/** (10″) switch for the §6.16 negative test only: off = the former splice + tail with a vertex at T₁ when the tangents cross. */
+let GRAZE_10PP = true;
+export function setGrazeRuleForTest(on) { GRAZE_10PP = !!on; }
 export function setDegMaxW(v) { DEG_MAX_OVR = v == null ? null : +v; }
 export function tangencyOk(sin, resMm, w) {
   return sin <= TANGENCY_SIN_MAX && resMm <= TANGENCY_RES_W * w;
@@ -1345,6 +1348,36 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
   }
   // (10′): a lower leg with no tangency and a clear chord is free, E_n = E_n⁰ — the only lower free exit at λ > 0.
   if (entryKind === 'free' || entryKind === 'contradiction') { exitKind = entryFail ? 'contradiction' : 'free'; exitFail = exitFail || entryFail; }
+  // (10″) (Fable, V20 2026-09-26): tangents crossed — the exit tangency T₂ from E lies on the rail BEFORE the entry T₁
+  // (Δs = s(T₂) − s(T₁) ≤ 0), so the exit search window [T₁; end] finds no root and its co-directionality peaks at T₁
+  // itself. There is no rail between T₁ and T₂: the taut thread is one great circle X_n → E (class free, free-graze, it
+  // passes the convex rail within ≈ (Δs)²·λ_r/(8R)). The splice + tail with a vertex at T₁ was a kink |Δs|·λ_r/R at a
+  // point with no contact. Δs is located for the print: the first sign change of the tangency residual from E walking the
+  // rail back from T₁ (step 0.02·w, then bisection); none within 20·w → the smallest residual there.
+  let grazeDsMm = null, grazeGapMm = null, grazeMinGapW = null;
+  if (GRAZE_10PP && (entryKind === 'tangent' || entryKind === 'braidTangent') && exitKind === 'free' && !exitFail && Math.abs(best.s - sT0) <= 1e-9 * R) {
+    const Lb = Math.min(forward ? sT0 : railLen - sT0, 20 * wEff), nb = Math.max(40, Math.ceil(Lb / (0.02 * wEff)));
+    let b2 = null, prev = exitRes(sT0);
+    for (let k = 1; k <= nb && !b2; k++) {
+      const t = exitRes(sT0 - dirS * Lb * k / nb);
+      if (t.score > cosAccept && prev.score > cosAccept && Math.sign(t.res) !== Math.sign(prev.res)) {
+        let a = prev.s, b = t.s; for (let it = 0; it < 50; it++) { const mid = 0.5 * (a + b); if (Math.sign(exitRes(mid).res) === Math.sign(prev.res)) a = mid; else b = mid; }
+        b2 = exitRes(0.5 * (a + b));
+      }
+      prev = t;
+    }
+    if (!b2) for (let k = 0; k <= nb; k++) { const t = exitRes(sT0 - dirS * Lb * k / nb); if (t.score > cosAccept && (!b2 || t.resMm < b2.resMm)) b2 = t; }
+    grazeDsMm = b2 ? -Math.abs(b2.s - sT0) : null;
+    const Eg = unit(to), om = angle(X, Eg), Lc = R * om, laid = laidChain(R, prevArm), nc = Math.max(16, Math.ceil(Lc / (0.1 * wEff)));
+    let gMin = Infinity, rMin = Infinity;
+    for (let k = 0; k <= nc; k++) {
+      const tt = k / nc, g = om < 1e-15 ? X : unit(add(mul(X, Math.sin((1 - tt) * om) / Math.sin(om)), mul(Eg, Math.sin(tt * om) / Math.sin(om))));
+      if (tt * Lc >= wEff && (1 - tt) * Lc >= wEff) gMin = Math.min(gMin, laid.closest(g).distMm);
+      const lr = rail.continuedLateral(g); if (!lr.clamped) rMin = Math.min(rMin, lr.signedMm);
+    }
+    grazeGapMm = Number.isFinite(rMin) ? rMin : null; grazeMinGapW = Number.isFinite(gMin) ? gMin / wEff : null;
+    entryKind = 'free-graze'; exitKind = 'free-graze'; joinMode = 'free'; Tpt = Eg; splice = R * om;
+  }
   const exitSin = eOnRail ? 0 : best.sin, exitResMm = eOnRail ? Math.abs(dE) : best.resMm; // at E: tangent at the foot
   const exitAlongMm = Math.abs(best.s - sT0);
   const exitQ = best.q;
@@ -1352,12 +1385,12 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
   // the tail exit point → E_n (root: tangent; drain / free: a corner; bottom leg past the extension: continuation).
   const legArcs = [];
   // (10′) free lower leg: the whole leg is the chord X_n → E_n⁰ (class 'free' — the body the next rail is built on).
-  if (splice > 1e-15) { const sp0 = arcGC(X, Tpt, entryKind === 'free' ? 'free' : entryKind === 'contradiction' ? 'contradiction' : 'splice'); if (sp0) legArcs.push(sp0); }
+  if (splice > 1e-15) { const sp0 = arcGC(X, Tpt, entryKind === 'free' || entryKind === 'free-graze' ? 'free' : entryKind === 'contradiction' ? 'contradiction' : 'splice'); if (sp0) legArcs.push(sp0); }
   // (10′) free / contradiction entry: the chord already ends at E_n⁰, so nothing follows it. Appending the rail from E's
   // foot to the exit search result plus the tail back to E_n made a there-and-back hairpin at E (≈0.15 mm, 180°) on
   // closing top legs at λ 0.1 / 0.2; at λ 0.2 m 1 the return point hit the previous vertex exactly under C×(1+1e−9)
   // → zero tangent in the tube mesh (NaN, V14 flip). The leg is the chord only, as the spec says.
-  const chordOnly = (entryKind === 'free' || entryKind === 'contradiction') && legArcs.length > 0;
+  const chordOnly = (entryKind === 'free' || entryKind === 'contradiction' || entryKind === 'free-graze') && legArcs.length > 0;
   if (!chordOnly) legArcs.push(...rail.sub(sT0, best.s));
   const Eend = unit(to);
   // Bottom leg ('atE', §3.2(12)): E_n is the packing root on the rail, so the rail itself ends at E_n
@@ -1484,7 +1517,7 @@ export function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top', opts = {}
     railKind,
     holeTurnDeg,
     mergeTurnDeg,
-    exitKind, exitFail, exitSin, exitResMm, exitAlongMm, exitSkipped, rawTurnMaxDeg, rawTurnAtMm,
+    exitKind, exitFail, exitSin, exitResMm, exitAlongMm, exitSkipped, rawTurnMaxDeg, rawTurnAtMm, grazeDsMm, grazeGapMm, grazeMinGapW,
     exitDeMm: dE, arcs: legArcs,
     // #22 diagnostics: foot of X_n and M on the rail (arc length), the rail's own turn between them (deg) and the
     // constructed turn at M (chord → rail tangent).
@@ -1915,7 +1948,8 @@ function buildWorkIn(recipe, P, base, marking, layout, rowPlan) {
         entryFail: !!legShape.entryFail, entryBackward: !!legShape.entryBackward, entryBest: legShape.entryBest ?? null, entryScan: legShape.entryScan ?? null,
         braidJoinTurnDeg: legShape.braidJoinTurnDeg ?? null, braidExitTurnDeg: legShape.braidExitTurnDeg ?? null,
         braidJoinShiftMm: legShape.braidJoinShiftMm ?? null, braidExitShiftMm: legShape.braidExitShiftMm ?? null,
-        lam0: legShape.lam0 ?? null, railLateralMm: legShape.railLateralMm ?? null, exitTurnDeg: legShape.exitTurnDeg ?? null, minGapMm: legShape.minGapMm ?? null });
+        lam0: legShape.lam0 ?? null, railLateralMm: legShape.railLateralMm ?? null, exitTurnDeg: legShape.exitTurnDeg ?? null, minGapMm: legShape.minGapMm ?? null,
+        grazeDsMm: legShape.grazeDsMm ?? null, grazeGapMm: legShape.grazeGapMm ?? null, grazeMinGapW: legShape.grazeMinGapW ?? null });
       if (i === 1) RD.firstLegId = leg.id;
       if (!BRAID && i === 1 && spec.begin === 'hiddenStart' && !W.virtualArrive[spec.set]) {
         // (12‴): the virtual arriving leg of the start stitch = the mirror of this first leg about the start line's meridian,
