@@ -98,7 +98,9 @@ def eline_s(pts_axis, phi, lateral):
             # linear interpolate
             f = -y(prev) / (y(p) - y(prev))
             q = norm(add(mul(prev, 1 - f), mul(p, f)))
-            return s_of(q)
+            # Level of the E-line point = level of its foot on the meridian (sim: perpPt(s, phi, lateral)),
+            # not the polar level of q itself (that differs by ≈ lateral²·cot(s/R)/(2R), ≈ 0.1 % of Δ₂; #39).
+            return s_of(norm(add(q, mul(e, -dot(q, e)))))
         prev = p
     return None
 
@@ -189,8 +191,16 @@ def theory(verbose=True):
         alpha = arrival_angle(t_arr, E1, phi1)
         th = alpha - alpha_geo
         sag = sagitta(pts, X1, E1)
-        # Tangent Δ₂: parallel of row-1 by w, GC-extend past E, hit E-line
-        rail = extend_gc_end(parallel_offset_poly(pts[:401], w), ext_mm=max(5 * w, 10.0), n=80)
+        # Tangent Δ₂ (spec v3.1 §3.2(12), §2, #39): the parallel of the ANALYTIC row-1 arc by w (the small circle
+        # about Pc of radius rho + w/R), then the great circle tangent to it at the offset E1, to the E-line.
+        # Analytic tangent, not the last polyline segment (finite differences are banned by §2; the old
+        # parallel_offset_poly + extend_gc_end gave Δ₂ ≈ 0.2 % high).
+        rail = outward_offset(pts[:401], Pc, w)
+        E1o = rail[-1]
+        T = norm(cross(Pc, E1o))
+        if dot(T, t_arr) < 0: T = mul(T, -1)
+        ext_mm = max(5 * w, 10.0)
+        rail = rail + [offset(E1o, T, ext_mm * i / 400) for i in range(1, 401)]
         s_n = eline_s(rail, phi1, lat)
         delta = (s_n - sBot) if s_n else float('nan')
         rows = 1 + int(math.floor((C / 4 - sBot) / delta)) if delta and delta > 0 else float('nan')

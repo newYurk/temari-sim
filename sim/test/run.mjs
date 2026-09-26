@@ -3,7 +3,7 @@ import { loadRecipe, loadJSON } from '../src/recipe.js';
 import { computeAll, G, finish, validatorStatuses } from './harness.mjs'; // memoized computeAll + group gates / parallel runner (#34)
 import { runValidators, summary, refKey, k16bCoverageWindow, clairautAvgTan, geodesicAlphaAt, tipLevelMm } from '../src/validators.js';
 import { PARAM_SCHEMA, defaults } from '../src/params.js';
-import { stageLastOp, setLegSamples, getLegSamples } from '../src/path.js';
+import { stageLastOp, setLegSamples, getLegSamples, tangencyOk, TANGENCY_SIN_MAX, TANGENCY_RES_W } from '../src/path.js';
 import { displayGeometry, stackProfile, STACK_LIFT_SKIP_KINDS, liftFromDist, DISPLAY_STACK_LIFT_W, LIFT_DIST_EPS, DIVE_W } from '../src/display.js';
 import { tubeMesh } from '../src/tube.js';
 import { norm, unit, mul, sub, add, dot, angle, cross } from '../src/geom.js';
@@ -341,8 +341,9 @@ if (G('8b'))
   console.log(`  V21 negative stuck: ${v21fail.status} tipStick=${v21fail.numbers.tipStickMm}`);
   check(v21fail.status === 'fail', 'V21 fails when a long tip run is glued to the meridian (bowToMarking-style)');
 
-  // Direction negative test (Fable v2 §5.7): equator-side center at λ≤0.2 → α′ < α_geo.
-  // Packing (8) may also hit channelBinding (Δ≈w) rather than Δ>Δ_geo; assert angle + pole control.
+  // Direction negative test (spec v3.1 §6.2(г), #39): equator-side center P. Below λ₀ = sin α_geo / tan(γ/2)
+  // (λ = 0.16): α′ < α_geo and Δ₂ > Δ_geo. At λ ≥ λ₀ the tangent tail has no root below E — a loud fail by (12);
+  // the old silent Δ = w from channelBinding is a forbidden fallback.
   const arrivalAlpha = (A) => {
     const leg = A.path.segs.find((s) => s.type === 'leg' && s.row === 1);
     const pts = leg.pts; const n = pts.length - 1;
@@ -386,6 +387,21 @@ if (G('8b'))
 
   // Direction negative: must assert Δ > Δ_geo (Codex §5.7)
   check(dBad > dGeo + 0.5, `equator-side λ=0.16: Δ > Δ_geo (got ${fmt(dBad, 3)} vs ${fmt(dGeo, 3)})`);
+  {
+    const g1 = geo.path.segs.find((s) => s.type === 'leg' && s.row === 1);
+    const lam0 = Math.sin(aGeo) / Math.tan(angle(unit(g1.from), unit(g1.to)) / 2);
+    const lamHi = 0.32; // default bow λ; must lie at or above λ₀ for this branch of §6.2(г)
+    const hiDir = computeAll(recipe, { shoulderForm: 'bow', bowLambda: lamHi, muWrap: 0.32, bowSide: 'equator', rowsMode: 'count', rowsCount: 2 });
+    const v12 = runValidators(hiDir, hiDir.path.ops.length - 1, null).find((v) => v.id === 'V12');
+    const rows2 = hiDir.path.segs.filter((q) => q.type === 'leg' && q.row === 2).length;
+    const stops = Object.values(hiDir.path.stopped || {});
+    const chan = hiDir.path.stitches.filter((st) => st.levelInfo?.channelBinding).length;
+    console.log(`  direction neg λ=${lamHi} ≥ λ₀=${fmt(lam0, 3)} equator-side: V12 ${v12.status}; ${stops.map((q) => q.reason).join(' | ').slice(0, 140)}`);
+    check(lam0 > 0.16 && lam0 <= lamHi, `λ₀ = sin α_geo / tan(γ/2) = ${fmt(lam0, 3)} separates the two §6.2(г) cases (0.16 < λ₀ ≤ ${lamHi})`);
+    check(rows2 === 0 && stops.length === 2 && stops.every((q) => q.fail && /packing root missing/.test(q.reason)) && chan === 0,
+      `equator-side λ=${lamHi} ≥ λ₀: no root below E — both sets stop with "packing root missing" (no Δ = w fallback; rows2 ${rows2}, channelBinding ${chan})`);
+    check(v12.status === 'fail' && /packing root missing/.test(v12.value), 'missing packing root is a loud V12 fail with the message (§3.2(12))');
+  }
 
   // bowLambda is the intent param; legacy bowFrac is empty optional
   const bl = PARAM_SCHEMA.find((p) => p.key === 'bowLambda');
@@ -624,8 +640,12 @@ if (G('8b2'))
     check(r1.every((s) => (s.spliceMm ?? 0) < 1e-9), 'row-1 legs have no rail splice (spliceMm < 1e-9)');
     const ext = r2.filter((s) => !s.interiorXn && (s.lateralMm ?? 0) >= 0);
     const turns = ext.map((s) => Math.abs(s.turnAtTDeg ?? 99));
-    console.log(`  rail exterior turns°: ${turns.map((t) => fmt(t, 3)).join(', ')}`);
-    check(turns.length && turns.every((t) => t <= 1.0), 'exterior rail join turn at T ≤ 1°');
+    // Spec v3.1 §6.4 (#39), class (ii): the turn at T₁ is grid error, ≤ 3·h·λ_r/R (h = output link of the leg,
+    // λ_r = cot ρ_r of its rail); analytically 0. Was a bare 1°.
+    const R2 = A.base.R, nS = getLegSamples();
+    const entryTol = (s) => 3 * (s.length / nS) * Math.abs(1 / Math.tan(s.rho)) / R2 * 180 / Math.PI;
+    console.log(`  rail exterior turns°: ${ext.map((s) => `${fmt(Math.abs(s.turnAtTDeg ?? 99), 3)}/${fmt(entryTol(s), 3)}`).join(', ')} (turn/tol)`);
+    check(turns.length && ext.every((s) => Math.abs(s.turnAtTDeg ?? 99) <= entryTol(s)), 'exterior rail join turn at T ≤ 3·h·λ_r/R (§6.4 class (ii))');
     const diag = A.path.railDiagnostics;
     console.log(`  interiorXn: ${diag?.interiorXnCount}/${diag?.railLegs} byRow=${JSON.stringify(diag?.interiorXnByRow)}`);
     check(diag && diag.interiorXnCount > 0, 'railDiagnostics reports interior X_n count (pending Fable)');
@@ -704,13 +724,25 @@ if (G('8c'))
   // a w-tube packThenPierce false-positive stops early (~49 mm) with ~26–28 channel-like rows.
   // Δ₂ and rows from the independent theory at the current m (bow_reference.json); rows = tangent canon 1+floor(20/Δ₂).
   const t0 = theoryAt(0);
-  check(Math.abs(d20 - t0.tipDrop_mm) < 0.02, `λ=0 geo Δ₂ ≈ theory ${fmt(t0.tipDrop_mm, 3)} (±0.02) got ${fmt(d20, 5)}`);
-  check(Math.abs(d200 - t0.tipDrop_mm) < 0.02, `λ=0 bow Δ₂ ≈ theory ${fmt(t0.tipDrop_mm, 3)} (±0.02) got ${fmt(d200, 5)}`);
+  // Spec v3.1 §6.3 (#39): Δ₂ agrees with the construction (12) to TOL_D2_REL — class (ii), 5× the measured 96/384
+  // Δ₂ difference (≤ 0.012 % on bd0fc12; the spec rounds to 0.1 %). The premise (grid difference ≤ TOL/5) is checked
+  // in the pack-grid block below. At λ = 0 the root is the free E₂⁰ (9а). Was ±0.02 mm (λ = 0) and 0.5 % (λ > 0).
+  const TOL_D2_REL = 0.001;
+  check(Math.abs(d20 - t0.tipDrop_mm) / t0.tipDrop_mm <= TOL_D2_REL, `λ=0 geo Δ₂ = free root E₂⁰ ${fmt(t0.tipDrop_mm, 4)} within ${TOL_D2_REL * 100}% (got ${fmt(d20, 5)})`);
+  check(Math.abs(d200 - t0.tipDrop_mm) / t0.tipDrop_mm <= TOL_D2_REL, `λ=0 bow Δ₂ = free root E₂⁰ ${fmt(t0.tipDrop_mm, 4)} within ${TOL_D2_REL * 100}% (got ${fmt(d200, 5)})`);
   // λ=0: the canon 1+floor(20/Δ₂) is an estimate — Δ_n is not constant for free geodesics (6a.12: formula ±1).
   check(Math.abs(n0 - t0.rows_canon) <= 1 && n00 === n0,
     `λ=0: rows to equator = 1+floor(20/Δ₂) ±1 = ${t0.rows_canon}±1 (geo and bowλ=0 equal; m=${DEF.m_mm}) got ${n0}/${n00}`);
-  check(tip0 >= 58 && tip0 <= 60 && tip00 >= 58 && tip00 <= 60,
-    `λ=0 last tip (K12) in 58–60 mm (got geo ${fmt(tip0, 3)}, bow ${fmt(tip00, 3)})`);
+  // K12 stop as a formula (#39: was a bare 58–60 mm): the last tip is within the limit and the next would pass it.
+  const lim0 = Geq.path.limit;
+  check(tip0 <= lim0 && tip00 <= lim0 && Geq.path.stopped?.A?.sTip > lim0 && B0eq.path.stopped?.A?.sTip > lim0,
+    `λ=0 last tip ≤ limit ${fmt(lim0, 2)} < next tip (K12; got geo ${fmt(tip0, 3)} / next ${fmt(Geq.path.stopped?.A?.sTip ?? NaN, 3)}, bow ${fmt(tip00, 3)})`);
+  // Spec v3.1 §4.1, §6.1, §3.2(12) (#39): at λ = 0 the bottom legs are free, the arrival angle grows by Clairaut and
+  // with the widening top, so Δ_n decreases; five rows at untilEquator with the default parameters.
+  const d0s = dSseries(Geq);
+  console.log(`  Δ_n λ=0: ${d0s.map((x) => fmt(x, 3)).join(', ')}`);
+  check(d0s.every((x, i) => i === 0 || x < d0s[i - 1]), `λ=0 Δ_n strictly decreasing (${d0s.map((x) => fmt(x, 3)).join(' > ')})`);
+  if (DEF.m_mm === 0.5 && DEF.C_mm === 240 && DEF.w_mm === 0.714) check(n0 === 5 && n00 === 5, `λ=0: 5 rows to the equator at the defaults (§6.1; got ${n0}/${n00})`);
   // 6a.12 / 6a.14: rows = 1+floor(20/Δ₂) ±1; Δ₂ ±0.5% vs table.
   // Δ_n (n≥3) ±3% of Δ₂ and non-decreasing — ONLY for λ > 0 (at λ=0 free geodesics may drift ≈5%/row).
   const table = bowTheory().rows.map((r) => ({ lam: r.lam, d2: r.tipDrop_mm, rows: r.rows_canon }));
@@ -723,11 +755,35 @@ if (G('8c'))
   const d32 = dSseries(B32), d60 = dSseries(B60);
   console.log(`  Δ_n λ=0.32: ${d32.map((x) => fmt(x, 3)).join(', ')}`);
   console.log(`  Δ_n λ=0.6: ${d60.slice(0, 8).map((x) => fmt(x, 3)).join(', ')}…`);
-  check(Math.abs(d32[0] - tRow(0.32).d2) / tRow(0.32).d2 < 0.005, `λ=0.32 Δ₂ within 0.5% of theory ${fmt(tRow(0.32).d2, 4)} (got ${fmt(d32[0], 5)})`);
-  check(Math.abs(d60[0] - tRow(0.6).d2) / tRow(0.6).d2 < 0.005, `λ=0.6 Δ₂ within 0.5% of theory ${fmt(tRow(0.6).d2, 4)} (got ${fmt(d60[0], 5)})`);
+  check(Math.abs(d32[0] - tRow(0.32).d2) / tRow(0.32).d2 <= TOL_D2_REL, `λ=0.32 Δ₂ within ${TOL_D2_REL * 100}% of the construction (12) ${fmt(tRow(0.32).d2, 4)} (got ${fmt(d32[0], 5)})`);
+  check(Math.abs(d60[0] - tRow(0.6).d2) / tRow(0.6).d2 <= TOL_D2_REL, `λ=0.6 Δ₂ within ${TOL_D2_REL * 100}% of the construction (12) ${fmt(tRow(0.6).d2, 4)} (got ${fmt(d60[0], 5)})`);
   const laterOk = (ds) => ds.slice(1).every((x, i) => Math.abs(x - ds[0]) / ds[0] <= 0.03 + 1e-12 && x + 1e-12 >= ds[i]);
   check(laterOk(d32), 'λ=0.32 Δ_n (n≥3) within ±3% of Δ₂ and monotonically non-decreasing');
   check(laterOk(d60), 'λ=0.6 Δ_n (n≥3) within ±3% of Δ₂ and monotonically non-decreasing');
+  // Spec v3.1 §6.14 (#39): bottom tails at λ > 0, rows n ≥ 2 — the angle to the local meridian of the last 1.4·w before
+  // E spreads over the rows by ≤ 0.03·tan α (class (iii), from the 3 % budget on Δ_n). Top legs: not applied.
+  for (const [lam, B] of [[0.32, B32], [0.6, B60]]) {
+    const R = B.base.R, w = B.params.w_mm;
+    for (const set of ['A', 'B']) {
+      const angs = [];
+      for (const s of B.path.segs.filter((q) => q.type === 'leg' && q.set === set && q.row >= 2 && q.level === 'bottom')) {
+        const pts = s.pts.map(unit), E = pts[pts.length - 1];
+        let acc = 0, P = null;
+        for (let i = pts.length - 1; i > 0 && !P; i--) {
+          const d = R * angle(pts[i - 1], pts[i]);
+          if (acc + d >= 1.4 * w) { const t = (1.4 * w - acc) / d; P = unit(add(pts[i], mul(sub(pts[i - 1], pts[i]), t))); }
+          acc += d;
+        }
+        if (!P) continue;
+        const c = unit(sub(P, mul(E, dot(P, E)))), up = unit(sub([0, 0, 1], mul(E, dot([0, 0, 1], E))));
+        angs.push(Math.acos(Math.min(1, Math.abs(dot(c, up)))));
+      }
+      const spread = Math.max(...angs) - Math.min(...angs);
+      const tol = 0.03 * Math.tan(angs.reduce((a, b) => a + b, 0) / angs.length);
+      console.log(`  bottom tail spread λ=${lam} set ${set}: ${fmt(spread * 180 / Math.PI, 3)}° over ${angs.length} legs (tol 0.03·tan α = ${fmt(tol * 180 / Math.PI, 3)}°)`);
+      check(angs.length > 0 && spread <= tol, `λ=${lam} set ${set}: bottom tail angle spread ≤ 0.03·tan α (§6.14 class (iii))`);
+    }
+  }
 
   // 6a.19 physicality: (α_geo−α_act) grows with n on lower arms (~0.6–0.7°/row at λ=0.32).
   // Row2 α_act≈α_ref is enforced by V21 sin-ratio (climb excluded from angle there).
@@ -766,7 +822,8 @@ if (G('8c'))
           const b = A.path.stitches.filter((st) => st.set === set && st.level === 'bottom' && st.i === 1 && !st.closing);
           return b.slice(1).map((st, i) => +(st.s - b[i].s).toFixed(4));
         };
-        snaps[N] = { a: rows('A'), b: rows('B'), dA: dS('A'), dB: dS('B') };
+        const b1 = A.path.stitches.filter((st) => st.set === 'A' && st.level === 'bottom' && st.i === 1 && !st.closing);
+        snaps[N] = { a: rows('A'), b: rows('B'), dA: dS('A'), dB: dS('B'), d2: b1[1].s - b1[0].s };
       }
       setLegSamples(baseN);
       const rowsSame = snaps[96].a === snaps[192].a && snaps[192].a === snaps[384].a
@@ -780,13 +837,16 @@ if (G('8c'))
         && close(snaps[96].dB, snaps[192].dB) && close(snaps[192].dB, snaps[384].dB);
       console.log(`  pack-grid λ=${lam}: 96=${snaps[96].a}/${snaps[96].b} rowsSame=${rowsSame} dSame=${dSame}`);
       check(rowsSame && dSame, `packing rows+Δ_n stable on 96/192/384 at λ=${lam} (A/B)`);
+      // Premise of the class-(ii) Δ₂ tolerance (§6.3): the 96/384 difference of Δ₂ is ≤ TOL_D2_REL / 5.
+      const g2 = Math.abs(snaps[96].d2 - snaps[384].d2) / snaps[384].d2;
+      check(g2 <= TOL_D2_REL / 5, `λ=${lam}: |Δ₂(96) − Δ₂(384)|/Δ₂ = ${g2.toExponential(1)} ≤ TOL_D2_REL/5 (class (ii) premise)`);
     }
   }
   // Spot-check remaining table λ via tipDrop on two-row bow (Δ₂ only).
   for (const row of table.filter((r) => r.lam > 0 && r.lam !== 0.32 && r.lam !== 0.6)) {
     const A = computeAll(recipe, { shoulderForm: 'bow', bowLambda: row.lam, muWrap: Math.max(row.lam, 0.32), rowsMode: 'count', rowsCount: 2 });
     const d2 = A.path.tipDrop.tipDrop_mm;
-    check(Math.abs(d2 - row.d2) / row.d2 < 0.005, `λ=${row.lam} Δ₂ within 0.5% of theory ${fmt(row.d2, 4)} (got ${fmt(d2, 5)})`);
+    check(Math.abs(d2 - row.d2) / row.d2 <= TOL_D2_REL, `λ=${row.lam} Δ₂ within ${TOL_D2_REL * 100}% of the construction (12) ${fmt(row.d2, 4)} (got ${fmt(d2, 5)})`);
   }
 
   // §5.2: analytic tangent unit(±P×E) vs arcsin(λ·tan(γ/2))
@@ -957,9 +1017,16 @@ if (G('8d0c'))
     console.log(`  λ=${lam}: rail legs ${rail.length} ${JSON.stringify(by)}`);
     check(rail.length > 0 && rail.every((s) => ['root', 'atE', 'drain', 'free'].includes(s.exitKind)),
       `λ=${lam}: every rail exit is root/atE/drain/free (no contradiction; got ${JSON.stringify(by)})`);
-    // v3 §3.2(13б): an accepted tangency is dimensionless — sin ≤ 0.01 or residual ≤ 0.02·w.
-    const badRoot = rail.filter((s) => s.exitKind === 'root' && !(s.exitSin <= 0.01 || s.exitResMm <= 0.02 * w));
-    check(badRoot.length === 0, `λ=${lam}: every root exit meets sin≤0.01 or res≤0.02w (bad ${badRoot.map((s) => s.id).join(',') || 0})`);
+    // v3.1 §3.2(13б) (#39): an accepted tangency needs BOTH sin ≤ 0.01 AND residual ≤ 0.02·w (was OR); print both.
+    const roots = rail.filter((s) => s.exitKind === 'root');
+    const badRoot = roots.filter((s) => !(s.exitSin <= TANGENCY_SIN_MAX && s.exitResMm <= TANGENCY_RES_W * w));
+    console.log(`  λ=${lam}: root exits ${roots.length}, max sin ${fmt(Math.max(0, ...roots.map((s) => s.exitSin)), 4)}, max res ${fmt(Math.max(0, ...roots.map((s) => s.exitResMm)) / w, 4)}·w`);
+    check(badRoot.length === 0, `λ=${lam}: every root exit meets sin≤0.01 AND res≤0.02w (bad ${badRoot.map((s) => `${s.id} sin ${fmt(s.exitSin, 4)} res ${fmt(s.exitResMm / w, 3)}w`).join(',') || 0})`);
+    // v3.1 §3.2(9б), §6.4 (#39): |d_n| ≤ 0.02·w is the degenerate entry — on the rail at the foot, no tangency search.
+    const degen = A.path.segs.filter((s) => s.type === 'leg' && s.row >= 2 && s.joinMode && s.joinMode !== 'free'
+      && Math.abs(s.lateralMm ?? Infinity) <= TANGENCY_RES_W * w);
+    check(degen.length > 0 && degen.every((s) => s.joinMode === 'onRail' && s.spliceMm === 0),
+      `λ=${lam}: every |d_n| ≤ 0.02·w entry is degenerate on-rail (${degen.length}; bad ${degen.filter((s) => s.joinMode !== 'onRail').map((s) => `${s.id} ${s.joinMode}`).join(',') || 0})`);
     // Lower end (bottom legs, v3 §3.2(12)): E_n is the packing root on the rail — the thread stays on the rail to E_n.
     const botOff = rail.filter((s) => s.level === 'bottom' && s.exitKind !== 'atE');
     check(botOff.length === 0, `λ=${lam}: bottom legs end on the rail at E_n (atE; off ${botOff.map((s) => s.id).join(',') || 0})`);
@@ -967,6 +1034,10 @@ if (G('8d0c'))
     const topAtE = rail.filter((s) => s.level === 'top' && s.exitKind === 'atE');
     check(topAtE.length === 0, `λ=${lam}: no top leg ends 'atE' (by leg role, #35; got ${topAtE.map((s) => s.id).join(',') || 0})`);
   }
+  // (13б) is a double criterion: the direction alone is blind to a parallel, offset chord (Codex on 595846f).
+  check(tangencyOk(0.0047, 0.21 * 0.714, 0.714) === false && tangencyOk(0.0047, 0.01 * 0.714, 0.714) === true
+    && tangencyOk(0.02, 0.001, 0.714) === false,
+    '(13б): sin 0.0047 at residual 0.21·w is not a tangency; both sin ≤ 0.01 and residual ≤ 0.02·w are required');
   // No tangent root is not a throw (v3 §3.2(13г)): m=0.5, λ=0.2 used to throw "no co-directional tangency".
   let thrown = null;
   try { computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: 0.5, shoulderForm: 'bow', bowLambda: 0.2, muWrap: 0.32, rowsMode: 'untilEquator' }); }
@@ -1058,6 +1129,18 @@ if (G('8d'))
   const vals = Object.fromEntries(runValidators(A, A.path.ops.length - 1, null).map((v) => [v.id, v]));
   console.log(`  K16: ${vals.K16?.status} — ${vals.K16?.value}`);
   check(vals.K16?.status === 'pass', `K16a–c pass (got ${vals.K16?.status})`);
+  // Spec v3.1 §3.2(15), §6.13 (#39): α is the Clairaut mean of the ACTUAL leg of row n+2 (its tangent tail), not the
+  // geodesic through the leg's ends. At λ > 0 the window then promises every pair the model covers (was "promised
+  // 0/12, covered 12/12" at λ ≥ 0.4 for row 2) and Δsum·tan α sits inside [(m+w) − w/(2cos α); (m+w) + w/(2cos α)].
+  const A60 = computeAll(recipe, { C_mm: 240, w_mm: 0.714, shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6, rowsMode: 'untilEquator' });
+  for (const [lam, V] of [[0.32, vals.K16], [0.6, runValidators(A60, A60.path.ops.length - 1, null).find((v) => v.id === 'K16')]]) {
+    const ps = V.numbers.perSet, br = V.numbers.bRows.filter((b) => b.hole === 'E');
+    const inWin = br.filter((b) => b.prod >= b.win[0] - 1e-9 && b.prod <= b.win[1] + 1e-9).length;
+    const r1 = br.filter((b) => b.row === 1);
+    console.log(`  K16b λ=${lam}: ${['A', 'B'].map((k) => `${k} promised ${ps[k].bPromised}/${ps[k].bN} covered ${ps[k].bRaw}`).join(', ')}; row-1 tips α ${fmt(Math.min(...r1.map((b) => b.alphaDeg)), 2)}–${fmt(Math.max(...r1.map((b) => b.alphaDeg)), 2)}°, Δsum·tan α ${fmt(Math.min(...r1.map((b) => b.prod)), 3)}–${fmt(Math.max(...r1.map((b) => b.prod)), 3)} in [${fmt(r1[0].win[0], 3)}; ${fmt(r1[0].win[1], 3)}]`);
+    check(V.status === 'pass' && ['A', 'B'].every((k) => ps[k].bPromised === ps[k].bN && ps[k].bRaw === ps[k].bN) && inWin === br.length,
+      `K16b λ=${lam}: every pair promised by the window with the actual-leg α and covered (A ${ps.A.bPromised}/${ps.A.bN}, B ${ps.B.bPromised}/${ps.B.bN}; in window ${inWin}/${br.length})`);
+  }
   const v8 = vals.V8;
   const tipN = (v8?.details?.found || []).filter((r) => /tipCross/.test(r.why)).length;
   console.log(`  V8: ${v8?.status} — tipCross=${tipN}; ${(v8?.value || '').slice(0, 160)}`);

@@ -511,6 +511,15 @@ export function exitCandidates(exitRes, sLo, sHi, nScan) {
   return { samples, cands };
 }
 
+/** Spec v3.1 §3.2(13б) (#39): a tangency root needs BOTH sin∠(rail tangent, direction) ≤ 0.01 AND position
+ *  residual ≤ 0.02·w (class (ii): ≥ 50 link sagittas at 96). The direction alone is blind to a parallel but
+ *  offset chord (sin 0.0047 at residual 0.21·w is not a tangency). Used by the entry (10) and the exit (13). */
+export const TANGENCY_SIN_MAX = 0.01;
+export const TANGENCY_RES_W = 0.02;
+export function tangencyOk(sin, resMm, w) {
+  return sin <= TANGENCY_SIN_MAX && resMm <= TANGENCY_RES_W * w;
+}
+
 /** Row n ≥ 2 leg along the rail of the previous arm. endLevel = level of the hole the leg ends at:
  *  'bottom' (E_n is the packing root on the rail, spec v3 §3.2(12)) or 'top' (E_n given, §3.2(13)). */
 function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
@@ -641,7 +650,9 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
 
   let Tpt, sT, splice, joinMode;
   // Scale with w so xk similarity does not flip onRail/climb (absolute 1e-6 mm thresh).
-  if (onExtension || Math.abs(dLat) < onRailTol) {
+  // v3.1 §3.2(9б), §6.4 (#39): |d_n| ≤ 0.02·w is the degenerate entry — X_n is on the rail, the leg starts at
+  // the foot of the perpendicular from X_n without a tangency search, and the only turn is at the hole.
+  if (onExtension || Math.abs(dLat) <= onRailTol) {
     Tpt = lat.q; sT = lat.s; splice = 0; joinMode = 'onRail';
   } else if (dLat < 0) {
     // 6a.7(3) climb/merge: M at ℓ_m = max(w, 3δ) forward toward E
@@ -680,11 +691,11 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
     };
     // v3 §3.2(10)/(13б): the entry is a tangency found by geometry, not by a cost minimum — a
     // residual root (or a touching double root) that meets the same dimensionless criterion as
-    // the exit: sin∠(rail tangent, arrival) ≤ 0.01 or residual ≤ 0.02·w. Several numeric roots →
+    // the exit: sin∠(rail tangent, arrival) ≤ 0.01 AND residual ≤ 0.02·w (v3.1, #39). Several numeric roots →
     // smallest residual, then nearest to the lateral foot. No tangency → the climb path below.
     const wE = Math.max(w || W0_MM, 1e-9);
     const entryOk = (t) => t.spl <= spliceCap + 1e-9 && t.score > cos1
-      && (Math.sqrt(Math.max(0, 1 - t.score * t.score)) <= 0.01 || R * Math.asin(Math.min(1, Math.abs(t.res))) <= 0.02 * wE);
+      && tangencyOk(Math.sqrt(Math.max(0, 1 - t.score * t.score)), R * Math.asin(Math.min(1, Math.abs(t.res))), wE);
     const nScan = 160;
     const sSpan = Math.max(1e-9, sHi - sLo);
     const scan = [];
@@ -796,8 +807,8 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   // Spec v3 §3.2(13) (= v2 6a.23, #21) upper end: E_n is fixed, so the exit is the tangent from a fixed point to the
   // (convex) rail. Window [T₁; rail end] in travel direction — never behind T₁ (no backward walk).
   // One continuous tangent field (rail.at(s).T, exact) for entry and exit. No cost pull toward E:
-  // geometry chooses. Tangency is dimensionless: sin∠(rail tangent at T, T→E_n) ≤ 0.01 or
-  // residual ≤ 0.02·w (§3.2(13б)); cos 5° is only a direction guard. Window (13в). No root → drain
+  // geometry chooses. Tangency is dimensionless: sin∠(rail tangent at T, T→E_n) ≤ 0.01 AND
+  // residual ≤ 0.02·w (v3.1 §3.2(13б), #39); cos 5° is only a direction guard. Window (13в). No root → drain
   // at the hole (E inside the rail, mirror of (11)) or free geodesic from the end of contact (E
   // outside); fail only on contradiction (13г). Lower-end packing root: §3.2(12), no tangency search.
   const sT0 = sT;
@@ -809,7 +820,6 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
   const dirS = forward ? 1 : -1;
   const cosAccept = Math.cos(5 * Math.PI / 180); // direction guard only (v3 §3.2(13б))
   const wEff = Math.max(w || W0_MM, 1e-9);
-  const tanSinTol = 0.01, tanResTol = 0.02 * wEff;
   const exitRes = (s) => {
     const P = rail.at(s);
     const q = P.q;
@@ -822,7 +832,7 @@ function railLeg(R, from, to, prevArm, w = 0, endLevel = 'top') {
       resMm: R * Math.asin(Math.min(1, Math.abs(res))),
     };
   };
-  const isTangent = (t) => t.score > cosAccept && (t.sin <= tanSinTol || t.resMm <= tanResTol);
+  const isTangent = (t) => t.score > cosAccept && tangencyOk(t.sin, t.resMm, wEff);
   // Scan step w/4 along the window: set by the thread, not by the output grid (#36).
   const nScan = Math.max(160, Math.ceil((sHi - sLo) / (0.25 * wEff)));
   const { samples, cands } = exitCandidates(exitRes, sLo, sHi, nScan);
@@ -1220,7 +1230,8 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
     // кончик этого ряда до шитья: первый стежок обхода — нижний, его уровень зависит только от уже уложенного
     const firstK = lineIdx(spec.startLine + 1);
     const tip = row === 1 ? { s: layout.sBot } : bottomLevel(firstK, prevRound);
-    if (!tip || tip.fail) { W.stopped[letter] = { row, reason: tip?.reason || 'laid parallel + GC tangent does not meet the E-line (packing root missing)' }; continue; }
+    // §3.2(12), §6.2(г): no packing root is a construction failure (fail: true → V12 fail), never a silent stop.
+    if (!tip || tip.fail) { W.stopped[letter] = { row, fail: true, reason: tip?.reason || 'laid parallel + GC tangent does not meet the E-line (packing root missing)' }; continue; }
     if (tip.s > limit + 1e-9) {
       if (stopEarly) { W.stopped[letter] = { row, sTip: tip.s, reason: `row ${row} tip would land at s = ${tip.s.toFixed(3)} mm > limit ${limit.toFixed(3)} mm` }; continue; }
       W.beyond.push({ round: spec.id, sTip: tip.s, over: tip.s - limit });
@@ -1297,7 +1308,7 @@ export function buildWork(recipe, P, base, marking, layout, rowPlan = null) {
       else {
         const bl = bottomLevel(k, prevRound);
         if (!bl || bl.fail) {
-          W.stopped[letter] = { row: spec.row, reason: bl?.reason || 'packing root missing' };
+          W.stopped[letter] = { row: spec.row, fail: true, reason: bl?.reason || 'packing root missing' };
           roundAbort = true; break;
         }
         ({ s, levelInfo } = bl);

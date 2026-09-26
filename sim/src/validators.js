@@ -160,8 +160,12 @@ export function clairautAvgTan(alphaHole, sHole, sTip, R, samples = 16) {
  * Matches independent audit: atan2(|T·east|, |T·meridian|).
  */
 export function geodesicAlphaAt(from, to, at) {
-  const P = unit(at), a = unit(from), b = unit(to);
-  const N = cross(a, b);
+  return gcAlphaAt(cross(unit(from), unit(to)), at);
+}
+
+/** Meridian angle α at `at` of the great circle with pole N (any length, either sign) through `at`. */
+export function gcAlphaAt(N, at) {
+  const P = unit(at);
   const nLen = Math.hypot(N[0], N[1], N[2]);
   if (!(nLen > 1e-15)) return 0;
   const Nu = [N[0] / nLen, N[1] / nLen, N[2] / nLen];
@@ -174,6 +178,21 @@ export function geodesicAlphaAt(from, to, at) {
   const eS = [Math.cos(th) * Math.cos(phi), Math.cos(th) * Math.sin(phi), -Math.sin(th)];
   const eP = [-Math.sin(phi), Math.cos(phi), 0];
   return Math.atan2(Math.abs(dot(T, eP)), Math.abs(dot(T, eS)));
+}
+
+/**
+ * Spec v3.1 §3.2(15), §6.13 (#39): α of the ACTUAL leg at its hole — the great circle tangent to the leg's
+ * analytic arc at that hole (a rail leg: its tangent tail / continuation great circle with known pole; a free
+ * leg: its great circle through the actual holes; a splice: the geodesic from the hole). Not the geodesic
+ * through the leg's two ends when the leg is not a geodesic. atEnd: the hole is the leg's end (else its start).
+ */
+export function legAlphaAt(L, hole, atEnd) {
+  const arcs = L?.arcs;
+  if (!arcs || !arcs.length) return geodesicAlphaAt(L.from, L.to, hole);
+  const A = atEnd ? arcs[arcs.length - 1] : arcs[0];
+  const H = unit(hole);
+  const T = cross(A.k, H); // arc tangent at the hole (arcs.js: arcTangent)
+  return gcAlphaAt(cross(H, T), H);
 }
 
 /** Polar tip level s = R·acos(z) (same as independent K16b audit). */
@@ -787,7 +806,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       }
       return best;
     };
-    const aFails = [], aRows = [], perSet = {};
+    const aFails = [], aRows = [], bRows = [], perSet = {};
     for (const [set, sts] of Object.entries(bySet)) {
       const rows = [...new Set(sts.map((s) => s.row))].sort((a, b) => a - b);
       const Nrow = rows.length ? rows[rows.length - 1] : 0;
@@ -821,7 +840,7 @@ export function runValidators(A, stage = '2b', ref = null) {
               }
               for (const [L, hole, sign] of [[inc, nx.E, 1], [out, nx.X, -1]]) {
                 if (!L || !L.from || !L.to) continue;
-                const aH = geodesicAlphaAt(L.from, L.to, hole);
+                const aH = legAlphaAt(L, hole, sign > 0);
                 const tA = clairautAvgTan(aH, tipLevelMm(hole, R), sT, R);
                 const x = sign * ((m + w) / 2 - d1 * tA);
                 xs.push(x);
@@ -862,10 +881,12 @@ export function runValidators(A, stage = '2b', ref = null) {
             let promisedE = false, promisedX = false;
             if (outgoing && outgoing.from) {
               const hole = outgoing.from;
-              const alphaHole = geodesicAlphaAt(outgoing.from, outgoing.to, hole);
+              const alphaHole = legAlphaAt(outgoing, hole, false);
               const tanA = clairautAvgTan(alphaHole, tipLevelMm(hole, R), sTipE, R);
               const winE = k16bCoverageWindow({ m, w, alpha: Math.atan(tanA), deltaSum, xE, tanAlpha: tanA });
               promisedE = winE.coveredE;
+              bRows.push({ set, row: n, line: st.line, hole: 'E', alphaDeg: Math.atan(tanA) * 180 / Math.PI,
+                prod: deltaSum * tanA, win: [(m + w) - winE.half, (m + w) + winE.half], xLeg: winE.xLeg, dxE: winE.dxE, promised: promisedE });
             } else {
               // Fallback: shared row angle (should be rare)
               const tanA = clairautAvgTan(alphaK, (later?.s ?? st.s + deltaSum), st.s, R);
@@ -873,10 +894,12 @@ export function runValidators(A, stage = '2b', ref = null) {
             }
             if (incoming && incoming.to) {
               const hole = incoming.to;
-              const alphaHole = geodesicAlphaAt(incoming.from, incoming.to, hole);
+              const alphaHole = legAlphaAt(incoming, hole, true);
               const tanA = clairautAvgTan(alphaHole, tipLevelMm(hole, R), sTipX, R);
               // coveredX uses +(m+w)/2 − Δ·tanα (incoming mirror); share call with dummy xE.
               promisedX = k16bCoverageWindow({ m, w, alpha: Math.atan(tanA), deltaSum, xE, tanAlpha: tanA, xX }).coveredX;
+              bRows.push({ set, row: n, line: st.line, hole: 'X', alphaDeg: Math.atan(tanA) * 180 / Math.PI,
+                prod: deltaSum * tanA, promised: promisedX });
             } else {
               const tanA = clairautAvgTan(alphaK, (later?.s ?? st.s + deltaSum), st.s, R);
               promisedX = k16bCoverageWindow({ m, w, alpha: Math.atan(tanA), deltaSum, xE, tanAlpha: tanA, xX }).coveredX;
@@ -934,7 +957,7 @@ export function runValidators(A, stage = '2b', ref = null) {
       id: 'K16', name: 'Tip coverage (T by n+1, E/X by n+2, C open)', crit: '§3.2 (15) K16a–c: promise by formula with the Clairaut mean ᾱ of the actual leg (per T / per E,X pair); fail = promised but uncovered',
       status: !enough ? 'n/a' : (fail ? 'fail' : 'pass'),
       value: parts.join('; ') + `; α(E)=${f(alpha * 180 / Math.PI, 2)}°, h_x=${f(hx, 2)} mm; diag mean (h_x − d_T→n+1)=${diagH.length ? f(diagH.reduce((a, b) => a + b, 0) / diagH.length, 2) : '—'} mm`,
-      numbers: { hx, alphaDeg: alpha * 180 / Math.PI, diagH, isGeo0, aFails, aRows, perSet },
+      numbers: { hx, alphaDeg: alpha * 180 / Math.PI, diagH, isGeo0, aFails, aRows, bRows, perSet },
     });
   }
 
@@ -995,13 +1018,16 @@ export function runValidators(A, stage = '2b', ref = null) {
     const setTxt = Object.entries(bySet).map(([k2, xs]) => `set ${k2}: rows ${xs.length}, tips ${xs.map((x) => `${x.r} ${f(x.sTip, 2)}`).join(', ')} mm`).join('; ');
     const stopTxt = Object.entries(path.stopped || {}).map(([k2, v]) => `set ${k2} stopped before row ${v.row}: ${v.reason}`).join('; ');
     const planTxt = tips.filter((x) => x.row >= 2 && x.plan).slice(0, 4).map((x) => `${x.r} bot ${f(x.sTip, 2)} (plan ${f(x.plan.sBot, 2)})`).join(', ');
-    add({ id: 'V12', name: 'Rows to equator: derived tips vs limit and plan', crit: 'K12; TK-GT14 «Work to the equator»; next-stage §5 (tolshchinu ne umenshat)',
-      status: beyond.length ? 'warn' : 'info',
+    // Spec v3.1 §3.2(12), §6.2(г) (#39): a set stopped because the packing root is missing is a loud fail with the
+    // message (no fallback); the K12 stop at the limit is not.
+    const rootFails = Object.entries(path.stopped || {}).filter(([, v]) => v.fail);
+    add({ id: 'V12', name: 'Rows to equator: derived tips vs limit and plan', crit: 'K12; TK-GT14 «Work to the equator»; next-stage §5 (tolshchinu ne umenshat); §3.2(12): no packing root = fail',
+      status: rootFails.length ? 'fail' : beyond.length ? 'warn' : 'info',
       value: `limit s ≤ ${f(lim, 2)} mm (equator ${f(A.base.Q, 2)}); ${setTxt || 'no complete rounds'}` +
         (beyond.length ? `; BEYOND limit: ${beyond.map((x) => `${x.r} na ${f(x.sTip - lim, 2)} mm`).join(', ')}` : '') +
         (stopTxt ? `; ${stopTxt}` : '') +
         `; plan by w/sin α: ${rp.nRows} rows, last tip ${f(last.sBot, 2)} mm` + (planTxt ? ` (${planTxt}; formula u konchich — priblizhenie)` : ''),
-      numbers: { tips, limit: lim, stopped: path.stopped, beyond } });
+      numbers: { tips, limit: lim, stopped: path.stopped, beyond, rootFails: rootFails.map(([k2]) => k2) } });
   }
   // V13 — “each next top about one thread lower and wider” — CONSEQUENCE of occupancy, checked against source PERU RYaDU
   {
