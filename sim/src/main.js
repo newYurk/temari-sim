@@ -152,7 +152,11 @@ function syncURL() {
 }
 
 function recompute(first = false) {
+  const tBuild = performance.now();
   A = computeAll(recipe, state.raw);           // full recompute from scratch
+  // #37: geometry build time (the UI's computeAll) — logged and exposed for headless checks.
+  window.__sim.buildMs = performance.now() - tBuild;
+  console.info(`[sim] computeAll ${window.__sim.buildMs.toFixed(0)} ms`);
   const errs = A.params._errors;
   $('perr').textContent = errs.length ? t('err.inputs', { errs: errs.join('; ') }) : '';
   R3.buildStatic(A);

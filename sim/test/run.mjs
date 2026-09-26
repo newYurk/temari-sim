@@ -1630,6 +1630,30 @@ if (G('8k'))
 }
 
 // 9. Material preset (D34) + recipe scaffold (D35): provenance data + same path.ops for step/full
+if (G('8l'))
+{
+  console.log('\n## #37 needleSides needle-plane prune: identical to the unpruned scan');
+  const { needleSides } = await import('../src/path.js');
+  for (const raw of [{ shoulderForm: 'bow', bowLambda: 0.6, muWrap: 0.6 }, { shoulderForm: 'geodesic' }]) {
+    const A = computeAll(recipe, { C_mm: 240, w_mm: 0.714, m_mm: 0.5, rowsMode: 'untilEquator', ...raw });
+    const R = A.base.R, N = A.marking.N, w = A.params.w_mm, m = A.params.m_mm, Q = A.base.Q;
+    const laid = A.path.segs;
+    // unpruned twins: one chunk with an infinite bounding sphere → every edge is scanned, as before #37
+    const full = laid.map((sg) => { const c = { ...sg }; Object.defineProperty(c, '_ns', { value: [{ j0: 1, j1: sg.pts.length - 1, c: [0, 0, 0], cn: 0, r: Infinity }], enumerable: false }); return c; });
+    let calls = 0, diff = 0, first = null;
+    for (let k = 0; k < N; k++) for (let i = 0; i <= 40; i++) {
+      const s0 = 2 + (Q - 2) * i / 40;
+      for (const topSet of [null, 'A']) {
+        const a = needleSides({ R, s: s0, phi: A.marking.phis[k], m, w, N, laid, topSet });
+        const b = needleSides({ R, s: s0, phi: A.marking.phis[k], m, w, N, laid: full, topSet });
+        calls++;
+        if (JSON.stringify(a) !== JSON.stringify(b)) { diff++; first = first || `L${k} s=${s0.toFixed(3)} topSet=${topSet}`; }
+      }
+    }
+    check(diff === 0 && calls === N * 41 * 2, `#37 ${raw.shoulderForm}${raw.bowLambda ? ' λ' + raw.bowLambda : ''}: pruned needleSides === unpruned on ${calls} needle lines (${laid.length} laid segments)${first ? '; first diff ' + first : ''}`);
+  }
+}
+
 if (G('9'))
 {
   console.log('\n## Material preset + recipe scaffold');

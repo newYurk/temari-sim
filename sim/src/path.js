@@ -83,7 +83,14 @@ export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwaga
       }
       continue;
     }
-    const c = pts.map(coord);
+    // #37: coordinates are computed lazily, per chunk of NS_CHUNK edges. A chunk whose bounding sphere lies wholly on one
+    // side of the needle plane beyond the half-width band (f > w/2 at every vertex, or f < −w/2 at every vertex) gives no capsule
+    // interval on any of its edges (the chart segment keeps |f| > w/2, both end disks are empty), so skipping it is
+    // exactly one flush() — identical output, verified by the snapshot and the suite.
+    const c = new Array(pts.length);
+    const cAt = (i) => c[i] || (c[i] = coord(pts[i]));
+    const sph = needleChunks(seg);
+    const sinBand = Math.sin(w / 2 / R) * (1 + 1e-9) + 1e-12;   // f > w/2 ⇔ p·n > sin(w/2R)·|p| (vertices may sit off the sphere)
     // след нити на линии иглы — ТОЧНО: множество y, где точка линии иглы ближе w/2 к оси нити (капсула отрезка ∩ линия),
     // по отрезкам полилинии; непрерывные группы — одна занятость. Касательный проход даёт свой настоящий след
     // (формула w/sin θ для почти параллельной нити дала бы ложные 10 мм).
@@ -98,8 +105,12 @@ export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwaga
       }
       run = null;
     };
-    for (let i = 1; i < pts.length; i++) {
-      const P = c[i - 1], Qp = c[i];
+    for (const ch of sph) {
+      const dn = ch.c[0] * n[0] + ch.c[1] * n[1] + ch.c[2] * n[2];
+      const bandMax = sinBand * (ch.cn + ch.r);   // ≥ sin(w/2R)·|p| for every p in the chunk's ball
+      if (dn - ch.r > bandMax || dn + ch.r < -bandMax) { flush(); continue; }
+      for (let i = ch.j0; i <= ch.j1; i++) {
+      const P = cAt(i - 1), Qp = cAt(i);
       const iv = capsuleOnLine(P.y, P.f, Qp.y, Qp.f, h);
       if (!iv || iv[1] < -win || iv[0] > win) { flush(); continue; }
       if (!run) run = { lo: iv[0], hi: iv[1], cross: false, touchStart: false, touchEnd: false };
@@ -107,6 +118,7 @@ export function needleSides({ R, s, phi, m, w, N, laid, uwagakeSet = null, uwaga
       if (seg.type === 'leg' && i === 1 && Math.abs(P.f) <= h) run.touchStart = true;
       if (seg.type === 'leg' && i === pts.length - 1 && Math.abs(Qp.f) <= h) run.touchEnd = true;
       if (P.f * Qp.f < 0 || (P.f === 0) !== (Qp.f === 0)) { run.cross = true; run.yCross = P.f === Qp.f ? P.y : P.y + (P.f / (P.f - Qp.f)) * (Qp.y - P.y); }
+      }
     }
     flush();
   }
@@ -265,6 +277,24 @@ function bb(seg) {
   for (const p of seg.pts) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p[k]); hi[k] = Math.max(hi[k], p[k]); }
   Object.defineProperty(seg, '_bb', { value: { lo, hi }, enumerable: false });
   return seg._bb;
+}
+/** #37: bounding spheres of NS_CHUNK-edge pieces of a laid polyline (vertices j0−1…j1) for the needle-plane prune in
+ *  needleSides. Cached on the segment like bb/chunks (laid polylines are never mutated). */
+const NS_CHUNK = 8;
+function needleChunks(seg) {
+  if (seg._ns) return seg._ns;
+  const out = [], P = seg.pts;
+  for (let j0 = 1; j0 < P.length; j0 += NS_CHUNK) {
+    const j1 = Math.min(P.length - 1, j0 + NS_CHUNK - 1);
+    const c = [0, 0, 0];
+    for (let j = j0 - 1; j <= j1; j++) for (let k = 0; k < 3; k++) c[k] += P[j][k];
+    for (let k = 0; k < 3; k++) c[k] /= (j1 - j0 + 2);
+    let r = 0;
+    for (let j = j0 - 1; j <= j1; j++) r = Math.max(r, Math.hypot(P[j][0] - c[0], P[j][1] - c[1], P[j][2] - c[2]));
+    out.push({ j0, j1, c, cn: Math.hypot(c[0], c[1], c[2]), r: r * (1 + 1e-12) + 1e-12 });
+  }
+  Object.defineProperty(seg, '_ns', { value: out, enumerable: false });
+  return out;
 }
 const CHUNK = 8;
 function chunks(seg) {           // габариты кусков по CHUNK отрезков (только ускорение отбора пар; результат тот же)
